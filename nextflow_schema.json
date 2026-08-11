@@ -1,0 +1,177 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/BCI-KRP/lncRNA-nextflow/nextflow_schema.json",
+    "title": "lncRNA-discovery pipeline parameters",
+    "description": "Disease-agnostic lncRNA discovery, curation, and differential expression pipeline",
+    "type": "object",
+    "definitions": {
+        "input_output": {
+            "title": "Input/Output",
+            "type": "object",
+            "description": "Input data paths and output directory",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "pattern": "^\\S+\\.csv$",
+                    "description": "Samplesheet CSV: sample,condition,batch,subject,bam,fastq_1,fastq_2,[covariates]"
+                },
+                "genome": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "Reference genome FASTA file"
+                },
+                "gtf": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "Reference annotation GTF (e.g. GENCODE)"
+                },
+                "star_index": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "STAR index directory (optional, for StringTie2 guided mode)"
+                },
+                "outdir": {
+                    "type": "string",
+                    "default": "results",
+                    "description": "Output directory for all results"
+                }
+            },
+            "required": ["input", "genome", "gtf"]
+        },
+        "experimental_design": {
+            "title": "Experimental Design",
+            "type": "object",
+            "description": "Contrasts and statistical model specification",
+            "properties": {
+                "contrasts": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "CSV: contrast_name, numerator, denominator"
+                },
+                "design_formula": {
+                    "type": "string",
+                    "description": "R formula for DESeq2 design (e.g. '~ batch + condition')"
+                },
+                "covariates": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Extra covariate columns from samplesheet to include in model"
+                }
+            },
+            "required": ["contrasts", "design_formula"]
+        },
+        "phase_a_thresholds": {
+            "title": "Phase A — Discovery Thresholds",
+            "type": "object",
+            "properties": {
+                "min_transcript_length": {
+                    "type": "integer",
+                    "default": 200,
+                    "description": "Minimum summed exon length (nt)"
+                },
+                "expression_recurrence_min_reps": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "Minimum biological replicates with expression support"
+                },
+                "antisense_pct_threshold": {
+                    "type": "integer",
+                    "default": 95,
+                    "description": "Top N% expression percentile for antisense risk flag"
+                },
+                "monoexonic_intron_ratio": {
+                    "type": "number",
+                    "default": 0.3,
+                    "description": "Intron-coverage ratio threshold for monoexonic risk flag"
+                }
+            }
+        },
+        "phase_b_thresholds": {
+            "title": "Phase B — Statistics Thresholds",
+            "type": "object",
+            "properties": {
+                "cis_window": {
+                    "type": "integer",
+                    "default": 100000,
+                    "description": "Window size (bp) for cis-regulatory search"
+                },
+                "fdr_threshold": {
+                    "type": "number",
+                    "default": 0.05,
+                    "description": "FDR threshold for significance"
+                },
+                "lfc_threshold": {
+                    "type": "number",
+                    "default": 0.0,
+                    "description": "Minimum biological log2 fold-change (set >0 for threshold tests)"
+                }
+            }
+        },
+        "reference_catalogs": {
+            "title": "Reference Catalogs (Phase A5)",
+            "type": "object",
+            "properties": {
+                "noncode_bed": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "NONCODE lncRNA BED file"
+                },
+                "lncipedia_bed": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "LNCipedia BED file"
+                },
+                "rnacentral_bed": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "RNAcentral BED file"
+                },
+                "fantomcat_bed": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "FANTOM CAT BED file"
+                }
+            }
+        },
+        "external_tools": {
+            "title": "External Tool Dependencies",
+            "type": "object",
+            "description": "Paths to pre-built model files required by external tools",
+            "properties": {
+                "cpat_hexamer": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "CPAT hexamer frequency table. Auto-generated from GTF if not provided."
+                },
+                "cpat_logit_model": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "CPAT logistic regression model. Auto-generated from GTF if not provided."
+                },
+                "gencode_transcripts_fa": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Reference transcriptome FASTA for Salmon index. Derived from GTF+genome via gffread if not provided."
+                },
+                "salmon_libtype": {
+                    "type": "string",
+                    "pattern": "^[SFUR]([SFUR])?$",
+                    "description": "Salmon library type override (e.g. SF, SR). If unset, uses empirical detection from Phase A."
+                }
+            }
+        }
+    },
+    "allOf": [
+        {"$ref": "#/definitions/input_output"},
+        {"$ref": "#/definitions/experimental_design"},
+        {"$ref": "#/definitions/phase_a_thresholds"},
+        {"$ref": "#/definitions/phase_b_thresholds"},
+        {"$ref": "#/definitions/reference_catalogs"},
+        {"$ref": "#/definitions/external_tools"}
+    ]
+}

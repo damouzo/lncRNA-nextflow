@@ -1,0 +1,4 @@
+contrast_name,numerator,denominator,batch
+Treated_vs_Control_Batch1,Treated,Control,Batch1
+Treated_vs_Control_Batch2,Treated,Control,Batch2
+Treated_vs_Control_all,Treated,Control,

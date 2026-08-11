@@ -1,0 +1,7 @@
+sample,condition,batch,fastq_1,fastq_2,bam,covariate_1
+S1_Control,Control,Batch1,/data/fastq/S1_R1.fq.gz,/data/fastq/S1_R2.fq.gz,/data/rnaseq_results/S1.markdup.sorted.bam,A
+S1_Treated,Treated,Batch1,/data/fastq/S1_R1.fq.gz,/data/fastq/S1_R2.fq.gz,/data/rnaseq_results/S1.markdup.sorted.bam,A
+S2_Control,Control,Batch2,/data/fastq/S2_R1.fq.gz,/data/fastq/S2_R2.fq.gz,/data/rnaseq_results/S2.markdup.sorted.bam,B
+S2_Treated,Treated,Batch2,/data/fastq/S2_R1.fq.gz,/data/fastq/S2_R2.fq.gz,/data/rnaseq_results/S2.markdup.sorted.bam,B
+S3_Control,Control,Batch2,/data/fastq/S3_R1.fq.gz,/data/fastq/S3_R2.fq.gz,/data/rnaseq_results/S3.markdup.sorted.bam,B
+S3_Treated,Treated,Batch2,/data/fastq/S3_R1.fq.gz,/data/fastq/S3_R2.fq.gz,/data/rnaseq_results/S3.markdup.sorted.bam,B

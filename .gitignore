@@ -1,0 +1,35 @@
+# Nextflow
+.nextflow/
+.nextflow.log*
+work/
+results/
+*_results/
+results_*/
+test/
+*.log
+
+# Apptainer images 
+*.sif
+*.img
+.apptainer_cache/
+
+# R
+.Rhistory
+.RData
+.Rproj.user
+
+# IDE
+.vscode/
+.todo
+.kilo/
+AGENTS.md
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.opensrc/

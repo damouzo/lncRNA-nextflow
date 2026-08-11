@@ -1,0 +1,79 @@
+# lncRNA-nextflow — Task Tracker
+
+> Estados: ⬜ pending | 🟡 in progress | ✅ done | ❌ wontfix
+> Última actualización: 2026-08-11
+
+---
+
+## Pipeline Core — Setup
+
+| ID | Task | Status |
+|----|------|--------|
+| CORE-01 | nextflow.config | ✅ |
+| CORE-02 | main.nf (validate → discovery → quantification) | ✅ |
+| CORE-03 | conf/base.config | ✅ |
+| CORE-04 | conf/modules.config | ✅ |
+| CORE-05 | conf/test.config | ⬜ |
+| CORE-06 | nextflow_schema.json | ✅ |
+| CORE-07 | assets/samplesheet_template.csv | ✅ |
+| CORE-08 | assets/contrasts_template.csv | ✅ |
+
+---
+
+## Discovery — 15 módulos
+
+| ID | Module | Status |
+|----|--------|--------|
+| D01 | bam_quickcheck | ✅ |
+| D02 | infer_strandedness | ✅ |
+| D03 | stringtie_per_sample | ✅ |
+| D04 | stringtie_merge | ✅ |
+| D05 | gffcompare | ✅ |
+| D06 | length_filter (>200 nt) | ✅ |
+| D07 | cpat_build_model (auto desde GTF) | ✅ |
+| D08 | cpat | ✅ |
+| D09 | cpc2 | ✅ |
+| D10 | coding_consensus | ✅ |
+| D11 | catalog_overlap | 🟡 placeholder — pospuesto |
+| D12 | **featurecounts_expression** (NUEVO) | ✅ |
+| D13 | **expression_recurrence** (real, CPM+min_reps) | ✅ |
+| D14 | annotation_freeze | ✅ |
+| D15 | monoexonic risk flag | ⬜ deferred |
+| D16 | antisense risk flag | ⬜ deferred |
+
+---
+
+## Quantification — 6 módulos
+
+| ID | Module | Status |
+|----|--------|--------|
+| Q01 | build_decoy_index | ✅ |
+| Q02 | salmon_quantify | ✅ |
+| Q03 | tximport_filter (coldata real) | ✅ |
+| Q04 | deseq2_de (coldata real, batch subset, apeglm) | ✅ |
+| Q05 | **cis_associations** (GenomicRanges, Spearman, BH-FDR) | ✅ |
+| Q06 | functional_enrichment | 🟡 semi — gene IDs dependen de Q05 output |
+
+---
+
+## Workflows
+
+| ID | Workflow | Status |
+|----|----------|--------|
+| WF-01 | validate_input.nf | ✅ |
+| WF-02 | discovery.nf | ✅ |
+| WF-03 | quantification.nf | ✅ |
+
+---
+
+## Pendiente para futuro
+
+| Prioridad | Tarea |
+|-----------|-------|
+| MED | D11: catalog_overlap real (bedtools intersect con BEDs de NONCODE/LNCipedia/etc.) |
+| MED | D15-D16: monoexonic + antisense risk flags (plan A3.3/A3.4) |
+| MED | Q06: functional_enrichment — ya funciona, usar gene IDs reales cuando Q05 produce output |
+| LOW | bin/: extraer scripts inline a standalone |
+| LOW | CI: tests, .github/workflows, nf-test |
+| — | **Containers: Dockerfiles, CI/CD build → GHCR** ← próximo paso |
+| — | **Repo git: init, .gitignore, LICENSE** ← próximo paso |
