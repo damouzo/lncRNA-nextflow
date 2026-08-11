@@ -20,7 +20,7 @@ test/
 
 # IDE
 .vscode/
-.todo
+task.todo
 .kilo/
 AGENTS.md
 *~
