@@ -1,4 +1,5 @@
 // Input validation — samplesheet, contrast matrix, design formula sanity checks
+// Supports multi-lane FASTQs: one row per sample-lane, grouped by sample downstream
 
 workflow validateInput {
     take:
@@ -10,6 +11,7 @@ workflow validateInput {
 
     main:
     // Parse samplesheet: sample,condition,batch,fastq_1,fastq_2,bam,[covariates...]
+    // One row per SAMPLE-LANE — multi-lane samples have multiple rows with same sample ID
     ch_samplesheet = Channel.fromPath(input_csv, checkIfExists: true)
         .splitCsv(header: true)
         .map { row ->
@@ -27,6 +29,19 @@ workflow validateInput {
                 file(row.fastq_2, checkIfExists: true),
                 file(row.bam, checkIfExists: true),
                 extra
+            )
+        }
+        // Group lanes by sample: FASTQ lists aggregated, metadata taken from first lane
+        .groupTuple(by: 0)
+        .map { sample, conds, batches, fq1s, fq2s, bams, extras ->
+            tuple(
+                sample,
+                conds[0],
+                batches[0],
+                fq1s,       // List[Path] — multiple lanes
+                fq2s,       // List[Path]
+                bams[0],    // BAM is same for all lanes
+                extras[0]
             )
         }
         .set { ch_parsed }

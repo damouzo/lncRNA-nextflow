@@ -25,14 +25,15 @@ docker build -t ghcr.io/damouzo/lncrna-nextflow/r_bioc:latest containers/r_bioc/
 
 ### 2. Prepare input files
 
-**samplesheet.csv**
+**samplesheet.csv** (one row per lane — same format as nf-core/rnaseq)
 ```csv
 sample,condition,batch,norm_group,fastq_1,fastq_2,bam
-sample1,control,batch1,NB4,/path/to/sample1_R1.fq.gz,/path/to/sample1_R2.fq.gz,/path/to/sample1.bam
-sample2,treated,batch1,NB4,/path/to/sample2_R1.fq.gz,/path/to/sample2_R2.fq.gz,/path/to/sample2.bam
+sample1,control,batch1,NB4,/path/lane1_R1.fq.gz,/path/lane1_R2.fq.gz,/path/sample1.bam
+sample1,control,batch1,NB4,/path/lane2_R1.fq.gz,/path/lane2_R2.fq.gz,/path/sample1.bam
+sample2,treated,batch1,NB4,/path/lane1_R1.fq.gz,/path/lane1_R2.fq.gz,/path/sample2.bam
 ```
 
-If your nf-core/rnaseq samplesheet has multiple lanes per sample, concatenate them first into single FASTQ pairs.
+Multi-lane samples get multiple rows with the same sample ID — lanes are grouped automatically. No need to concatenate FASTQs beforehand; Salmon handles multiple input files natively.
 
 **comparisons.csv**
 ```csv

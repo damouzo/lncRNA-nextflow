@@ -1,5 +1,6 @@
 // B2: Salmon quantification with decoy-aware index
-// Uses empirically determined strand parameter from Phase A
+// Supports multi-lane FASTQs: fastq_1 and fastq_2 can be lists of Path objects
+// Salmon's -1/-2 natively accept space-separated file lists — no concatenation needed
 
 process SALMON_QUANTIFY {
     tag "${sample}"
@@ -8,6 +9,7 @@ process SALMON_QUANTIFY {
     memory = 32.GB
 
     input:
+    // fastq_1 and fastq_2 can be single files or lists (multi-lane)
     tuple val(sample), val(condition), val(batch), path(fastq_1), path(fastq_2), path(bam), val(extra)
     path salmon_index
 
@@ -22,8 +24,8 @@ process SALMON_QUANTIFY {
     salmon quant \\
         -i salmon_index \\
         -l ${strand_flag} \\
-        -1 "${fastq_1}" \\
-        -2 "${fastq_2}" \\
+        -1 ${fastq_1} \\
+        -2 ${fastq_2} \\
         --gcBias \\
         --seqBias \\
         --validateMappings \\

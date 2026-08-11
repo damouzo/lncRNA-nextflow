@@ -1,5 +1,5 @@
 // Split samplesheet and contrasts by norm_group
-// Writes per-group coldata CSV files for downstream per-group Phase B
+// Writes per-group coldata CSV files (deduplicated, one row per sample) for Phase B
 
 process SPLIT_BY_NORMGROUP {
     label 'process_single'
@@ -23,6 +23,11 @@ process SPLIT_BY_NORMGROUP {
     groups <- sort(unique(coldata[["norm_group"]]))
     for (g in groups) {
         sub <- coldata[coldata[["norm_group"]] == g, , drop = FALSE]
+        # Drop lane-level columns and deduplicate by sample
+        drop_cols <- intersect(c("fastq_1", "fastq_2", "bam"), colnames(sub))
+        sub <- sub[!duplicated(sub[["sample"]]),
+                   setdiff(colnames(sub), drop_cols),
+                   drop = FALSE]
         outfile <- paste0("coldata_", g, ".csv")
         write.csv(sub, outfile, row.names = FALSE, quote = FALSE)
         cat(sprintf("Wrote %s (%d samples)\\n", outfile, nrow(sub)))
