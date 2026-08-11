@@ -29,13 +29,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ---- CPAT 3.0.4 ----
 RUN pip3 install --no-cache-dir CPAT==3.0.4
 
-# ---- CPC2 ----
-RUN wget -q http://cpc2.gao-lab.org/data/CPC2-beta.tar.gz \
-    && tar -xzf CPC2-beta.tar.gz -C /opt \
-    && rm CPC2-beta.tar.gz \
-    && chmod +x /opt/CPC2-beta/bin/CPC2.py
+# ---- CPC2 (cloned from official GitHub repository) ----
+RUN git clone https://github.com/gao-lab/CPC2_standalone.git /opt/CPC2 \
+    && chmod +x /opt/CPC2/bin/CPC2.py
 
-ENV PATH="/opt/CPC2-beta/bin:${PATH}"
+ENV PATH="/opt/CPC2/bin:${PATH}"
 
 # ---- Verify ----
 RUN python3 -c "import numpy; print('numpy', numpy.__version__)" \

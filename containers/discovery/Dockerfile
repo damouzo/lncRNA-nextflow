@@ -10,19 +10,18 @@ LABEL org.opencontainers.image.licenses="MIT"
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository universe \
-    && apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
     ca-certificates \
+    build-essential \
+    cmake \
+    zlib1g-dev \
     libcurl4-openssl-dev \
     libssl-dev \
     libgsl-dev \
     libgsl27 \
     samtools \
     stringtie \
-    gffcompare \
     gffread \
     bedtools \
     subread \
@@ -30,6 +29,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-numpy \
     && rm -rf /var/lib/apt/lists/*
+
+# ---- gffcompare (compiled from source) ----
+RUN curl -fsSL https://github.com/gpertea/gffcompare/releases/download/v0.12.6/gffcompare-0.12.6.Linux_x86_64.tar.gz \
+    | tar xz -C /opt \
+    && ln -s /opt/gffcompare-0.12.6.Linux_x86_64/gffcompare /usr/local/bin/gffcompare
 
 # ---- Salmon 1.10 ----
 RUN curl -fsSL https://github.com/COMBINE-lab/salmon/releases/download/v1.10.0/salmon-1.10.0_linux_x86_64.tar.gz \
