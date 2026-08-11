@@ -14,11 +14,12 @@ process DESEQ2_DE {
     path coldata_csv
     path contrasts_tsv
     val design_formula
+    val group                  // norm_group name for output prefix
 
     output:
-    path "deseq2_results/*", emit: all_results
-    path "deseq2_results/dds.rds", emit: dds_rds
-    path "deseq2_results/contrasts_summary.tsv", emit: contrasts_summary
+    path "${group}_deseq2_results/*",              emit: all_results
+    path "${group}_deseq2_results/dds.rds",        emit: dds_rds
+    path "${group}_deseq2_results/contrasts_summary.tsv", emit: contrasts_summary
 
     script:
     def formula = design_formula.toString()
@@ -33,11 +34,23 @@ process DESEQ2_DE {
     coldata <- read.csv("${coldata_csv}", stringsAsFactors = FALSE)
     rownames(coldata) <- colnames(counts)
 
+    # Detect if batch is constant — if so, simplify design to ~ condition
+    formula_used <- "${formula}"
+    if (grepl("batch", formula_used) && "batch" %in% colnames(coldata)) {
+        batch_levels <- unique(coldata[["batch"]])
+        batch_levels <- batch_levels[nchar(batch_levels) > 0]
+        if (length(batch_levels) <= 1) {
+            formula_used <- "~ condition"
+            cat(sprintf("Batch has %d unique non-empty level(s) — using ~ condition\\n",
+                        length(batch_levels)))
+        }
+    }
+
     contrasts <- read_tsv("${contrasts_tsv}", show_col_types = FALSE,
                           col_names = c("contrast_name", "numerator", "denominator", "batch"),
                           skip = 1)
 
-    dir.create("deseq2_results", showWarnings = FALSE)
+    dir.create("${group}_deseq2_results", showWarnings = FALSE)
     all_results <- list()
 
     for (i in seq_len(nrow(contrasts))) {
@@ -72,7 +85,7 @@ process DESEQ2_DE {
         } else {
             sub_counts <- counts
             sub_coldata <- coldata
-            design <- as.formula("${formula}")
+            design <- as.formula(formula_used)
         }
 
         # Ensure condition is a factor with correct levels
@@ -123,7 +136,7 @@ process DESEQ2_DE {
         res_df\\$gene_id <- rownames(res_df)
         res_df\\$batch_subset <- if (is.null(ct_batch)) "all" else ct_batch
 
-        fname <- file.path("deseq2_results", paste0(ct_name, "_DE.tsv"))
+        fname <- file.path("${group}_deseq2_results", paste0(ct_name, "_DE.tsv"))
         write_tsv(res_df, fname)
         cat(sprintf("  Wrote %s (%d genes)\\n", fname, nrow(res_df)))
 
@@ -137,13 +150,13 @@ process DESEQ2_DE {
 
     if (length(all_results) > 0) {
         summary <- do.call(rbind, all_results)
-        write_tsv(as.data.frame(summary), "deseq2_results/contrasts_summary.tsv")
+        write_tsv(as.data.frame(summary), "${group}_deseq2_results/contrasts_summary.tsv")
     } else {
-        write_tsv(data.frame(), "deseq2_results/contrasts_summary.tsv")
+        write_tsv(data.frame(), "${group}_deseq2_results/contrasts_summary.tsv")
     }
 
     if (exists("saved_dds")) {
-        saveRDS(saved_dds, "deseq2_results/dds.rds")
+        saveRDS(saved_dds, "${group}_deseq2_results/dds.rds")
     }
     """
 }

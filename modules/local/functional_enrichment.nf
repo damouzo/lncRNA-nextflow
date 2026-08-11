@@ -8,11 +8,12 @@ process FUNCTIONAL_ENRICHMENT {
     input:
     path cis_pairs_sig
     path deseq2_summary
+    val group               // norm_group name for output prefix
 
     output:
-    path "enrichment_ora.tsv", emit: ora_results
-    path "enrichment_gsea.tsv", emit: gsea_results
-    path "enrichment_plots/*", emit: plots
+    path "${group}_enrichment_ora.tsv",  emit: ora_results
+    path "${group}_enrichment_gsea.tsv", emit: gsea_results
+    path "${group}_enrichment_plots/*",  emit: plots
 
     script:
     """
@@ -24,7 +25,7 @@ process FUNCTIONAL_ENRICHMENT {
     library(dplyr)
     library(ggplot2)
 
-    dir.create("enrichment_plots", showWarnings = FALSE)
+    dir.create("${group}_enrichment_plots", showWarnings = FALSE)
 
     de_results <- read_tsv("${deseq2_summary}", show_col_types = FALSE)
 
@@ -87,7 +88,7 @@ process FUNCTIONAL_ENRICHMENT {
             gsea_all[[ct]] <- gsea_df
 
             # Save dotplot
-            png(file.path("enrichment_plots", paste0(ct, "_gsea_dotplot.png")),
+            png(file.path("${group}_enrichment_plots", paste0(ct, "_gsea_dotplot.png")),
                 width = 800, height = 600)
             print(dotplot(gsea, showCategory = 20))
             dev.off()
@@ -97,7 +98,7 @@ process FUNCTIONAL_ENRICHMENT {
     ora_df <- if (length(ora_all) > 0) do.call(rbind, ora_all) else data.frame()
     gsea_df <- if (length(gsea_all) > 0) do.call(rbind, gsea_all) else data.frame()
 
-    write_tsv(as.data.frame(ora_df), "enrichment_ora.tsv")
-    write_tsv(as.data.frame(gsea_df), "enrichment_gsea.tsv")
+    write_tsv(as.data.frame(ora_df), "${group}_enrichment_ora.tsv")
+    write_tsv(as.data.frame(gsea_df), "${group}_enrichment_gsea.tsv")
     """
 }

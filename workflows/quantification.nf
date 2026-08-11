@@ -1,8 +1,7 @@
-// Quantification & Statistics
-// Receives frozen Discovery annotation + original FASTQs
+// Quantification & Statistics (per norm_group)
+// Receives frozen Discovery annotation + a single norm_group's coldata + all Salmon quants
+// Runs B3-B6 per norm_group to ensure independent size-factor normalisation
 
-include { BUILD_DECOY_INDEX }   from '../modules/local/build_decoy_index'
-include { SALMON_QUANTIFY }     from '../modules/local/salmon_quantify'
 include { TXIMPORT_AND_FILTER } from '../modules/local/tximport_filter'
 include { DESEQ2_DE }           from '../modules/local/deseq2_de'
 include { CIS_ASSOCIATIONS }    from '../modules/local/cis_associations'
@@ -10,62 +9,65 @@ include { FUNCTIONAL_ENRICHMENT } from '../modules/local/functional_enrichment'
 
 workflow QUANTIFICATION {
     take:
-    ch_samplesheet      // tuple: sample, condition, batch, fastq_1, fastq_2, bam, covariates
-    frozen_gtf
+    // ch_per_group: [group, coldata_csv, quant_tuples, contrasts_tsv_path]
+    ch_per_group
     tx2gene_detailed
-    ch_contrasts        // tuple: contrast_name, numerator, denominator, batch
-    genome_fa
-    reference_gtf       // original reference GTF (for cis-association gene lookup)
     design_formula
+    frozen_gtf
+    reference_gtf
     outdir
-    coldata_csv         // path to original samplesheet CSV (for R modules)
 
     main:
-    // B1: Build decoy-aware Salmon index
-    ch_salmon_index = BUILD_DECOY_INDEX(frozen_gtf, genome_fa, params.gencode_transcripts_fa)
+    ch_per_group
+        .multiMap { group, coldata, quants, ct_tsv ->
+            txi_quants:    tuple(quants)
+            txi_coldata:   coldata
+            txi_group:     group
+            de_coldata:    coldata
+            de_ctsv:       ct_tsv
+            de_group:      group
+            cis_group:     group
+            enrich_group:  group
+        }
+        .set { ch_split }
 
-    // B2: Salmon quantification per sample, collected for downstream
-    ch_salmon_quants = SALMON_QUANTIFY(ch_samplesheet, ch_salmon_index)
-        .map { sample, quant_dir -> tuple(sample, quant_dir) }
-        .collect()
-
-    // B3: tximport + independent filtering (condition-blind)
+    // B3: tximport + independent filtering (condition-blind, per-group coldata)
     TXIMPORT_AND_FILTER(
-        ch_salmon_quants,
+        ch_split.txi_quants,
         tx2gene_detailed,
-        coldata_csv
+        ch_split.txi_coldata,
+        ch_split.txi_group
     )
 
     // Duplicate counts for DESeq2 + cis associations
     TXIMPORT_AND_FILTER.out.counts_rds.into { ch_counts_de; ch_counts_cis }
 
-    // Write contrasts to a staged TSV for DESeq2
-    ch_contrasts_tsv = ch_contrasts
-        .map { name, num, den, batch ->
-            "${name}\t${num}\t${den}\t${batch ?: ''}"
-        }
-        .collectFile(name: 'contrasts.tsv', newLine: true, seed: 'contrast_name\tnumerator\tdenominator\tbatch')
-
     // B4: DESeq2 differential expression
     DESEQ2_DE(
         ch_counts_de,
-        coldata_csv,
-        ch_contrasts_tsv,
-        design_formula
+        ch_split.de_coldata,
+        ch_split.de_ctsv,
+        design_formula,
+        ch_split.de_group
     )
+
+    // Duplicate contrast summary for cis + enrichment
+    DESEQ2_DE.out.contrasts_summary.into { ch_de_summary_cis; ch_de_summary_enrich }
 
     // B5: Cis-regulatory candidate associations
     CIS_ASSOCIATIONS(
-        DESEQ2_DE.out.contrasts_summary,
+        ch_de_summary_cis,
         ch_counts_cis,
         frozen_gtf,
-        reference_gtf
+        reference_gtf,
+        ch_split.cis_group
     )
 
     // B6: Functional enrichment (ORA + GSEA)
     FUNCTIONAL_ENRICHMENT(
         CIS_ASSOCIATIONS.out.cis_pairs_sig,
-        DESEQ2_DE.out.contrasts_summary
+        ch_de_summary_enrich,
+        ch_split.enrich_group
     )
 
     emit:

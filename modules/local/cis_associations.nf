@@ -12,11 +12,12 @@ process CIS_ASSOCIATIONS {
     path counts_rds         // filtered count matrix from tximport_filter
     path frozen_gtf         // frozen lncRNA GTF
     path reference_gtf      // reference GTF (for protein-coding genes)
+    val group               // norm_group name for output prefix
 
     output:
-    path "cis_pairs.tsv",              emit: cis_pairs
-    path "cis_pairs_significant.tsv",  emit: cis_pairs_sig
-    path "cis_associations_summary.tsv", emit: summary
+    path "${group}_cis_pairs.tsv",              emit: cis_pairs
+    path "${group}_cis_pairs_significant.tsv",  emit: cis_pairs_sig
+    path "${group}_cis_associations_summary.tsv", emit: summary
 
     script:
     """
@@ -86,9 +87,9 @@ process CIS_ASSOCIATIONS {
     if (n_pairs == 0) {
         cat("WARNING: no cis pairs found; writing empty output\\n")
         empty <- data.frame()
-        write_tsv(empty, "cis_pairs.tsv")
-        write_tsv(empty, "cis_pairs_significant.tsv")
-        sink("cis_associations_summary.tsv")
+        write_tsv(empty, "${group}_cis_pairs.tsv")
+        write_tsv(empty, "${group}_cis_pairs_significant.tsv")
+        sink("${group}_cis_associations_summary.tsv")
         cat("contrast\\tn_pairs\\tn_significant\\tmedian_cor\\n")
         sink()
         quit(save = "no", status = 0)
@@ -139,9 +140,9 @@ process CIS_ASSOCIATIONS {
 
     if (nrow(cis_results) == 0) {
         cat("WARNING: no valid correlation tests; writing empty output\\n")
-        write_tsv(pairs, "cis_pairs.tsv")
-        write_tsv(data.frame(), "cis_pairs_significant.tsv")
-        sink("cis_associations_summary.tsv")
+        write_tsv(pairs, "${group}_cis_pairs.tsv")
+        write_tsv(data.frame(), "${group}_cis_pairs_significant.tsv")
+        sink("${group}_cis_associations_summary.tsv")
         cat("contrast\\tn_pairs\\tn_significant\\tmedian_cor\\n")
         cat("all\\t0\\t0\\tNA\\n")
         sink()
@@ -171,10 +172,10 @@ process CIS_ASSOCIATIONS {
             match(cis_sig\\$lncrna_id, de\\$gene_id)]
     }
 
-    write_tsv(cis_results, "cis_pairs.tsv")
-    write_tsv(cis_sig, "cis_pairs_significant.tsv")
+    write_tsv(cis_results, "${group}_cis_pairs.tsv")
+    write_tsv(cis_sig, "${group}_cis_pairs_significant.tsv")
 
-    sink("cis_associations_summary.tsv")
+    sink("${group}_cis_associations_summary.tsv")
     cat(sprintf("contrast\\tn_pairs\\tn_significant\\tmedian_cor\\n"))
     cat(sprintf("all\\t%d\\t%d\\t%.4f\\n",
                 n_total, n_sig, median(cis_results\\$spearman_rho, na.rm = TRUE)))

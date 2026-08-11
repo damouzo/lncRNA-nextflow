@@ -10,12 +10,13 @@ process TXIMPORT_AND_FILTER {
     tuple val(quant_tuples)  // list of (sample, quant_dir) collected from Salmon
     path tx2gene_detailed
     path coldata_csv
+    val group                 // norm_group name for output prefix
 
     output:
-    path "tximport_counts.rds", emit: counts_rds
-    path "tximport_tpm.rds", emit: tpm_rds
-    path "sample_qc_pca.png", emit: pca_plot
-    path "filter_stats.tsv", emit: filter_stats
+    path "${group}_tximport_counts.rds", emit: counts_rds
+    path "${group}_tximport_tpm.rds",   emit: tpm_rds
+    path "${group}_sample_qc_pca.png",  emit: pca_plot
+    path "${group}_filter_stats.tsv",   emit: filter_stats
 
     script:
     """
@@ -68,10 +69,10 @@ process TXIMPORT_AND_FILTER {
     vsd <- vst(dds, blind = TRUE)
     n_intgroup <- min(3, ncol(coldata))
     pca <- plotPCA(vsd, intgroup = colnames(coldata)[1:n_intgroup])
-    ggsave("sample_qc_pca.png", pca, width = 10, height = 8)
+    ggsave("${group}_sample_qc_pca.png", pca, width = 10, height = 8)
 
-    saveRDS(counts(dds), "tximport_counts.rds")
-    saveRDS(txi\\$abundance, "tximport_tpm.rds")
+    saveRDS(counts(dds), "${group}_tximport_counts.rds")
+    saveRDS(txi\\$abundance, "${group}_tximport_tpm.rds")
 
     stats <- data.frame(
         total_genes  = nrow(txi\\$counts),
@@ -79,7 +80,7 @@ process TXIMPORT_AND_FILTER {
         removed      = nrow(txi\\$counts) - sum(keep),
         n_samples    = ncol(dds)
     )
-    write_tsv(stats, "filter_stats.tsv")
+    write_tsv(stats, "${group}_filter_stats.tsv")
     cat("Filter stats:", nrow(stats), "rows written\\n")
     """
 }

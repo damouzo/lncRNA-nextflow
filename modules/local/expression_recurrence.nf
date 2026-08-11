@@ -52,7 +52,7 @@ process EXPRESSION_RECURRENCE {
         # featureCounts output: skip comment lines (starting with #), first line is header
         # Columns: Geneid, Chr, Start, End, Strand, Length, <bam_path>
         lines <- readLines(f)
-        data_lines <- lines[!grepl("^#", lines) & !grepl("^$", lines)]
+        data_lines <- lines[!grepl("^#", lines) & !grepl("^\$", lines)]
 
         if (length(data_lines) < 2) next  # only header, no data
 
