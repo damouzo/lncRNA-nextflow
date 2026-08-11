@@ -21,6 +21,7 @@ test/
 # IDE
 .vscode/
 task.todo
+pipeline_plan.md
 .kilo/
 AGENTS.md
 *~
