@@ -28,7 +28,7 @@ process TXIMPORT_AND_FILTER {
 
     # Read coldata from the samplesheet CSV
     coldata <- read.csv("${coldata_csv}", stringsAsFactors = FALSE)
-    rownames(coldata) <- coldata\\$sample
+    rownames(coldata) <- coldata\$sample
 
     # Read tx2gene mapping
     tx2gene <- read_tsv("${tx2gene_detailed}", col_names = c("TXNAME", "GENEID"),
@@ -60,7 +60,7 @@ process TXIMPORT_AND_FILTER {
                     ignoreTxVersion = TRUE)
 
     # Condition-blind filtering: keep genes with >= 10 counts in >= 3 samples or 1/4 of samples
-    min_n <- max(3, floor(ncol(txi\\$counts) / 4))
+    min_n <- max(3, floor(ncol(txi\$counts) / 4))
     dds <- DESeqDataSetFromTximport(txi, coldata, ~1)
     keep <- rowSums(counts(dds) >= 10) >= min_n
     dds <- dds[keep, ]
@@ -72,12 +72,12 @@ process TXIMPORT_AND_FILTER {
     ggsave("${group}_sample_qc_pca.png", pca, width = 10, height = 8)
 
     saveRDS(counts(dds), "${group}_tximport_counts.rds")
-    saveRDS(txi\\$abundance, "${group}_tximport_tpm.rds")
+    saveRDS(txi\$abundance, "${group}_tximport_tpm.rds")
 
     stats <- data.frame(
-        total_genes  = nrow(txi\\$counts),
+        total_genes  = nrow(txi\$counts),
         kept_genes   = sum(keep),
-        removed      = nrow(txi\\$counts) - sum(keep),
+        removed      = nrow(txi\$counts) - sum(keep),
         n_samples    = ncol(dds)
     )
     write_tsv(stats, "${group}_filter_stats.tsv")

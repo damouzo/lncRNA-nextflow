@@ -40,8 +40,8 @@ process CATALOG_OVERLAP {
 
     // Placeholder: full catalog-overlap logic will be implemented
     // once reference BED files are configured
-    consensus\\$known_catalog_hit <- FALSE
-    consensus\\$catalog_sources <- "none"
+    consensus\$known_catalog_hit <- FALSE
+    consensus\$catalog_sources <- "none"
 
     write_tsv(consensus, "catalog_overlap.tsv")
     """

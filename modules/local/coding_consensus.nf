@@ -31,9 +31,9 @@ process CODING_CONSENSUS {
         by = "ID",
         all = TRUE
     )
-    merged\\$CPAT_noncoding <- ifelse(is.na(merged\\$mRNA), FALSE, merged\\$mRNA == "no")
-    merged\\$CPC2_noncoding <- !is.na(merged\\$coding_probability)
-    merged\\$consensus_noncoding <- merged\\$CPAT_noncoding & merged\\$CPC2_noncoding
+    merged\$CPAT_noncoding <- ifelse(is.na(merged\$mRNA), FALSE, merged\$mRNA == "no")
+    merged\$CPC2_noncoding <- !is.na(merged\$coding_probability)
+    merged\$consensus_noncoding <- merged\$CPAT_noncoding & merged\$CPC2_noncoding
 
     write_tsv(merged, "coding_consensus.tsv")
     """

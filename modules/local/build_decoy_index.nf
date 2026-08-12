@@ -10,7 +10,7 @@ process BUILD_DECOY_INDEX {
     input:
     path frozen_gtf
     path genome_fa
-    path gencode_transcripts_fa
+    val  gencode_transcripts_fa
 
     output:
     path "salmon_index/*", emit: index_dir

@@ -33,7 +33,7 @@ process CIS_ASSOCIATIONS {
 
     # ---- 1. Load lncRNA coordinates from frozen GTF ----
     gtf_all <- import("${frozen_gtf}")
-    lnc_tx <- gtf_all[gtf_all\\$type == "transcript"]
+    lnc_tx <- gtf_all[gtf_all\$type == "transcript"]
     if (length(lnc_tx) == 0) {
         cat("WARNING: no transcript features in frozen GTF, trying exon/transcript\\n")
         lnc_tx <- gtf_all
@@ -44,11 +44,11 @@ process CIS_ASSOCIATIONS {
 
     # ---- 2. Load protein-coding genes from reference GTF ----
     ref_gtf <- import("${reference_gtf}")
-    pc_genes <- ref_gtf[ref_gtf\\$type == "gene" &
-                         grepl("protein_coding", ref_gtf\\$gene_biotype)]
+    pc_genes <- ref_gtf[ref_gtf\$type == "gene" &
+                         grepl("protein_coding", ref_gtf\$gene_biotype)]
     if (length(pc_genes) == 0) {
         # Fallback: use all genes if no protein_coding biotype field
-        pc_genes <- ref_gtf[ref_gtf\\$type == "gene"]
+        pc_genes <- ref_gtf[ref_gtf\$type == "gene"]
         cat("WARNING: no protein_coding biotype found, using all gene features\\n")
     }
 
@@ -57,26 +57,26 @@ process CIS_ASSOCIATIONS {
 
     # ---- 3. Genomic window search ----
     lnc_gr <- GRanges(
-        seqnames = lnc_df\\$seqnames,
-        ranges = IRanges(start = lnc_df\\$start, end = lnc_df\\$end),
-        strand = lnc_df\\$strand,
-        transcript_id = lnc_df\\$transcript_id
+        seqnames = lnc_df\$seqnames,
+        ranges = IRanges(start = lnc_df\$start, end = lnc_df\$end),
+        strand = lnc_df\$strand,
+        transcript_id = lnc_df\$transcript_id
     )
     lnc_window <- lnc_gr + WINDOW
 
     pc_gr <- GRanges(
-        seqnames = pc_df\\$seqnames,
-        ranges = IRanges(start = pc_df\\$start, end = pc_df\\$end),
-        strand = pc_df\\$strand,
-        gene_id = pc_df\\$gene_id,
-        gene_name = pc_df\\$gene_name
+        seqnames = pc_df\$seqnames,
+        ranges = IRanges(start = pc_df\$start, end = pc_df\$end),
+        strand = pc_df\$strand,
+        gene_id = pc_df\$gene_id,
+        gene_name = pc_df\$gene_name
     )
 
     overlaps <- findOverlaps(lnc_window, pc_gr)
     pairs <- data.frame(
-        lncrna_id = lnc_gr\\$transcript_id[queryHits(overlaps)],
-        target_gene_id = pc_gr\\$gene_id[subjectHits(overlaps)],
-        target_gene_name = pc_gr\\$gene_name[subjectHits(overlaps)],
+        lncrna_id = lnc_gr\$transcript_id[queryHits(overlaps)],
+        target_gene_id = pc_gr\$gene_id[subjectHits(overlaps)],
+        target_gene_name = pc_gr\$gene_name[subjectHits(overlaps)],
         stringsAsFactors = FALSE
     )
     pairs <- unique(pairs)
@@ -97,8 +97,8 @@ process CIS_ASSOCIATIONS {
 
     # ---- 4. Load expression data ----
     counts <- readRDS("${counts_rds}")
-    lnc_ids <- unique(pairs\\$lncrna_id)
-    gene_ids <- unique(pairs\\$target_gene_id)
+    lnc_ids <- unique(pairs\$lncrna_id)
+    gene_ids <- unique(pairs\$target_gene_id)
     shared_lnc <- intersect(lnc_ids, rownames(counts))
     shared_gene <- intersect(gene_ids, rownames(counts))
     cat("Expression data available for", length(shared_lnc), "lncRNAs and",
@@ -110,8 +110,8 @@ process CIS_ASSOCIATIONS {
 
     cis_results <- data.frame()
     for (i in seq_len(nrow(pairs))) {
-        lnc <- pairs\\$lncrna_id[i]
-        gene <- pairs\\$target_gene_id[i]
+        lnc <- pairs\$lncrna_id[i]
+        gene <- pairs\$target_gene_id[i]
 
         if (!(lnc %in% rownames(log_cpm)) || !(gene %in% rownames(log_cpm))) next
 
@@ -130,9 +130,9 @@ process CIS_ASSOCIATIONS {
         cis_results <- rbind(cis_results, data.frame(
             lncrna_id = lnc,
             target_gene_id = gene,
-            target_gene_name = pairs\\$target_gene_name[i],
-            spearman_rho = cor_test\\$estimate,
-            spearman_pvalue = cor_test\\$p.value,
+            target_gene_name = pairs\$target_gene_name[i],
+            spearman_rho = cor_test\$estimate,
+            spearman_pvalue = cor_test\$p.value,
             n_samples = length(lnc_expr),
             stringsAsFactors = FALSE
         ))
@@ -150,8 +150,8 @@ process CIS_ASSOCIATIONS {
     }
 
     # ---- 6. BH-FDR correction across full test family ----
-    cis_results\\$padj <- p.adjust(cis_results\\$spearman_pvalue, method = "BH")
-    cis_results <- cis_results[order(cis_results\\$padj), ]
+    cis_results\$padj <- p.adjust(cis_results\$spearman_pvalue, method = "BH")
+    cis_results <- cis_results[order(cis_results\$padj), ]
     cis_sig <- subset(cis_results, padj < FDR_CUTOFF)
 
     n_sig <- nrow(cis_sig)
@@ -166,10 +166,10 @@ process CIS_ASSOCIATIONS {
 
     if (!is.null(de) && nrow(de) > 0 && "gene_id" %in% colnames(de)) {
         # Add DE status to significant pairs
-        cis_sig\\$lncrna_DE_log2FC <- de\\$log2FoldChange[
-            match(cis_sig\\$lncrna_id, de\\$gene_id)]
-        cis_sig\\$lncrna_DE_padj <- de\\$padj[
-            match(cis_sig\\$lncrna_id, de\\$gene_id)]
+        cis_sig\$lncrna_DE_log2FC <- de\$log2FoldChange[
+            match(cis_sig\$lncrna_id, de\$gene_id)]
+        cis_sig\$lncrna_DE_padj <- de\$padj[
+            match(cis_sig\$lncrna_id, de\$gene_id)]
     }
 
     write_tsv(cis_results, "${group}_cis_pairs.tsv")
@@ -178,7 +178,7 @@ process CIS_ASSOCIATIONS {
     sink("${group}_cis_associations_summary.tsv")
     cat(sprintf("contrast\\tn_pairs\\tn_significant\\tmedian_cor\\n"))
     cat(sprintf("all\\t%d\\t%d\\t%.4f\\n",
-                n_total, n_sig, median(cis_results\\$spearman_rho, na.rm = TRUE)))
+                n_total, n_sig, median(cis_results\$spearman_rho, na.rm = TRUE)))
     sink()
 
     cat("DONE\\n")

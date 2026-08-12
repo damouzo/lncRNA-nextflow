@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-scipy \
     python3-sklearn \
     python3-biopython \
+    gffread \
     git \
     wget \
     ca-certificates \
@@ -41,6 +42,7 @@ RUN python3 -c "import numpy; print('numpy', numpy.__version__)" \
     && python3 -c "import Bio; print('Biopython', Bio.__version__)" \
     && cpat.py --version \
     && CPC2.py --help 2>&1 | head -2 \
+    && gffread --version 2>&1 | head -1 \
     && echo "All coding tools verified successfully"
 
 WORKDIR /data

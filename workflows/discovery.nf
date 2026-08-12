@@ -33,14 +33,17 @@ workflow DISCOVERY {
     BAM_QUICKCHECK(ch_bams)
 
     // Duplicate validated BAMs: strandedness + StringTie2 + featureCounts
-    BAM_QUICKCHECK.out.validated.into { ch_bams_strand; ch_bams_assembly; ch_bams_fc }
+    ch_bams_strand   = BAM_QUICKCHECK.out.validated
+    ch_bams_assembly = BAM_QUICKCHECK.out.validated
+    ch_bams_fc       = BAM_QUICKCHECK.out.validated
 
     // Empirical strandedness detection
     ch_strandedness = INFER_STRANDEDNESS(ch_bams_strand, reference_gtf)
         .collect()
 
     // Per-sample StringTie2 assembly — collect GTFs for merge
-    ch_gtf_list = STRINGTIE2_PER_SAMPLE(ch_bams_assembly, reference_gtf)
+    STRINGTIE2_PER_SAMPLE(ch_bams_assembly, reference_gtf)
+    ch_gtf_list = STRINGTIE2_PER_SAMPLE.out.transcript_gtf
         .map { sample, gtf -> gtf }
         .collect()
 
@@ -57,7 +60,10 @@ workflow DISCOVERY {
     )
 
     // Duplicate length-filtered for CPAT, CPC2, featureCounts, and annotation_freeze
-    TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf.into { ch_for_cpat; ch_for_cpc2; ch_for_fc; ch_for_freeze }
+    ch_for_cpat   = TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf
+    ch_for_cpc2   = TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf
+    ch_for_fc     = TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf
+    ch_for_freeze = TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf
 
     // Build CPAT models from reference GTF if not provided
     if (params.cpat_hexamer && params.cpat_logit_model) {
@@ -66,7 +72,9 @@ workflow DISCOVERY {
             file(params.cpat_logit_model, checkIfExists: true)
         ])
     } else {
-        ch_cpat_models = CPAT_BUILD_MODEL(genome_fa, reference_gtf)
+        CPAT_BUILD_MODEL(genome_fa, reference_gtf)
+        ch_cpat_models = CPAT_BUILD_MODEL.out.hexamer_table
+            .combine(CPAT_BUILD_MODEL.out.logit_model)
             .map { hex, logit -> [hex, logit] }
     }
 

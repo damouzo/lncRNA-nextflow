@@ -35,8 +35,8 @@ process EXPRESSION_RECURRENCE {
 
     if (length(fc_files) == 0) {
         cat("WARNING: no featureCounts files found, skipping recurrence filter\\n")
-        catalog\\$n_reps_expressed <- NA_integer_
-        catalog\\$passes_recurrence <- TRUE
+        catalog\$n_reps_expressed <- NA_integer_
+        catalog\$passes_recurrence <- TRUE
         write_tsv(catalog, "recurrence_filtered.tsv")
         file.copy("${merged_gtf}", "recurrence_filtered.gtf")
         quit(save = "no", status = 0)
@@ -81,8 +81,8 @@ process EXPRESSION_RECURRENCE {
 
     if (length(count_list) == 0) {
         cat("WARNING: could not parse any featureCounts files\\n")
-        catalog\\$n_reps_expressed <- NA_integer_
-        catalog\\$passes_recurrence <- TRUE
+        catalog\$n_reps_expressed <- NA_integer_
+        catalog\$passes_recurrence <- TRUE
         write_tsv(catalog, "recurrence_filtered.tsv")
         file.copy("${merged_gtf}", "recurrence_filtered.gtf")
         quit(save = "no", status = 0)
@@ -131,12 +131,12 @@ process EXPRESSION_RECURRENCE {
         }
     }
 
-    catalog\\$n_reps_expressed <- rec_df\\$n_reps_expressed[
-        match(catalog[[id_col]], rec_df\\$transcript_id)]
-    catalog\\$n_reps_expressed[is.na(catalog\\$n_reps_expressed)] <- 0
-    catalog\\$passes_recurrence <- catalog\\$n_reps_expressed >= MIN_REPS
+    catalog\$n_reps_expressed <- rec_df\$n_reps_expressed[
+        match(catalog[[id_col]], rec_df\$transcript_id)]
+    catalog\$n_reps_expressed[is.na(catalog\$n_reps_expressed)] <- 0
+    catalog\$passes_recurrence <- catalog\$n_reps_expressed >= MIN_REPS
 
-    n_pass <- sum(catalog\\$passes_recurrence, na.rm = TRUE)
+    n_pass <- sum(catalog\$passes_recurrence, na.rm = TRUE)
     n_total <- nrow(catalog)
     cat(sprintf("Recurrence filter: %d / %d transcripts pass (>= %d reps @ CPM > %.1f)\\n",
                 n_pass, n_total, MIN_REPS, CPM_THRESHOLD))
@@ -151,7 +151,7 @@ process EXPRESSION_RECURRENCE {
     cat(sprintf("min_reps_threshold\\t%d\\n", MIN_REPS))
     cat(sprintf("cpm_threshold\\t%.1f\\n", CPM_THRESHOLD))
     cat("n_reps_distribution:\\n")
-    print(table(catalog\\$n_reps_expressed))
+    print(table(catalog\$n_reps_expressed))
     sink()
 
     cat("DONE\\n")

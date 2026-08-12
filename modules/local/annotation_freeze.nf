@@ -40,12 +40,12 @@ process ANNOTATION_FREEZE {
         tx2gene <- nc[, c("transcript_id", "gene_id")]
     }
     colnames(tx2gene) <- c("transcript_id", "gene_id")
-    tx2gene\\$category <- "novel_lncRNA"
+    tx2gene\$category <- "novel_lncRNA"
 
     write_tsv(tx2gene, "tx2gene_detailed.tsv")
 
     # Write frozen transcript ID list for GTF extraction
-    nc_ids <- unique(tx2gene\\$transcript_id)
+    nc_ids <- unique(tx2gene\$transcript_id)
     writeLines(nc_ids, "frozen_ids.txt")
 
     cat("Frozen lncRNAs:", length(nc_ids), "\\n")
@@ -57,7 +57,7 @@ process ANNOTATION_FREEZE {
 
     if (file.info("frozen_lncrna.gtf")\$size < 100) {
         # Fallback: try extracting by transcript_id attribute
-        system(paste("awk '\\$3==\"transcript\"'", "${source_gtf}",
+        system(paste("awk '\$3==\"transcript\"'", "${source_gtf}",
                      "> frozen_lncrna.gtf"))
         cat("Using full transcript set as fallback\\n")
     }

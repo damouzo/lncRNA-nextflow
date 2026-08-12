@@ -40,7 +40,8 @@ workflow QUANTIFICATION {
     )
 
     // Duplicate counts for DESeq2 + cis associations
-    TXIMPORT_AND_FILTER.out.counts_rds.into { ch_counts_de; ch_counts_cis }
+    ch_counts_de  = TXIMPORT_AND_FILTER.out.counts_rds
+    ch_counts_cis = TXIMPORT_AND_FILTER.out.counts_rds
 
     // B4: DESeq2 differential expression
     DESEQ2_DE(
@@ -52,7 +53,8 @@ workflow QUANTIFICATION {
     )
 
     // Duplicate contrast summary for cis + enrichment
-    DESEQ2_DE.out.contrasts_summary.into { ch_de_summary_cis; ch_de_summary_enrich }
+    ch_de_summary_cis    = DESEQ2_DE.out.contrasts_summary
+    ch_de_summary_enrich = DESEQ2_DE.out.contrasts_summary
 
     // B5: Cis-regulatory candidate associations
     CIS_ASSOCIATIONS(

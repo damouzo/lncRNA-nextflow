@@ -54,10 +54,10 @@ process DESEQ2_DE {
     all_results <- list()
 
     for (i in seq_len(nrow(contrasts))) {
-        ct_name  <- contrasts\\$contrast_name[i]
-        num      <- contrasts\\$numerator[i]
-        den      <- contrasts\\$denominator[i]
-        ct_batch <- contrasts\\$batch[i]
+        ct_name  <- contrasts\$contrast_name[i]
+        num      <- contrasts\$numerator[i]
+        den      <- contrasts\$denominator[i]
+        ct_batch <- contrasts\$batch[i]
         ct_batch <- if (is.na(ct_batch) || nchar(ct_batch) == 0) NULL else ct_batch
 
         cat(sprintf("\\n=== Contrast: %s (%s vs %s)", ct_name, num, den))
@@ -80,7 +80,7 @@ process DESEQ2_DE {
             }
             sub_counts <- counts[, idx, drop = FALSE]
             sub_coldata <- coldata[idx, , drop = FALSE]
-            sub_coldata\\$condition <- factor(sub_coldata\\$condition)
+            sub_coldata\$condition <- factor(sub_coldata\$condition)
             design <- as.formula("~ condition")
         } else {
             sub_counts <- counts
@@ -89,15 +89,15 @@ process DESEQ2_DE {
         }
 
         # Ensure condition is a factor with correct levels
-        sub_coldata\\$condition <- factor(sub_coldata\\$condition,
-                                          levels = unique(sub_coldata\\$condition))
+        sub_coldata\$condition <- factor(sub_coldata\$condition,
+                                          levels = unique(sub_coldata\$condition))
 
         # Check required levels exist
-        if (!(num %in% levels(sub_coldata\\$condition))) {
+        if (!(num %in% levels(sub_coldata\$condition))) {
             cat(sprintf("  SKIP: numerator '%s' not in condition levels\\n", num))
             next
         }
-        if (!(den %in% levels(sub_coldata\\$condition))) {
+        if (!(den %in% levels(sub_coldata\$condition))) {
             cat(sprintf("  SKIP: denominator '%s' not in condition levels\\n", den))
             next
         }
@@ -107,13 +107,13 @@ process DESEQ2_DE {
                                           colData = sub_coldata,
                                           design = design)
             # Drop unused factor levels
-            dds\\$condition <- droplevels(dds\\$condition)
+            dds\$condition <- droplevels(dds\$condition)
             dds <- DESeq(dds)
             results(dds, contrast = c("condition", num, den),
                     lfcThreshold = ${params.lfc_threshold},
                     alpha = ${params.fdr_threshold})
         }, error = function(e) {
-            cat(sprintf("  ERROR: %s\\n", e\\$message))
+            cat(sprintf("  ERROR: %s\\n", e\$message))
             NULL
         })
 
@@ -125,16 +125,16 @@ process DESEQ2_DE {
                 paste0("condition_", make.names(num)), resultsNames(dds))],
                 type = "apeglm", quiet = TRUE)
         }, error = function(e) {
-            cat(sprintf("  WARNING: apeglm failed (%s), using ashr\\n", e\\$message))
+            cat(sprintf("  WARNING: apeglm failed (%s), using ashr\\n", e\$message))
             lfcShrink(dds, coef = resultsNames(dds)[grep(
                 paste0("condition_", make.names(num)), resultsNames(dds))],
                 type = "ashr", quiet = TRUE)
         })
 
         res_df <- as.data.frame(res_shrunk)
-        res_df\\$contrast <- ct_name
-        res_df\\$gene_id <- rownames(res_df)
-        res_df\\$batch_subset <- if (is.null(ct_batch)) "all" else ct_batch
+        res_df\$contrast <- ct_name
+        res_df\$gene_id <- rownames(res_df)
+        res_df\$batch_subset <- if (is.null(ct_batch)) "all" else ct_batch
 
         fname <- file.path("${group}_deseq2_results", paste0(ct_name, "_DE.tsv"))
         write_tsv(res_df, fname)

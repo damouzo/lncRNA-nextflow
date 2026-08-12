@@ -31,7 +31,7 @@ process FUNCTIONAL_ENRICHMENT {
 
     # Separate lncRNA targets by contrast for enrichment
     if ("contrast" %in% colnames(de_results)) {
-        contrasts <- unique(de_results\\$contrast)
+        contrasts <- unique(de_results\$contrast)
     } else {
         contrasts <- "all"
     }
@@ -47,17 +47,17 @@ process FUNCTIONAL_ENRICHMENT {
 
         # Use ranked list for GSEA
         if ("stat" %in% colnames(ct_data)) {
-            gene_list <- ct_data\\$stat
-            names(gene_list) <- ct_data\\$gene_id
+            gene_list <- ct_data\$stat
+            names(gene_list) <- ct_data\$gene_id
             gene_list <- sort(gene_list, decreasing = TRUE)
         } else {
-            gene_list <- ct_data\\$log2FoldChange
-            names(gene_list) <- ct_data\\$gene_id
+            gene_list <- ct_data\$log2FoldChange
+            names(gene_list) <- ct_data\$gene_id
             gene_list <- sort(gene_list, decreasing = TRUE)
         }
 
         # ORA: enriched GO terms
-        sig_genes <- subset(ct_data, padj < 0.05)\\$gene_id
+        sig_genes <- subset(ct_data, padj < 0.05)\$gene_id
         if (length(sig_genes) > 0) {
             ego <- tryCatch({
                 enrichGO(gene = sig_genes,
@@ -65,7 +65,7 @@ process FUNCTIONAL_ENRICHMENT {
                          keyType = "ENSEMBL",
                          ont = "BP",
                          pAdjustMethod = "BH",
-                         universe = unique(ct_data\\$gene_id))
+                         universe = unique(ct_data\$gene_id))
             }, error = function(e) NULL)
 
             if (!is.null(ego)) {
@@ -84,7 +84,7 @@ process FUNCTIONAL_ENRICHMENT {
 
         if (!is.null(gsea)) {
             gsea_df <- as.data.frame(gsea)
-            gsea_df\\$contrast <- ct
+            gsea_df\$contrast <- ct
             gsea_all[[ct]] <- gsea_df
 
             # Save dotplot
