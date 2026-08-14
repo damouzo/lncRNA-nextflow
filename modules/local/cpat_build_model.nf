@@ -15,8 +15,8 @@ process CPAT_BUILD_MODEL {
     path reference_gtf
 
     output:
-    path "cpat_models/Human_Hexamer.tsv",   emit: hexamer_table
-    path "cpat_models/Human_logitModel.RData", emit: logit_model
+    path "cpat_models/Human_Hexamer.tsv", emit: hexamer_table
+    path "cpat_models/Human.logit.RData", emit: logit_model
 
     script:
     """
