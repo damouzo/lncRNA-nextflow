@@ -21,7 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgsl-dev \
     libgsl27 \
     samtools \
-    stringtie \
     gffread \
     bedtools \
     subread \
@@ -29,6 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-numpy \
     && rm -rf /var/lib/apt/lists/*
+
+# ---- StringTie (official binary; apt package is pinned to buggy 2.2.1) ----
+# v3.0.0 includes "fixes and improvements for the -e expression quantification mode"
+RUN curl -fsSL https://github.com/gpertea/stringtie/releases/download/v3.0.0/stringtie-3.0.0.Linux_x86_64.tar.gz \
+    | tar xz -C /opt \
+    && ln -s /opt/stringtie-3.0.0.Linux_x86_64/stringtie /usr/local/bin/stringtie
 
 # ---- gffcompare (compiled from source) ----
 RUN curl -fsSL https://github.com/gpertea/gffcompare/releases/download/v0.12.6/gffcompare-0.12.6.Linux_x86_64.tar.gz \
