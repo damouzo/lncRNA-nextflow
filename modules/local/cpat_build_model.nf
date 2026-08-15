@@ -6,9 +6,6 @@
 // Skipped if cpat_hexamer + cpat_logit_model are already provided in params.
 
 process CPAT_BUILD_MODEL {
-    label 'large_task'
-    cpus = 8
-    memory = 32.GB
 
     input:
     path genome_fa

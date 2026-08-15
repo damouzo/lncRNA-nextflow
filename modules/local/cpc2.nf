@@ -2,7 +2,6 @@
 // Score < 0.5 = non-coding
 
 process CPC2 {
-    label 'medium_task'
 
     input:
     path length_filtered_gtf

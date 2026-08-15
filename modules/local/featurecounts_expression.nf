@@ -3,9 +3,6 @@
 // Produces a merged count matrix for expression recurrence filtering
 
 process FEATURECOUNTS_EXPRESSION {
-    label 'medium_task'
-    cpus = 8
-    memory = 32.GB
 
     input:
     tuple val(sample), path(bam)    // all validated BAMs (collected)

@@ -3,9 +3,6 @@
 
 process INFER_STRANDEDNESS {
     tag "${sample}"
-    label 'small_task'
-    cpus = 1
-    memory = 4.GB
 
     input:
     tuple val(sample), path(bam)

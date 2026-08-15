@@ -3,9 +3,6 @@
 
 process STRINGTIE2_PER_SAMPLE {
     tag "${sample}"
-    label 'medium_task'
-    cpus = 8
-    memory = 24.GB
 
     input:
     tuple val(sample), path(bam)

@@ -2,7 +2,6 @@
 // Also classifies transcripts by gffcompare class code
 
 process TRANSCRIPT_LENGTH_FILTER {
-    label 'small_task'
 
     input:
     path gffcmp_annotated_gtf

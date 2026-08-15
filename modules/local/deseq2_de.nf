@@ -6,8 +6,6 @@
 // If batch is non-empty, DESeq2 runs on the batch-restricted subset of samples.
 
 process DESEQ2_DE {
-    label 'medium_task'
-    memory = 24.GB
 
     input:
     path counts_rds

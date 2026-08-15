@@ -3,7 +3,6 @@
 // NONCODE, LNCipedia, RNAcentral, FANTOM CAT — reporting only, never a filter
 
 process CATALOG_OVERLAP {
-    label 'small_task'
 
     input:
     path consensus_table
@@ -38,8 +37,8 @@ process CATALOG_OVERLAP {
         cat("   FANTOM CAT overlap check enabled\\n")
     }
 
-    // Placeholder: full catalog-overlap logic will be implemented
-    // once reference BED files are configured
+    # Placeholder: full catalog-overlap logic will be implemented
+    # once reference BED files are configured
     consensus\$known_catalog_hit <- FALSE
     consensus\$catalog_sources <- "none"
 

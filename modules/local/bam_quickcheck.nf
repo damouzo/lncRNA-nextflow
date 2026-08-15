@@ -3,7 +3,6 @@
 
 process BAM_QUICKCHECK {
     tag "${sample}"
-    label 'small_task'
 
     input:
     tuple val(sample), path(bam)

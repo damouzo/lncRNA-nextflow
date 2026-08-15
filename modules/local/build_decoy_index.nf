@@ -3,9 +3,6 @@
 // from the GTF annotation + genome FASTA via gffread.
 
 process BUILD_DECOY_INDEX {
-    label 'large_task'
-    cpus = 12
-    memory = 64.GB
 
     input:
     path frozen_gtf
@@ -19,10 +16,10 @@ process BUILD_DECOY_INDEX {
     """
     mkdir -p salmon_index
 
-    // Extract novel lncRNA sequences from frozen GTF
+    # Extract novel lncRNA sequences from frozen GTF
     gffread -w lncrna_transcripts.fa -g "${genome_fa}" "${frozen_gtf}"
 
-    // Determine reference transcriptome source
+    # Determine reference transcriptome source
     if [ -n "\${gencode_transcripts_fa}" ] && [ -f "\${gencode_transcripts_fa}" ]; then
         ln -s "\${gencode_transcripts_fa}" ref_transcripts.fa
     else

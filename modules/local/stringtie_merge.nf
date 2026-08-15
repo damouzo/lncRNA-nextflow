@@ -1,8 +1,6 @@
 // A4: StringTie2 merge across all samples into single discovery GTF
 
 process STRINGTIE2_MERGE {
-    label 'medium_task'
-    memory = 32.GB
 
     input:
     path(gtf_list)         // collected list of per-sample transcript GTFs

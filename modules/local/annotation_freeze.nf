@@ -2,7 +2,6 @@
 // Strict barrier: Phase B only receives frozen artifacts
 
 process ANNOTATION_FREEZE {
-    label 'small_task'
 
     input:
     path recurrence_table

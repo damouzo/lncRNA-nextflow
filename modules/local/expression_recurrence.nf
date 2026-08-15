@@ -3,8 +3,6 @@
 // expression prevalence, and keeps transcripts expressed in >= N replicates
 
 process EXPRESSION_RECURRENCE {
-    label 'medium_task'
-    memory = 12.GB
 
     input:
     path catalog_table        // from catalog_overlap

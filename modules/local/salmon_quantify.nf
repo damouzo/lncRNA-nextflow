@@ -4,9 +4,6 @@
 
 process SALMON_QUANTIFY {
     tag "${sample}"
-    label 'large_task'
-    cpus = 8
-    memory = 32.GB
 
     input:
     // fastq_1 and fastq_2 can be single files or lists (multi-lane)

@@ -2,7 +2,6 @@
 // Requires both tools to agree for "high-confidence non-coding" status
 
 process CODING_CONSENSUS {
-    label 'small_task'
 
     input:
     path cpat_tsv

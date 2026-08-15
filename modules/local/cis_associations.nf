@@ -4,8 +4,6 @@
 // across the full test family per contrast
 
 process CIS_ASSOCIATIONS {
-    label 'medium_task'
-    memory = 16.GB
 
     input:
     path deseq2_summary     // contrasts_summary.tsv from DESeq2

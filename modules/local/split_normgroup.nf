@@ -2,7 +2,6 @@
 // Writes per-group coldata CSV files (deduplicated, one row per sample) for Phase B
 
 process SPLIT_BY_NORMGROUP {
-    label 'process_single'
 
     input:
     path samplesheet_csv

@@ -3,8 +3,6 @@
 // runs PCA sample QC, applies condition-blind low-count filter
 
 process TXIMPORT_AND_FILTER {
-    label 'medium_task'
-    memory = 16.GB
 
     input:
     tuple val(quant_tuples)  // list of (sample, quant_dir) collected from Salmon

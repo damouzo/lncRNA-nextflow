@@ -2,8 +2,6 @@
 // Uses the experiment's own expressed-gene universe as background
 
 process FUNCTIONAL_ENRICHMENT {
-    label 'medium_task'
-    memory = 16.GB
 
     input:
     path cis_pairs_sig

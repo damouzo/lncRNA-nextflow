@@ -2,7 +2,6 @@
 // Receives hexamer table + logit model (pre-built or auto-generated)
 
 process CPAT {
-    label 'medium_task'
 
     input:
     path length_filtered_gtf
