@@ -19,7 +19,7 @@ process FEATURECOUNTS_EXPRESSION {
         -o "${sample}.featureCounts.tsv" \\
         -t exon \\
         -g transcript_id \\
-        -s 0 \\
+        -s ${params.featurecounts_strandness} \\
         -T ${task.cpus} \\
         -p \\
         --countReadPairs \\

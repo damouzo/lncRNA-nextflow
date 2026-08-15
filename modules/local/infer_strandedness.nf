@@ -13,11 +13,14 @@ process INFER_STRANDEDNESS {
 
 script:
     """
-    head -n 200000 "${reference_gtf}" | awk '\$3 == "exon"' > exon_ref.bed
+    gffread --bed "${reference_gtf}" -o ref.bed 2>/dev/null
+    awk -F'\\t' 'NF >= 12 {print \$1"\\t"\$2"\\t"\$3"\\t"\$4"\\t"\$5"\\t"\$6"\\t"\$7"\\t"\$8"\\t"\$9"\\t"\$10"\\t"\$11"\\t"\$12}' ref.bed > ref_exon.bed12
+
     infer_experiment.py \\
-        -r exon_ref.bed \\
+        -r ref_exon.bed12 \\
         -i "${bam}" \\
-        -s ${task.cpus} \\
+        -s 200000 \\
+        -q 30 \\
         > "${sample}.strandedness.txt"
     """
 }
