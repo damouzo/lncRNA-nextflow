@@ -10,55 +10,32 @@ LABEL org.opencontainers.image.licenses="MIT"
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-dev \
-    gcc \
-    g++ \
-    make \
-    zlib1g-dev \
-    python3-numpy \
-    python3-scipy \
-    python3-sklearn \
-    python3-biopython \
-    gffread \
-    git \
     wget \
     ca-certificates \
+    bzip2 \
+    gffread \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- R 4.4.3 (pinned to match r_bioc container / Bioconductor 3.20) ----
-# Required by CPAT's make_logitModel.py, which fits the glm model via Rscript.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        software-properties-common \
-        dirmngr \
-    && wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
-        | tee /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc \
-    && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/" \
-    && printf 'Package: r-base-core\nPin: version 4.4.3*\nPin-Priority: 1001\n' \
-        > /etc/apt/preferences.d/cran-r \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends r-base-core \
-    && rm -rf /var/lib/apt/lists/*
+# ---- Micromamba: installing CPAT y CPC2 from Bioconda  ----
+ENV MAMBA_ROOT_PREFIX=/opt/conda
+RUN wget -qO- https://micro.mamba.pm/api/micromamba/linux-64/latest \
+    | tar -xj -C /usr/local/bin --strip-components=1 bin/micromamba
 
-# ---- CPAT 3.0.4 ----
-RUN pip3 install --no-cache-dir CPAT==3.0.4
+RUN micromamba create -y -n coding_potential -c conda-forge -c bioconda \
+        cpat=3.0.4 \
+        cpc2=1.0.1 \
+    && micromamba clean -a -y
 
-# ---- CPC2 (cloned from official GitHub repository) ----
-RUN git clone https://github.com/gao-lab/CPC2_standalone.git /opt/CPC2 \
-    && chmod +x /opt/CPC2/bin/CPC2.py
+ENV PATH="/opt/conda/envs/coding_potential/bin:${PATH}"
 
-ENV PATH="/opt/CPC2/bin:${PATH}"
-
-# ---- Verify ----
-RUN python3 -c "import numpy; print('numpy', numpy.__version__)" \
-    && python3 -c "import scipy; print('scipy', scipy.__version__)" \
-    && python3 -c "import Bio; print('Biopython', Bio.__version__)" \
+# ---- Functional verification ----
+RUN printf ">test_transcript\nATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATAGCTAGCTAGCTAGGGATCGATCGATCGA\n" > /tmp/test.fa \
     && cpat.py --version \
-    && CPC2.py --help 2>&1 | head -2 \
+    && CPC2.py -i /tmp/test.fa -o /tmp/test_out \
+    && test -s /tmp/test_out.txt \
     && gffread --version 2>&1 | head -1 \
     && Rscript --version \
-    && R -e 'glm(mpg ~ wt, data=mtcars)' >/dev/null 2>&1 \
-    && echo "All coding tools verified successfully"
+    && Rscript -e 'glm(mpg ~ wt, data=mtcars)' >/dev/null \
+    && echo "All coding-potential tools verified successfully"
 
 WORKDIR /data
