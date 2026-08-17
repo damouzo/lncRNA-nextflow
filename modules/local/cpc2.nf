@@ -14,7 +14,7 @@ process CPC2 {
     """
     gffread -w cpc2_transcripts.fa -g "${genome_fa}" "${length_filtered_gtf}"
 
-    CPC2.py \\
+    python3 `command -v CPC2.py` \\
         -i cpc2_transcripts.fa \\
         -o cpc2_results
     """

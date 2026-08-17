@@ -73,7 +73,7 @@ process EXPRESSION_RECURRENCE {
         count_list[[length(count_list) + 1]] <- counts
 
         # Extract sample name from filename (before .featureCounts.tsv)
-        sn <- gsub("\\\\.featureCounts\\\\.tsv\\\$", "", basename(f))
+        sn <- sub(".featureCounts.tsv", "", basename(f), fixed = TRUE)
         sample_names <- c(sample_names, sn)
     }
 

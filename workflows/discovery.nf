@@ -81,7 +81,7 @@ workflow DISCOVERY {
     CPAT(ch_for_cpat, genome_fa, ch_cpat_models)
     CPC2(ch_for_cpc2, genome_fa)
 
-    CODING_CONSENSUS(CPAT.out.cpat_output, CPC2.out.cpc2_output)
+    CODING_CONSENSUS(CPAT.out.cpat_output, CPC2.out.cpc2_output, ch_for_cpc2)
 
     CATALOG_OVERLAP(
         CODING_CONSENSUS.out.consensus_table,

@@ -18,10 +18,20 @@ process CPAT {
     cpat.py \\
         -g cpat_transcripts.fa \\
         -o cpat \\
-        -d "${cpat_hexamer}" \\
-        -x "${cpat_logit_model}" \\
+        -d "${cpat_logit_model}" \\
+        -x "${cpat_hexamer}" \\
         --antisense
 
-    awk -F'\\t' 'NR==1 || \$6 == "no"' cpat.ORF_prob.tsv > cpat_results.tsv
+    # Build ID/mRNA (yes/no) table consumed by CODING_CONSENSUS.
+    # CPAT reports ORFs per transcript; a transcript is non-coding when it has
+    # no ORF, or when its best-ORF coding probability is below the threshold.
+    awk -F'\\t' -v thr=${params.cpat_coding_threshold} \
+        'NR == 1 { next }
+         { print \$1 "\\t" (\$11 < thr ? "no" : "yes") }' \
+        cpat.ORF_prob.best.tsv > cpat_mrna.tsv
+    awk '{ print \$1 "\\tno" }' cpat.no_ORF.txt >> cpat_mrna.tsv
+    sort -u cpat_mrna.tsv > cpat_results.tmp
+    printf 'ID\\tmRNA\\n' > cpat_results.tsv
+    cat cpat_results.tmp >> cpat_results.tsv
     """
 }

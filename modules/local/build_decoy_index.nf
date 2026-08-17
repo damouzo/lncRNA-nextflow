@@ -20,14 +20,21 @@ process BUILD_DECOY_INDEX {
     gffread -w lncrna_transcripts.fa -g "${genome_fa}" "${frozen_gtf}"
 
     # Determine reference transcriptome source
-    if [ -n "\${gencode_transcripts_fa}" ] && [ -f "\${gencode_transcripts_fa}" ]; then
-        ln -s "\${gencode_transcripts_fa}" ref_transcripts.fa
+    # gencode_transcripts_fa is a `val` input, so it must be interpolated here
+    REF_FA="${gencode_transcripts_fa}"
+    if [ -n "\$REF_FA" ] && [ -f "\$REF_FA" ]; then
+        ln -s "\$REF_FA" ref_transcripts.fa
     else
         echo "Deriving reference transcriptome from GTF + genome..."
         gffread -w ref_transcripts.fa -g "${genome_fa}" "${params.gtf}"
     fi
 
-    cat ref_transcripts.fa lncrna_transcripts.fa > combined_transcripts.fa
+# Concatenate reference + novel lncRNAs, skipping frozen transcripts
+    # already present in the reference FASTA (Salmon rejects duplicate headers).
+    # IDs are compared without the version suffix (ENST..1 vs ENST..)
+    awk 'NR==FNR { if (\$1 ~ /^>/) { split(substr(\$1,2), a, "."); ref[a[1]] = 1 }; next }
+         /^>/{ split(substr(\$1,2), a, "."); keep = !(a[1] in ref) }
+         keep' ref_transcripts.fa lncrna_transcripts.fa > combined_transcripts.fa
 
     grep "^>" "${genome_fa}" | cut -d ' ' -f 1 | sed 's/>//' > decoys.txt
     cat combined_transcripts.fa "${genome_fa}" > gentrome.fa

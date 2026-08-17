@@ -49,16 +49,13 @@ process ANNOTATION_FREEZE {
 
     cat("Frozen lncRNAs:", length(nc_ids), "\\n")
 
-    # Extract matching transcripts from source GTF using gffread
-    # Filter GTF to only keep the frozen transcript IDs
-    system(paste("grep -Ff frozen_ids.txt", "${source_gtf}",
-                 "> frozen_lncrna.gtf || true"))
+    # Extract matching transcripts from source GTF by frozen transcript ID
+    system(paste("grep -Ff frozen_ids.txt", shQuote("${source_gtf}"),
+                 "> frozen_lncrna.gtf"))
 
+    # Fail loudly instead of silently substituting the full candidate set
     if (file.info("frozen_lncrna.gtf")\$size < 100) {
-        # Fallback: try extracting by transcript_id attribute
-        system(paste("awk '\$3==\"transcript\"'", "${source_gtf}",
-                     "> frozen_lncrna.gtf"))
-        cat("Using full transcript set as fallback\\n")
+        stop("No frozen transcripts matched in source GTF. Check transcript ID consistency between CPAT/CPC2 and the assembly.")
     }
 
     # Checksums

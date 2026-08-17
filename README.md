@@ -96,6 +96,8 @@ results/
 
 ## What's not done yet
 
+- Phase B (Salmon quantification, DESeq2, cis associations, enrichment) is implemented but currently commented out in `main.nf`; first real run (2026-08) validated Phase A + decoy index only
+- Reporting engine (Quarto → HTML + run manifest) not implemented yet
 - Catalog overlap module runs but has no real reference BEDs wired up yet
 - Monoexonic intron-coverage and antisense-neighbor risk flags are stubs
 - No test suite (`nf-test` planned)
