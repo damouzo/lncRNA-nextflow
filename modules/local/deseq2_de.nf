@@ -45,8 +45,7 @@ process DESEQ2_DE {
     }
 
     contrasts <- read_tsv("${contrasts_tsv}", show_col_types = FALSE,
-                          col_names = c("contrast_name", "numerator", "denominator", "batch"),
-                          skip = 1)
+                          col_names = c("contrast_name", "numerator", "denominator", "batch"))
 
     dir.create("${group}_deseq2_results", showWarnings = FALSE)
     all_results <- list()

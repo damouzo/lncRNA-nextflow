@@ -53,7 +53,6 @@ workflow validateInput {
             def batch = row.containsKey('batch') ? (row.batch ?: null) : null
             tuple(row.contrast_name, row.numerator, row.denominator, batch)
         }
-        .set { ch_contrasts }
 
     // Validate required params
     if (!design_formula || design_formula.trim().isEmpty()) {

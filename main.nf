@@ -21,6 +21,7 @@ workflow {
 
     // ── Phase A — Discovery (all samples, condition-blind) ─────────────────
     ch_samples = validateInput.out.ch_samplesheet
+    ch_samples.count().view { "N_SAMPLES_REALES: $it" }
     DISCOVERY(
         ch_samples,
         params.genome,
@@ -35,50 +36,54 @@ workflow {
         params.genome,
         ch_transcripts_fa
     )
-    ch_salmon_index = BUILD_DECOY_INDEX.out.index_dir
+    ch_salmon_index = BUILD_DECOY_INDEX.out.index_dir.first()
 
     // ── B2: Salmon quantification — all samples, once ─────────────────────
-    // SALMON_QUANTIFY(ch_samples, ch_salmon_index)
-    // ch_salmon_mapped = SALMON_QUANTIFY.out.quant_results
-    //     .map { sample, quant_dir -> tuple(sample, quant_dir) }
-    // ch_salmon_quants = ch_salmon_mapped.collect()
+    SALMON_QUANTIFY(ch_samples, ch_salmon_index)
+    // Single shared value = full list of quant dirs; combine() keeps it as one
+    // field instead of flattening the tuples into the group tuple
+    ch_salmon_quants = SALMON_QUANTIFY.out.quant_results
+        .map { sample, quant_dir -> quant_dir }
+        .collect()
+        .map { q -> [ q ] }
 
     // ── Build global contrasts TSV (used by all groups) ────────────────────
-    // ch_ct_lines = validateInput.out.ch_contrasts
-    //     .map { name, num, den, batch ->
-    //         "${name}\t${num}\t${den}\t${batch ?: ''}"
-    //     }
-    // ch_contrasts_tsv = ch_ct_lines
-    //     .collectFile(name: 'contrasts.tsv', newLine: true)
+    ch_ct_lines = validateInput.out.ch_contrasts
+        .map { name, num, den, batch ->
+            "${name}\t${num}\t${den}\t${batch ?: ''}"
+        }
+    ch_contrasts_tsv = ch_ct_lines
+        .collectFile(name: 'contrasts.tsv', newLine: true)
 
     // ── Split samplesheet by norm_group ────────────────────────────────────
-    // SPLIT_BY_NORMGROUP(
-    //     validateInput.out.coldata_csv,
-    //     validateInput.out.contrasts_csv
-    // )
+    SPLIT_BY_NORMGROUP(
+        validateInput.out.coldata_csv,
+        validateInput.out.contrasts_csv
+    )
 
     // Combine per-group coldata with shared Salmon quants + contrasts TSV
-    // ch_group_map = SPLIT_BY_NORMGROUP.out.per_group
-    //     .map { coldata_file ->
-    //         def group_name = coldata_file.baseName
-    //             .replaceAll('^coldata_', '')
-    //             .replaceAll('\\.csv$', '')
-    //         tuple(group_name, coldata_file)
-    //     }
-    // ch_group_quants = ch_group_map
-    //     .combine(ch_salmon_quants)
-    // ch_per_group = ch_group_quants
-    //     .combine(ch_contrasts_tsv)
+    ch_group_map = SPLIT_BY_NORMGROUP.out.per_group
+        .flatten()
+        .map { coldata_file ->
+            def group_name = coldata_file.baseName
+                .replaceAll('^coldata_', '')
+                .replaceAll('\\.csv$', '')
+            tuple(group_name, coldata_file)
+        }
+    ch_group_quants = ch_group_map
+        .combine(ch_salmon_quants)
+    ch_per_group = ch_group_quants
+        .combine(ch_contrasts_tsv)
 
     // ── Phase B — Quantification & Statistics (per norm_group) ─────────────
-    // QUANTIFICATION(
-    //     ch_per_group,
-    //     DISCOVERY.out.tx2gene_detailed,
-    //     validateInput.out.design_formula,
-    //     DISCOVERY.out.frozen_gtf,
-    //     params.gtf,
-    //     params.outdir
-    // )
+    QUANTIFICATION(
+        ch_per_group,
+        DISCOVERY.out.tx2gene_detailed,
+        validateInput.out.design_formula,
+        DISCOVERY.out.frozen_gtf,
+        params.gtf,
+        params.outdir
+    )
 }
 
 workflow.onComplete {

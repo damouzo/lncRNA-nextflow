@@ -10,7 +10,7 @@ process BUILD_DECOY_INDEX {
     val  gencode_transcripts_fa
 
     output:
-    path "salmon_index/*", emit: index_dir
+    path "salmon_index", emit: index_dir
 
     script:
     """

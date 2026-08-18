@@ -5,7 +5,7 @@
 process TXIMPORT_AND_FILTER {
 
     input:
-    tuple val(quant_tuples)  // list of (sample, quant_dir) collected from Salmon
+    path quant_dirs          // list of {sample}_quant dirs from Salmon
     path tx2gene_detailed
     path coldata_csv
     val group                 // norm_group name for output prefix
@@ -28,9 +28,10 @@ process TXIMPORT_AND_FILTER {
     coldata <- read.csv("${coldata_csv}", stringsAsFactors = FALSE)
     rownames(coldata) <- coldata\$sample
 
-    # Read tx2gene mapping
-    tx2gene <- read_tsv("${tx2gene_detailed}", col_names = c("TXNAME", "GENEID"),
-                        show_col_types = FALSE)
+    # Read tx2gene mapping (first two columns, drop category)
+    tx2gene <- read_tsv("${tx2gene_detailed}", show_col_types = FALSE)
+    tx2gene <- tx2gene[, 1:2]
+    colnames(tx2gene) <- c("TXNAME", "GENEID")
 
     # Find all quant.sf files inside staged {sample}_quant/ directories
     quant_dirs <- list.files(pattern = "_quant\$", full.names = TRUE)

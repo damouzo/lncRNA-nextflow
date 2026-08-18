@@ -20,7 +20,7 @@ workflow QUANTIFICATION {
     main:
     ch_per_group
         .multiMap { group, coldata, quants, ct_tsv ->
-            txi_quants:    tuple(quants)
+            txi_quants:    quants
             txi_coldata:   coldata
             txi_group:     group
             de_coldata:    coldata

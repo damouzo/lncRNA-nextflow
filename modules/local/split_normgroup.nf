@@ -16,8 +16,9 @@ process SPLIT_BY_NORMGROUP {
     library(readr)
 
     coldata <- read.csv("${samplesheet_csv}", stringsAsFactors = FALSE, check.names = FALSE)
-    stopifnot("norm_group" %in% colnames(coldata),
-        "samplesheet must have a 'norm_group' column")
+    if (!"norm_group" %in% colnames(coldata)) {
+        stop("samplesheet must have a 'norm_group' column")
+    }
 
     groups <- sort(unique(coldata[["norm_group"]]))
     for (g in groups) {
