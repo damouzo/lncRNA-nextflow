@@ -29,15 +29,15 @@ process BUILD_DECOY_INDEX {
         gffread -w ref_transcripts.fa -g "${genome_fa}" "${params.gtf}"
     fi
 
-# Concatenate reference + novel lncRNAs, skipping frozen transcripts
-    # already present in the reference FASTA (Salmon rejects duplicate headers).
-    # IDs are compared without the version suffix (ENST..1 vs ENST..)
+# Drop novel lncRNAs already present in the reference transcriptome
+    # (Salmon rejects duplicate headers). IDs compared without version suffix.
     awk 'NR==FNR { if (\$1 ~ /^>/) { split(substr(\$1,2), a, "."); ref[a[1]] = 1 }; next }
          /^>/{ split(substr(\$1,2), a, "."); keep = !(a[1] in ref) }
-         keep' ref_transcripts.fa lncrna_transcripts.fa > combined_transcripts.fa
+         keep' ref_transcripts.fa lncrna_transcripts.fa > novel_only.fa
 
     grep "^>" "${genome_fa}" | cut -d ' ' -f 1 | sed 's/>//' > decoys.txt
-    cat combined_transcripts.fa "${genome_fa}" > gentrome.fa
+    # Decoy-aware gentrome: full reference + novel lncRNAs + genome decoys
+    cat ref_transcripts.fa novel_only.fa "${genome_fa}" > gentrome.fa
 
     salmon index \\
         -t gentrome.fa \\

@@ -11,7 +11,7 @@ process FUNCTIONAL_ENRICHMENT {
     output:
     path "${group}_enrichment_ora.tsv",  emit: ora_results
     path "${group}_enrichment_gsea.tsv", emit: gsea_results
-    path "${group}_enrichment_plots/*",  emit: plots
+    path "${group}_enrichment_plots/*", optional: true, emit: plots
 
     script:
     """
@@ -82,14 +82,18 @@ process FUNCTIONAL_ENRICHMENT {
 
         if (!is.null(gsea)) {
             gsea_df <- as.data.frame(gsea)
-            gsea_df\$contrast <- ct
-            gsea_all[[ct]] <- gsea_df
+            if (nrow(gsea_df) > 0) {
+                gsea_df\$contrast <- ct
+                gsea_all[[ct]] <- gsea_df
 
-            # Save dotplot
-            png(file.path("${group}_enrichment_plots", paste0(ct, "_gsea_dotplot.png")),
-                width = 800, height = 600)
-            print(dotplot(gsea, showCategory = 20))
-            dev.off()
+                # Save dotplot
+                png(file.path("${group}_enrichment_plots", paste0(ct, "_gsea_dotplot.png")),
+                    width = 800, height = 600)
+                print(dotplot(gsea, showCategory = 20))
+                dev.off()
+            } else {
+                cat("No enriched GO terms for contrast:", ct, "\\n")
+            }
         }
     }
 

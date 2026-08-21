@@ -65,7 +65,9 @@ process TXIMPORT_AND_FILTER {
     dds <- dds[keep, ]
 
     # PCA for sample-level QC
-    vsd <- vst(dds, blind = TRUE)
+    # varianceStabilizingTransformation fits the trend on all genes instead of
+    # sampling nsub=1000 like vst(), so it works on small lncRNA catalogs
+    vsd <- varianceStabilizingTransformation(dds, blind = TRUE)
     n_intgroup <- min(3, ncol(coldata))
     pca <- plotPCA(vsd, intgroup = colnames(coldata)[1:n_intgroup])
     ggsave("${group}_sample_qc_pca.png", pca, width = 10, height = 8)

@@ -30,21 +30,8 @@ process ANNOTATION_FREEZE {
         stop("No non-coding transcripts passed all filters. Check your inputs.")
     }
 
-    # Build tx2gene mapping with gene-level grouping
-    tx2gene <- nc[, c("ID", "ID")]
-    if ("X1" %in% colnames(nc)) {
-        # CPAT/CPC2 output typically uses 'ID' or sequence name as first column
-        colnames(tx2gene) <- c("transcript_id", "gene_id")
-    } else if ("transcript_id" %in% colnames(nc) && "gene_id" %in% colnames(nc)) {
-        tx2gene <- nc[, c("transcript_id", "gene_id")]
-    }
-    colnames(tx2gene) <- c("transcript_id", "gene_id")
-    tx2gene\$category <- "novel_lncRNA"
-
-    write_tsv(tx2gene, "tx2gene_detailed.tsv")
-
     # Write frozen transcript ID list for GTF extraction
-    nc_ids <- unique(tx2gene\$transcript_id)
+    nc_ids <- unique(nc\$ID)
     writeLines(nc_ids, "frozen_ids.txt")
 
     cat("Frozen lncRNAs:", length(nc_ids), "\\n")
@@ -57,6 +44,18 @@ process ANNOTATION_FREEZE {
     if (file.info("frozen_lncrna.gtf")\$size < 100) {
         stop("No frozen transcripts matched in source GTF. Check transcript ID consistency between CPAT/CPC2 and the assembly.")
     }
+
+    # Derive tx2gene directly from the frozen GTF so transcript/gene IDs match
+    # exactly what gffread emits when building the Salmon index.
+    gtf_lines <- readLines("frozen_lncrna.gtf")
+    has_tx   <- grepl('transcript_id "', gtf_lines)
+    tx_id    <- sub('.*transcript_id "([^"]+)".*', '\\\\1', gtf_lines[has_tx])
+    gene_id  <- sub('.*gene_id "([^"]+)".*', '\\\\1', gtf_lines[has_tx])
+    tx2gene  <- unique(data.frame(transcript_id = tx_id, gene_id = gene_id,
+                                  stringsAsFactors = FALSE))
+    tx2gene\$category <- "novel_lncRNA"
+
+    write_tsv(tx2gene, "tx2gene_detailed.tsv")
 
     # Checksums
     sha_gtf <- system("sha256sum frozen_lncrna.gtf | cut -d' ' -f1", intern = TRUE)
