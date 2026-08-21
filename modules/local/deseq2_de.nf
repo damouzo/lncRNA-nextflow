@@ -17,7 +17,7 @@ process DESEQ2_DE {
     output:
     path "${group}_deseq2_results/*",              emit: all_results
     path "${group}_deseq2_results/dds.rds",        emit: dds_rds
-    path "${group}_deseq2_results/contrasts_summary.tsv", emit: contrasts_summary
+    tuple val(group), path("${group}_deseq2_results/contrasts_summary.tsv"), emit: contrasts_summary
 
     script:
     def formula = design_formula.toString()

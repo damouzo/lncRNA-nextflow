@@ -70,6 +70,8 @@ workflow {
                 .replaceAll('\\.csv$', '')
             tuple(group_name, coldata_file)
         }
+    // TEMPORARY diagnostic: confirm all norm_groups reach Phase B (remove after validation)
+    ch_group_map.map { g, f -> g }.collect().view { "NORM_GROUPS_FOR_PHASE_B: $it" }
     ch_group_quants = ch_group_map
         .combine(ch_salmon_quants)
     ch_per_group = ch_group_quants

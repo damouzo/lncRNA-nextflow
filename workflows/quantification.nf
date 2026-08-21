@@ -6,6 +6,7 @@ include { TXIMPORT_AND_FILTER } from '../modules/local/tximport_filter'
 include { DESEQ2_DE }           from '../modules/local/deseq2_de'
 include { CIS_ASSOCIATIONS }    from '../modules/local/cis_associations'
 include { FUNCTIONAL_ENRICHMENT } from '../modules/local/functional_enrichment'
+include { REPORT_CONTRAST }      from '../modules/local/report_contrast'
 
 workflow QUANTIFICATION {
     take:
@@ -53,8 +54,8 @@ workflow QUANTIFICATION {
     )
 
     // Duplicate contrast summary for cis + enrichment
-    ch_de_summary_cis    = DESEQ2_DE.out.contrasts_summary
-    ch_de_summary_enrich = DESEQ2_DE.out.contrasts_summary
+    ch_de_summary_cis    = DESEQ2_DE.out.contrasts_summary.map { group, p -> p }
+    ch_de_summary_enrich = DESEQ2_DE.out.contrasts_summary.map { group, p -> p }
 
     // B5: Cis-regulatory candidate associations
     CIS_ASSOCIATIONS(
@@ -67,13 +68,30 @@ workflow QUANTIFICATION {
 
     // B6: Functional enrichment (ORA + GSEA)
     FUNCTIONAL_ENRICHMENT(
-        CIS_ASSOCIATIONS.out.cis_pairs_sig,
+        CIS_ASSOCIATIONS.out.cis_pairs_sig.map { group, p -> p },
         ch_de_summary_enrich,
         ch_split.enrich_group
+    )
+
+    // B7: Per-contrast reports (Quarto, self-contained HTML)
+    // Phase-B outputs carry their group as a tuple key, so the join is exact.
+    ch_rpt = DESEQ2_DE.out.contrasts_summary
+        .join(CIS_ASSOCIATIONS.out.cis_pairs)
+        .join(CIS_ASSOCIATIONS.out.cis_pairs_sig)
+        .join(FUNCTIONAL_ENRICHMENT.out.ora_results)
+        .join(FUNCTIONAL_ENRICHMENT.out.gsea_results)
+        .map { g, de, cisp, cissig, ora, gsea ->
+            tuple(g, de, cisp, cissig, ora, gsea)
+        }
+
+    REPORT_CONTRAST(
+        ch_rpt,
+        Channel.value(file("${params.report_template ?: projectDir + '/assets/report_template.qmd'}"))
     )
 
     emit:
     deseq2_results   = DESEQ2_DE.out.all_results
     cis_results      = CIS_ASSOCIATIONS.out.cis_pairs_sig
     enrichment       = FUNCTIONAL_ENRICHMENT.out.ora_results
+    reports          = REPORT_CONTRAST.out.reports
 }

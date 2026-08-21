@@ -9,8 +9,8 @@ process FUNCTIONAL_ENRICHMENT {
     val group               // norm_group name for output prefix
 
     output:
-    path "${group}_enrichment_ora.tsv",  emit: ora_results
-    path "${group}_enrichment_gsea.tsv", emit: gsea_results
+    tuple val(group), path("${group}_enrichment_ora.tsv"),  emit: ora_results
+    tuple val(group), path("${group}_enrichment_gsea.tsv"), emit: gsea_results
     path "${group}_enrichment_plots/*", optional: true, emit: plots
 
     script:

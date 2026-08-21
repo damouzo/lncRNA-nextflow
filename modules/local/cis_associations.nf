@@ -13,8 +13,8 @@ process CIS_ASSOCIATIONS {
     val group               // norm_group name for output prefix
 
     output:
-    path "${group}_cis_pairs.tsv",              emit: cis_pairs
-    path "${group}_cis_pairs_significant.tsv",  emit: cis_pairs_sig
+    tuple val(group), path("${group}_cis_pairs.tsv"),              emit: cis_pairs
+    tuple val(group), path("${group}_cis_pairs_significant.tsv"),  emit: cis_pairs_sig
     path "${group}_cis_associations_summary.tsv", emit: summary
 
     script:

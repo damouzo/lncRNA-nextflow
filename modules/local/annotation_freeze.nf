@@ -47,10 +47,11 @@ process ANNOTATION_FREEZE {
 
     # Derive tx2gene directly from the frozen GTF so transcript/gene IDs match
     # exactly what gffread emits when building the Salmon index.
+    # Anchor gene_id to '; ' so ref_gene_id is not captured by the greedy regex.
     gtf_lines <- readLines("frozen_lncrna.gtf")
     has_tx   <- grepl('transcript_id "', gtf_lines)
     tx_id    <- sub('.*transcript_id "([^"]+)".*', '\\\\1', gtf_lines[has_tx])
-    gene_id  <- sub('.*gene_id "([^"]+)".*', '\\\\1', gtf_lines[has_tx])
+    gene_id  <- sub('.*; gene_id "([^"]+)".*', '\\\\1', gtf_lines[has_tx])
     tx2gene  <- unique(data.frame(transcript_id = tx_id, gene_id = gene_id,
                                   stringsAsFactors = FALSE))
     tx2gene\$category <- "novel_lncRNA"

@@ -1,0 +1,143 @@
+---
+title: "lncRNA report — {{< meta contrast >}}"
+subtitle: "norm_group: {{< meta group >}}"
+format:
+  html:
+    self-contained: true
+    embed-resources: true
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    theme: cosmo
+params:
+  contrast: ""
+  group: ""
+  de_summary: null
+  cis_pairs: null
+  cis_pairs_sig: null
+  ora: null
+  gsea: null
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(dplyr)
+library(knitr)
+library(DT)
+library(plotly)
+library(ggplot2)
+
+contrast <- params$contrast
+group    <- params$group
+```
+
+## Contrast: `r contrast`
+
+```{r load, include=FALSE}
+de <- tryCatch(
+  read_tsv(params$de_summary, show_col_types = FALSE),
+  error = function(e) NULL
+)
+de_ct <- if (!is.null(de) && "contrast" %in% colnames(de)) {
+  filter(de, contrast == !!contrast)
+} else { de }
+
+cis <- tryCatch(read_tsv(params$cis_pairs, show_col_types = FALSE),
+                error = function(e) NULL)
+cis_sig <- tryCatch(read_tsv(params$cis_pairs_sig, show_col_types = FALSE),
+                    error = function(e) NULL)
+ora <- tryCatch(read_tsv(params$ora, show_col_types = FALSE),
+                error = function(e) NULL)
+gsea <- tryCatch(read_tsv(params$gsea, show_col_types = FALSE),
+                 error = function(e) NULL)
+```
+
+## DE summary
+
+```{r de-summary}
+if (!is.null(de_ct) && nrow(de_ct) > 0) {
+  n_sig <- sum(de_ct$padj < 0.05, na.rm = TRUE)
+  n_up  <- sum(de_ct$padj < 0.05 & de_ct$log2FoldChange > 0, na.rm = TRUE)
+  n_dn  <- sum(de_ct$padj < 0.05 & de_ct$log2FoldChange < 0, na.rm = TRUE)
+  kable(data.frame(
+    genes_tested = nrow(de_ct),
+    significant_padj_0.05 = n_sig,
+    up = n_up, down = n_dn
+  ), format = "html")
+} else {
+  cat("No differential expression results for this contrast.")
+}
+```
+
+### Volcano plot
+
+```{r volcano}
+if (!is.null(de_ct) && nrow(de_ct) > 0 &&
+    all(c("log2FoldChange", "pvalue") %in% colnames(de_ct))) {
+  de_ct <- de_ct %>% mutate(
+    sig = ifelse(!is.na(padj) & padj < 0.05, "FDR<0.05", "ns"),
+    logp = -log10(pvalue)
+  )
+  p <- ggplot(de_ct, aes(log2FoldChange, logp, color = sig)) +
+    geom_point(alpha = 0.6, size = 1.2) +
+    scale_color_manual(values = c("FDR<0.05" = "#d62728", "ns" = "#7f7f7f")) +
+    labs(color = "Significance") +
+    theme_minimal()
+  print(p)
+} else {
+  cat("Insufficient data for volcano plot.")
+}
+```
+
+### Table
+
+```{r de-table}
+if (!is.null(de_ct) && nrow(de_ct) > 0) {
+  tab <- de_ct %>%
+    select(any_of(c("gene_id", "baseMean", "log2FoldChange", "lfcSE",
+                    "pvalue", "padj"))) %>%
+    arrange(padj)
+  datatable(tab, filter = "top", options = list(pageLength = 20))
+} else {
+  cat("No DE data.")
+}
+```
+
+## Cis-regulatory associations
+
+```{r cis}
+if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
+  cat("**Significant cis pairs:**\n")
+  datatable(cis_sig, options = list(pageLength = 20))
+} else {
+  cat("No significant cis-regulatory associations for this contrast.")
+}
+```
+
+## Functional enrichment — ORA
+
+```{r ora}
+if (!is.null(ora) && nrow(ora) > 0) {
+  datatable(ora, options = list(pageLength = 20))
+} else {
+  cat("No ORA enrichment terms.")
+}
+```
+
+## Functional enrichment — GSEA
+
+```{r gsea}
+if (!is.null(gsea) && nrow(gsea) > 0) {
+  datatable(gsea, options = list(pageLength = 20))
+} else {
+  cat("No GSEA enrichment.")
+}
+```
+
+## Session info
+
+```{r session, echo=FALSE}
+devtools_or <- tryCatch({ if (requireNamespace("sessioninfo", quietly=TRUE))
+  sessioninfo::session_info() else sessionInfo() }, error = function(e) sessionInfo())
+cat("Generated:", Sys.time(), "\n")
+```
