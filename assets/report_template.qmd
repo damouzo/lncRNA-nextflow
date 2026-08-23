@@ -1,6 +1,6 @@
 ---
-title: "lncRNA report — {{< meta contrast >}}"
-subtitle: "norm_group: {{< meta group >}}"
+title: "lncRNA report"
+subtitle: "norm_group report"
 format:
   html:
     self-contained: true

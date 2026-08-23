@@ -28,10 +28,13 @@ process REPORT_CONTRAST {
     dir.create("${group}_reports", showWarnings = FALSE)
 
     for (ct in contrasts) {
-        out <- file.path("${group}_reports", paste0(gsub("[^A-Za-z0-9_.-]", "_", ct), "_report.html"))
+        fname <- paste0(gsub("[^A-Za-z0-9_.-]", "_", ct), "_report.html")
+        out <- file.path("${group}_reports", fname)
         if (file.exists(out)) next
         cmd <- paste(
             "quarto render ${template}",
+            "-M", shQuote(paste0("title=lncRNA report - ", ct)),
+            "-M", shQuote(paste0("subtitle=norm_group: ${group}")),
             "-P", shQuote(paste0("contrast=", ct)),
             "-P", shQuote(paste0("group=${group}")),
             "-P", shQuote(paste0("de_summary=${de_summary}")),
@@ -39,11 +42,12 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("cis_pairs_sig=${cis_pairs_sig}")),
             "-P", shQuote(paste0("ora=${ora}")),
             "-P", shQuote(paste0("gsea=${gsea}")),
-            "--output", shQuote(out),
-            "--no-browser"
+            "--output-dir", shQuote("${group}_reports"),
+            "--output", shQuote(fname)
         )
         cat("Rendering contrast:", ct, "\n")
-        system(cmd)
+        status <- system(cmd)
+        if (status != 0) stop(paste("quarto render failed for contrast:", ct))
     }
     """
 }
