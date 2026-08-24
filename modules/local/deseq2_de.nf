@@ -96,6 +96,14 @@ process DESEQ2_DE {
             next
         }
 
+        # Relevel so 'den' is the reference: apeglm shrinkage below picks its
+        # coefficient by name (condition_<num>_vs_<reference>), which only
+        # matches the intended num-vs-den contrast when den is the reference
+        # level. Without this, groups with >2 condition levels would silently
+        # shrink toward the wrong comparison whenever the arbitrary default
+        # reference (first level encountered) wasn't den.
+        sub_coldata\$condition <- relevel(sub_coldata\$condition, ref = den)
+
         res <- tryCatch({
             dds <- DESeqDataSetFromMatrix(countData = sub_counts,
                                           colData = sub_coldata,
@@ -113,14 +121,17 @@ process DESEQ2_DE {
 
         if (is.null(res)) next
 
-        # LFC shrinkage — apeglm for direct coefficients
+        # LFC shrinkage — pass res = res so the shrunk table keeps the same
+        # test statistics/padj computed with the configured alpha and
+        # lfcThreshold, instead of lfcShrink silently recomputing both from
+        # scratch with DESeq2 defaults (alpha = 0.1, lfcThreshold = 0).
         res_shrunk <- tryCatch({
-            lfcShrink(dds, coef = resultsNames(dds)[grep(
+            lfcShrink(dds, res = res, coef = resultsNames(dds)[grep(
                 paste0("condition_", make.names(num)), resultsNames(dds))],
                 type = "apeglm", quiet = TRUE)
         }, error = function(e) {
             cat(sprintf("  WARNING: apeglm failed (%s), using ashr\\n", e\$message))
-            lfcShrink(dds, coef = resultsNames(dds)[grep(
+            lfcShrink(dds, res = res, coef = resultsNames(dds)[grep(
                 paste0("condition_", make.names(num)), resultsNames(dds))],
                 type = "ashr", quiet = TRUE)
         })

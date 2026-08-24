@@ -19,25 +19,33 @@ params:
   de_summary: null
   cis_pairs: null
   cis_pairs_sig: null
+  cis_window: 100000
   ora: null
   gsea: null
+  heterogeneity: null
+  heterogeneity_cv: null
+  heterogeneity_concordant_frac: 0.50
+  heterogeneity_discordant_frac: 0.25
   gene_catalog: null
 ---
 
 ```{r setup, include=FALSE}
 library(readr)
 library(dplyr)
+library(tidyr)
 library(knitr)
 library(DT)
 library(plotly)
 library(ggplot2)
+library(ggrepel)
+library(ggridges)
 
 contrast <- params$contrast
 group    <- params$group
 
 ORIGIN_COLORS <- c(
-  "novel"           = "#d62728",
-  "annotated_lncrna" = "#1f77b4",
+  "novel"           = "#c2185b",
+  "annotated_lncrna" = "#2e7d32",
   "reference_other" = "#7f7f7f"
 )
 
@@ -110,6 +118,24 @@ if (!is.null(ora) && "contrast" %in% colnames(ora)) {
 if (!is.null(gsea) && "contrast" %in% colnames(gsea)) {
   gsea <- filter(gsea, contrast == !!contrast)
 }
+
+# Heterogeneity diagnostic (optional feature, off by default): the group-level table is
+# a header-only, 0-row placeholder when params.heterogeneity_analysis is disabled for
+# this norm_group, so het_ct/het_cv_ct simply end up empty and the section is skipped.
+het <- tryCatch(read_tsv(params$heterogeneity, show_col_types = FALSE),
+                error = function(e) NULL)
+het_cv <- tryCatch(read_tsv(params$heterogeneity_cv, show_col_types = FALSE),
+                   error = function(e) NULL)
+het_ct <- if (!is.null(het) && "contrast" %in% colnames(het)) {
+  filter(het, contrast == !!contrast)
+} else { NULL }
+het_cv_ct <- if (!is.null(het_cv) && "contrast" %in% colnames(het_cv)) {
+  filter(het_cv, contrast == !!contrast)
+} else { NULL }
+if (!is.null(het_ct) && nrow(het_ct) > 0 && !is.null(catalog) && nrow(catalog) > 0) {
+  het_ct <- het_ct %>%
+    left_join(select(catalog, gene_id, gene_name, class_code), by = "gene_id")
+}
 ```
 
 ## Tested catalog
@@ -157,22 +183,30 @@ if (!is.null(de_ann) && nrow(de_ann) > 0) {
 
 ### Volcano plot
 
-Colored by `origin`: protein-coding in gray, annotated lncRNAs in blue, novel lncRNAs in red.
+Colored by `origin` (green: annotated lncRNAs, fuchsia: novel lncRNAs, gray: protein-coding/other).
+Point size marks significance (large = padj<0.05, small = not significant); significant
+genes are labeled.
 
-```{r volcano}
+```{r volcano, fig.width=8, fig.height=6}
 if (!is.null(de_ann) && nrow(de_ann) > 0 &&
     all(c("log2FoldChange", "pvalue") %in% colnames(de_ann))) {
   de_ann <- de_ann %>% mutate(
     sig    = ifelse(!is.na(padj) & padj < 0.05, "FDR<0.05", "ns"),
     origin = ifelse(is.na(origin), "reference_other", origin),
-    logp   = -log10(pvalue)
+    logp   = -log10(pvalue),
+    label  = coalesce(gene_name, gene_id)
   )
   p <- ggplot(de_ann, aes(log2FoldChange, logp)) +
-    geom_point(aes(color = origin, shape = sig), alpha = 0.6, size = 1.2) +
+    geom_point(aes(color = origin, size = sig), alpha = 0.6) +
+    geom_text_repel(
+      data = filter(de_ann, sig == "FDR<0.05"),
+      aes(label = label), size = 3, max.overlaps = 30, min.segment.length = 0
+    ) +
     scale_color_manual(values = ORIGIN_COLORS[sort(unique(de_ann$origin))],
                        na.value = "#7f7f7f") +
+    scale_size_manual(values = c("FDR<0.05" = 3, "ns" = 0.8)) +
     geom_hline(yintercept = -log10(0.05), linetype = "dashed", alpha = 0.4) +
-    labs(color = "Origin", shape = "Significance") +
+    labs(color = "Origin", size = "Significance") +
     theme_minimal()
   print(p)
 } else {
@@ -180,30 +214,44 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
 }
 ```
 
-### Significant by class (lncRNAs)
+### Tested lncRNAs by class
+
+Every tested class is shown, including those with zero hits. Light gray = not
+significant, dark = significant (split by direction).
 
 ```{r class-barplot}
-sig_lnc <- NULL
+lnc_by_class <- NULL
 if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
-  sig_lnc <- de_ann %>%
-    filter(origin %in% c("novel", "annotated_lncrna"), !is.na(padj), padj < 0.05) %>%
+  lnc_by_class <- de_ann %>%
+    filter(origin %in% c("novel", "annotated_lncrna"), !is.na(padj)) %>%
     mutate(
-      label     = ifelse(origin == "novel",
-                         coalesce(class_code, "unknown"),
-                         coalesce(gene_biotype, "lncRNA")),
-      direction = ifelse(log2FoldChange > 0, "up", "down")
-    )
+      label  = ifelse(origin == "novel",
+                      coalesce(class_code, "unknown"),
+                      coalesce(gene_biotype, "lncRNA")),
+      status = case_when(
+        padj >= 0.05        ~ "not significant",
+        log2FoldChange > 0  ~ "significant (up)",
+        TRUE                ~ "significant (down)"
+      )
+    ) %>%
+    count(origin, label, status) %>%
+    complete(nesting(origin, label), status, fill = list(n = 0))
 }
-if (!is.null(sig_lnc) && nrow(sig_lnc) > 0) {
-  p <- ggplot(sig_lnc, aes(label, fill = direction)) +
-    geom_bar(position = "dodge") +
+if (!is.null(lnc_by_class) && nrow(lnc_by_class) > 0) {
+  p <- ggplot(lnc_by_class, aes(label, n, fill = status)) +
+    geom_col(position = "stack") +
     facet_wrap(~origin, scales = "free_x") +
-    labs(x = NULL, y = "N significant", fill = "Direction") +
+    scale_fill_manual(values = c(
+      "not significant"    = "#d9d9d9",
+      "significant (up)"   = "#b71c1c",
+      "significant (down)" = "#1565c0"
+    )) +
+    labs(x = NULL, y = "N genes", fill = NULL) +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
   print(p)
 } else {
-  cat("No significant lncRNA genes for this contrast.")
+  cat("No lncRNA genes tested for this contrast.")
 }
 ```
 
@@ -270,6 +318,14 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
 
 ## Cis-regulatory associations
 
+lncRNAs often act on nearby genes. For every lncRNA (novel or annotated) this analysis
+tests Spearman correlation between its expression and every protein-coding gene within
+&plusmn;`r format(params$cis_window, big.mark = ",")` bp,
+across all samples in this norm_group. Pairs below the FDR threshold are candidate
+cis-regulatory targets (`target_gene_id`/`target_gene_name`) — a starting point for
+follow-up, not proof of causality. `spearman_rho` gives the direction/strength of the
+correlation and `padj` the BH-corrected significance.
+
 ```{r cis}
 if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
   cat("**Significant cis pairs:**\n")
@@ -280,6 +336,23 @@ if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
 ```
 
 ## Functional enrichment — ORA
+
+```{r ora-dotplot, fig.width=7, fig.height=5}
+if (!is.null(ora) && nrow(ora) > 0 && all(c("GeneRatio", "p.adjust", "Count") %in% colnames(ora))) {
+  top_ora <- ora %>%
+    arrange(p.adjust) %>%
+    slice_head(n = 10) %>%
+    mutate(GeneRatioNum = sapply(strsplit(GeneRatio, "/"),
+                                 function(x) as.numeric(x[1]) / as.numeric(x[2])))
+  p <- ggplot(top_ora, aes(GeneRatioNum, reorder(Description, GeneRatioNum))) +
+    geom_point(aes(size = Count, color = p.adjust)) +
+    scale_color_gradient(low = "#b71c1c", high = "#1565c0") +
+    labs(title = "Top 10 ORA terms", x = "Gene ratio", y = NULL,
+         size = "Count", color = "p.adjust") +
+    theme_minimal()
+  print(p)
+}
+```
 
 ```{r ora}
 if (!is.null(ora) && nrow(ora) > 0) {
@@ -292,6 +365,28 @@ if (!is.null(ora) && nrow(ora) > 0) {
 
 ## Functional enrichment — GSEA
 
+```{r gsea-ridgeplot, fig.width=7, fig.height=5}
+if (!is.null(gsea) && nrow(gsea) > 0 && "core_enrichment" %in% colnames(gsea) &&
+    !is.null(de_ct) && "stat" %in% colnames(de_ct)) {
+  top_gsea <- gsea %>% arrange(p.adjust) %>% slice_head(n = 10)
+  ridge_df <- top_gsea %>%
+    select(Description, core_enrichment) %>%
+    separate_rows(core_enrichment, sep = "/") %>%
+    rename(gene_id = core_enrichment) %>%
+    left_join(select(de_ct, gene_id, stat), by = "gene_id") %>%
+    filter(!is.na(stat))
+  if (nrow(ridge_df) > 0) {
+    p <- ggplot(ridge_df, aes(stat, reorder(Description, stat, FUN = median))) +
+      geom_density_ridges(fill = "#6a1b9a", alpha = 0.6) +
+      labs(title = "Top 10 GSEA terms", x = "DE test statistic", y = NULL) +
+      theme_minimal()
+    print(p)
+  } else {
+    cat("Core-enrichment genes did not match the DE summary — ridgeplot skipped.\n")
+  }
+}
+```
+
 ```{r gsea}
 if (!is.null(gsea) && nrow(gsea) > 0) {
   datatable(compact_list_columns(gsea), escape = FALSE, options = list(pageLength = 20))
@@ -301,10 +396,80 @@ if (!is.null(gsea) && nrow(gsea) > 0) {
 }
 ```
 
+```{r heterogeneity-check, include=FALSE}
+# Off by default: het_ct/het_cv_ct are NULL (or 0 rows) unless
+# params.heterogeneity_analysis is enabled for this norm_group, in which case this
+# whole section is skipped and the report is identical to the pre-feature pipeline.
+show_heterogeneity <- !is.null(het_ct) && nrow(het_ct) > 0
+```
+
+`r if (show_heterogeneity) "## Heterogeneity Analysis"`
+
+```{r heterogeneity-intro, results='asis'}
+if (show_heterogeneity) {
+  cat('<div style="text-align: justify;">\n\n')
+  cat("Complementary, patient-level diagnostic (Carrasco-Leon et al. 2021, *Leukemia*): ",
+      "a standard group-mean DE test can miss lncRNAs whose expression is heterogeneous ",
+      "across individual case samples. This does not replace the DESeq2 result above.\n\n")
+  cat('</div>\n')
+}
+```
+
+```{r heterogeneity-cv-plot, eval=show_heterogeneity, fig.width=6, fig.height=4, results='asis'}
+if (!is.null(het_cv_ct) && nrow(het_cv_ct) > 0) {
+  p <- ggplot(het_cv_ct, aes(origin_group, cv, fill = origin_group)) +
+    geom_violin(alpha = 0.6) +
+    geom_boxplot(width = 0.15, outlier.shape = NA) +
+    labs(x = NULL, y = "CV (log2 TPM, case samples)", fill = NULL) +
+    theme_minimal() +
+    theme(legend.position = "none")
+  print(p)
+
+  t_stat <- unique(het_cv_ct$t_statistic)[1]
+  p_val  <- unique(het_cv_ct$p_value)[1]
+  cat(sprintf(
+    "\n- **lncRNA CV**: mean = %.3f (n = %d)\n- **Coding CV**: mean = %.3f (n = %d)\n- **Welch t-test**: t = %.3f, p = %.3g\n",
+    unique(het_cv_ct$mean_cv_lncrna)[1], unique(het_cv_ct$n_lncrna_genes)[1],
+    unique(het_cv_ct$mean_cv_coding)[1], unique(het_cv_ct$n_coding_genes)[1],
+    ifelse(is.na(t_stat), NA, t_stat), ifelse(is.na(p_val), NA, p_val)
+  ))
+} else {
+  cat("No CV comparison data available for this contrast.\n")
+}
+```
+
+### Altered lncRNAs missed by the standard DE test
+
+Genes called "altered" by sample-level concordance (concordant in
+&ge;`r round(100 * params$heterogeneity_concordant_frac)`% of case samples,
+discordant in <`r round(100 * params$heterogeneity_discordant_frac)`%) that
+were **not** already significant (padj < 0.05) in the main DESeq2 contrast — the actual
+value-add of this diagnostic.
+
+```{r heterogeneity-table}
+if (show_heterogeneity) {
+  de_sig_ids <- if (!is.null(de_ct) && "gene_id" %in% colnames(de_ct)) {
+    de_ct$gene_id[!is.na(de_ct$padj) & de_ct$padj < 0.05]
+  } else character()
+
+  tab <- het_ct %>%
+    filter(altered_call == "altered", !(gene_id %in% de_sig_ids)) %>%
+    select(any_of(c("gene_id", "gene_name", "class_code", "direction",
+                    "concordant_frac", "discordant_frac", "n_case", "n_control")))
+  if (nrow(tab) > 0) {
+    datatable(tab, filter = "top", options = list(pageLength = 20))
+  } else {
+    cat("No additional altered lncRNAs found beyond the standard DESeq2 result.\n")
+  }
+}
+```
+
 ## Session info
 
 ```{r session, echo=FALSE}
-devtools_or <- tryCatch({ if (requireNamespace("sessioninfo", quietly=TRUE))
-  sessioninfo::session_info() else sessionInfo() }, error = function(e) sessionInfo())
-cat("Generated:", Sys.time(), "\n")
+cat("Generated:", format(Sys.time()), "\n")
+si <- tryCatch({
+  if (requireNamespace("sessioninfo", quietly = TRUE)) sessioninfo::session_info() else sessionInfo()
+}, error = function(e) NULL)
+if (!is.null(si)) print(si)
 ```

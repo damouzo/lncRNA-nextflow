@@ -10,7 +10,10 @@ process TXIMPORT_AND_FILTER {
 
     output:
     tuple val(group), path("${group}_tximport_counts.rds"), emit: counts_rds
-    path "${group}_tximport_tpm.rds",                        emit: tpm_rds
+    // Keyed by group (unlike counts_rds's sibling outputs below): needed so downstream
+    // consumers can .join() it per norm_group instead of risking the F1-style hazard of
+    // pairing single-execution/queue channels positionally across >1 norm_group.
+    tuple val(group), path("${group}_tximport_tpm.rds"),    emit: tpm_rds
     path "${group}_sample_qc_pca.png",                      emit: pca_plot
     path "${group}_filter_stats.tsv",                       emit: filter_stats
 

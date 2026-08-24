@@ -115,6 +115,22 @@
                     "type": "number",
                     "default": 0.0,
                     "description": "Minimum biological log2 fold-change (set >0 for threshold tests)"
+                },
+                "heterogeneity_analysis": {
+                    "type": "object",
+                    "additionalProperties": {"type": "boolean"},
+                    "default": {},
+                    "description": "Per-norm_group opt-in map for the expression-heterogeneity diagnostic (Carrasco-Leon et al. 2021). Groups not listed default to disabled, e.g. {\"MNC\": true, \"NB4\": false}."
+                },
+                "heterogeneity_concordant_frac": {
+                    "type": "number",
+                    "default": 0.50,
+                    "description": "Minimum fraction of case samples agreeing on direction (vs control) to call a gene 'altered'"
+                },
+                "heterogeneity_discordant_frac": {
+                    "type": "number",
+                    "default": 0.25,
+                    "description": "Maximum fraction of case samples in the opposite direction still allowed for an 'altered' call"
                 }
             }
         },

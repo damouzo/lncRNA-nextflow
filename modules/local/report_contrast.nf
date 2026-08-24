@@ -10,9 +10,15 @@
 
 process REPORT_CONTRAST {
 
+    // Physical copies instead of symlinks: quarto resolves the real path of its
+    // input document, so a symlinked template would render next to the source
+    // file in assets/ instead of in the task dir.
+    stageInMode 'copy'
+
     input:
     tuple val(group), path(de_summary), path(cis_pairs),
           path(cis_pairs_sig), path(ora), path(gsea),
+          path(heterogeneity), path(heterogeneity_cv),
           path(coldata), path(contrasts_tsv)
     path template         // report_template.qmd
     path gene_catalog     // gene_catalog.tsv (origin/class_code/biotype annotations)
@@ -65,8 +71,13 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("de_summary=${de_summary}")),
             "-P", shQuote(paste0("cis_pairs=${cis_pairs}")),
             "-P", shQuote(paste0("cis_pairs_sig=${cis_pairs_sig}")),
+            "-P", shQuote(paste0("cis_window=${params.cis_window}")),
             "-P", shQuote(paste0("ora=${ora}")),
             "-P", shQuote(paste0("gsea=${gsea}")),
+            "-P", shQuote(paste0("heterogeneity=${heterogeneity}")),
+            "-P", shQuote(paste0("heterogeneity_cv=${heterogeneity_cv}")),
+            "-P", shQuote(paste0("heterogeneity_concordant_frac=${params.heterogeneity_concordant_frac}")),
+            "-P", shQuote(paste0("heterogeneity_discordant_frac=${params.heterogeneity_discordant_frac}")),
             "-P", shQuote(paste0("gene_catalog=${gene_catalog}")),
             "--output", shQuote(fname)
         )

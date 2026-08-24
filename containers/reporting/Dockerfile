@@ -29,7 +29,8 @@ RUN wget -q https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO
 RUN R -e " \
     install.packages(c( \
         'rmarkdown', 'knitr', 'kableExtra', 'DT', 'plotly', \
-        'readr', 'dplyr', 'tibble', 'ggplot2', 'glue' \
+        'readr', 'dplyr', 'tibble', 'ggplot2', 'glue', \
+        'ggrepel', 'ggridges' \
     ), repos='https://cloud.r-project.org', Ncpus=4) \
 "
 
