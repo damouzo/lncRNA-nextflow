@@ -78,12 +78,13 @@ workflow {
         .combine(ch_contrasts_tsv)
 
     // ── Phase B — Quantification & Statistics (per norm_group) ─────────────
+    // DE runs on the full transcriptome (reference + novel) via the full-universe
+    // tx2gene; origin (novel/annotated/reference_other) is added at reporting time.
     QUANTIFICATION(
         ch_per_group,
         DISCOVERY.out.tx2gene_detailed,
         validateInput.out.design_formula,
-        DISCOVERY.out.frozen_gtf,
-        params.gtf,
+        DISCOVERY.out.gene_catalog,
         params.outdir
     )
 }

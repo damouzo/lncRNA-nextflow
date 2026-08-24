@@ -15,6 +15,7 @@ include { CATALOG_OVERLAP }         from '../modules/local/catalog_overlap'
 include { FEATURECOUNTS_EXPRESSION } from '../modules/local/featurecounts_expression'
 include { EXPRESSION_RECURRENCE }   from '../modules/local/expression_recurrence'
 include { ANNOTATION_FREEZE }       from '../modules/local/annotation_freeze'
+include { BUILD_GENE_CATALOG }      from '../modules/local/build_gene_catalog'
 
 workflow DISCOVERY {
     take:
@@ -105,11 +106,19 @@ workflow DISCOVERY {
     ANNOTATION_FREEZE(
         EXPRESSION_RECURRENCE.out.recurrence_table,
         ch_for_freeze,
-        genome_fa
+        genome_fa,
+        reference_gtf
+    )
+
+    // Gene catalog: one row per gene of the full analysis universe
+    BUILD_GENE_CATALOG(
+        ANNOTATION_FREEZE.out.frozen_gtf,
+        reference_gtf
     )
 
     emit:
     frozen_gtf        = ANNOTATION_FREEZE.out.frozen_gtf
     tx2gene_detailed   = ANNOTATION_FREEZE.out.tx2gene_detailed
+    gene_catalog       = BUILD_GENE_CATALOG.out.gene_catalog
     strand_consensus   = ch_strandedness
 }

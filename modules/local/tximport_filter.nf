@@ -5,16 +5,14 @@
 process TXIMPORT_AND_FILTER {
 
     input:
-    path quant_dirs          // list of {sample}_quant dirs from Salmon
+    tuple val(group), path(quant_dirs), path(coldata_csv)  // keyed: no positional pairing downstream
     path tx2gene_detailed
-    path coldata_csv
-    val group                 // norm_group name for output prefix
 
     output:
-    path "${group}_tximport_counts.rds", emit: counts_rds
-    path "${group}_tximport_tpm.rds",   emit: tpm_rds
-    path "${group}_sample_qc_pca.png",  emit: pca_plot
-    path "${group}_filter_stats.tsv",   emit: filter_stats
+    tuple val(group), path("${group}_tximport_counts.rds"), emit: counts_rds
+    path "${group}_tximport_tpm.rds",                        emit: tpm_rds
+    path "${group}_sample_qc_pca.png",                      emit: pca_plot
+    path "${group}_filter_stats.tsv",                       emit: filter_stats
 
     script:
     """

@@ -8,11 +8,8 @@
 process DESEQ2_DE {
 
     input:
-    path counts_rds
-    path coldata_csv
-    path contrasts_tsv
+    tuple val(group), path(counts_rds), path(coldata_csv), path(contrasts_tsv)
     val design_formula
-    val group                  // norm_group name for output prefix
 
     output:
     path "${group}_deseq2_results/*",              emit: all_results

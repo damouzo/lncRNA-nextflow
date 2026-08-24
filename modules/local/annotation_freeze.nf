@@ -1,5 +1,8 @@
-// Annotation freezing — final GTF + tx2gene_detailed + checksum manifest
-// Strict barrier: Phase B only receives frozen artifacts
+// Annotation freezing — frozen novel GTF + full-universe tx2gene + checksum manifest
+// Strict barrier: Phase B only receives frozen artifacts.
+// tx2gene_detailed.tsv now spans the entire quantification universe
+// (all reference transcripts + novel lncRNAs) so DESeq2 normalizes and
+// corrects over the full transcriptome, matching the Salmon index.
 
 process ANNOTATION_FREEZE {
 
@@ -7,6 +10,7 @@ process ANNOTATION_FREEZE {
     path recurrence_table
     path source_gtf            // length-filtered GTF with all candidate transcripts
     path genome_fa
+    path reference_gtf         // reference annotation (full tx2gene universe)
 
     output:
     path "frozen_lncrna.gtf", emit: frozen_gtf
@@ -37,7 +41,7 @@ process ANNOTATION_FREEZE {
     cat("Frozen lncRNAs:", length(nc_ids), "\\n")
 
     # Extract matching transcripts from source GTF by frozen transcript ID
-    system(paste("grep -Ff frozen_ids.txt", shQuote("${source_gtf}"),
+    system(paste("grep -F -f frozen_ids.txt", shQuote("${source_gtf}"),
                  "> frozen_lncrna.gtf"))
 
     # Fail loudly instead of silently substituting the full candidate set
@@ -45,16 +49,51 @@ process ANNOTATION_FREEZE {
         stop("No frozen transcripts matched in source GTF. Check transcript ID consistency between CPAT/CPC2 and the assembly.")
     }
 
-    # Derive tx2gene directly from the frozen GTF so transcript/gene IDs match
-    # exactly what gffread emits when building the Salmon index.
-    # Anchor gene_id to '; ' so ref_gene_id is not captured by the greedy regex.
+    # Keep these two helpers in sync with BUILD_GENE_CATALOG: both must strip
+    # Ensembl versions but leave MSTRG IDs verbatim, or downstream gene_id
+    # joins (tx2gene / catalog / DE / report) break silently.
+    extract_attr <- function(attrs, key) {
+        pat <- paste0('(?:^|; )', key, ' "([^"]+)"')
+        m <- regexpr(pat, attrs, perl = TRUE)
+        ans <- rep(NA_character_, length(attrs))
+        ok <- m > 0L
+        if (any(ok)) ans[ok] <- sub(paste0('.*', pat, '.*\$'), '\\\\1', attrs[ok], perl = TRUE)
+        ans
+    }
+    strip_version <- function(x) sub("\\\\.[0-9]+\$", "", x)
+
+    # ---- Reference tx2gene: one transcript per line, same universe as the index ----
+    system(paste("grep -P '\\ttranscript\\t'", shQuote("${reference_gtf}"),
+                 "> ref_transcript_lines.txt"))
+    ref_lines <- readLines("ref_transcript_lines.txt")
+    ref_parts <- strsplit(ref_lines, "\\t", fixed = TRUE)
+    ref_ok    <- lengths(ref_parts) >= 9L
+    ref_attrs <- vapply(ref_parts[ref_ok], function(p) p[[9L]], character(1))
+    ref_txg <- unique(data.frame(
+        transcript_id = strip_version(extract_attr(ref_attrs, "transcript_id")),
+        gene_id       = strip_version(extract_attr(ref_attrs, "gene_id")),
+        stringsAsFactors = FALSE
+    ))
+    ref_txg <- ref_txg[!is.na(ref_txg\$transcript_id) & !is.na(ref_txg\$gene_id), ]
+    ref_txg\$category <- "reference"
+
+    # ---- Novel tx2gene from the frozen GTF ----
+    # MSTRG IDs are not versioned like Ensembl — keep them verbatim
     gtf_lines <- readLines("frozen_lncrna.gtf")
-    has_tx   <- grepl('transcript_id "', gtf_lines)
-    tx_id    <- sub('.*transcript_id "([^"]+)".*', '\\\\1', gtf_lines[has_tx])
-    gene_id  <- sub('.*; gene_id "([^"]+)".*', '\\\\1', gtf_lines[has_tx])
-    tx2gene  <- unique(data.frame(transcript_id = tx_id, gene_id = gene_id,
-                                  stringsAsFactors = FALSE))
-    tx2gene\$category <- "novel_lncRNA"
+    gtf_parts <- strsplit(gtf_lines, "\\t", fixed = TRUE)
+    gtf_ok    <- lengths(gtf_parts) >= 9L
+    gtf_attrs <- vapply(gtf_parts[gtf_ok], function(p) p[[9L]], character(1))
+    has_tx <- grepl("transcript_id", gtf_attrs, fixed = TRUE)
+    gtf_attrs <- gtf_attrs[has_tx]
+    nv_tx2gene <- unique(data.frame(
+        transcript_id = extract_attr(gtf_attrs, "transcript_id"),
+        gene_id       = extract_attr(gtf_attrs, "gene_id"),
+        stringsAsFactors = FALSE
+    ))
+    nv_tx2gene <- nv_tx2gene[!is.na(nv_tx2gene\$transcript_id) & !is.na(nv_tx2gene\$gene_id), ]
+    nv_tx2gene\$category <- "novel_lncRNA"
+
+    tx2gene <- unique(rbind(ref_txg, nv_tx2gene))
 
     write_tsv(tx2gene, "tx2gene_detailed.tsv")
 
@@ -67,12 +106,15 @@ process ANNOTATION_FREEZE {
   "pipeline_version": "0.1.0",
   "freeze_date": "%s",
   "n_novel_lncrna": %d,
+  "n_reference_transcripts": %d,
+  "n_total_transcripts": %d,
   "sha256": {
     "frozen_gtf": "%s",
     "tx2gene_detailed": "%s"
   }
 }
-', Sys.time(), nrow(nc), trimws(sha_gtf), trimws(sha_tsv)))
+', Sys.time(), nrow(nc), nrow(ref_txg), nrow(tx2gene),
+         trimws(sha_gtf), trimws(sha_tsv)))
     sink()
 
     writeLines(c(trimws(sha_gtf), trimws(sha_tsv)), "frozen_checksums.sha256")

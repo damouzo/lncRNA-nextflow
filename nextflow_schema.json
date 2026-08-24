@@ -88,6 +88,12 @@
                     "type": "number",
                     "default": 0.3,
                     "description": "Intron-coverage ratio threshold for monoexonic risk flag"
+                },
+                "annotated_lncrna_biotypes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": ["lncRNA"],
+                    "description": "gene_biotype values treated as annotated lncRNA in the gene catalog"
                 }
             }
         },
