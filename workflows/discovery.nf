@@ -16,6 +16,9 @@ include { FEATURECOUNTS_EXPRESSION } from '../modules/local/featurecounts_expres
 include { EXPRESSION_RECURRENCE }   from '../modules/local/expression_recurrence'
 include { ANNOTATION_FREEZE }       from '../modules/local/annotation_freeze'
 include { BUILD_GENE_CATALOG }      from '../modules/local/build_gene_catalog'
+include { CHECK_REFERENCE_COMPATIBILITY } from '../modules/local/check_reference_compatibility'
+include { CONSERVATION_SCORE }      from '../modules/local/conservation_score'
+include { SYNTENY_CHECK }           from '../modules/local/synteny_check'
 
 workflow DISCOVERY {
     take:
@@ -32,6 +35,16 @@ workflow DISCOVERY {
 
     // Validate BAM integrity
     BAM_QUICKCHECK(ch_bams)
+
+    // External conservation/synteny resources must match params.genome.
+    // Fail fast (header-only) before any bigWig/chain read — only runs when
+    // at least one resource is configured. No-op otherwise (zero regression).
+    // Resources are passed as staged paths (container-visible), not host paths.
+    if (params.conservation_bigwig || params.synteny_chain_file) {
+        ch_bigwig = params.conservation_bigwig ? file(params.conservation_bigwig, checkIfExists: true) : []
+        ch_chain  = params.synteny_chain_file ? file(params.synteny_chain_file, checkIfExists: true) : []
+        CHECK_REFERENCE_COMPATIBILITY(genome_fa, ch_bigwig, ch_chain)
+    }
 
     // Duplicate validated BAMs: strandedness + StringTie2 + featureCounts
     ch_bams_strand   = BAM_QUICKCHECK.out.validated
@@ -110,10 +123,28 @@ workflow DISCOVERY {
         reference_gtf
     )
 
+    // Conservation & synteny (reporting-only, optional). Gated so disabled
+    // runs produce identical output; a header-only placeholder keeps
+    // BUILD_GENE_CATALOG's join total (all-NA new columns) when skipped.
+    ch_conservation = params.conservation_bigwig
+        ? CONSERVATION_SCORE(ANNOTATION_FREEZE.out.frozen_gtf,
+                             file(params.conservation_bigwig, checkIfExists: true)).out.scores.first()
+        : Channel.of("transcript_id\tmean_score\tmax_score\tpct_bases_conserved")
+            .collectFile(name: 'conservation_placeholder.tsv', newLine: true).first()
+
+    ch_synteny = (params.synteny_chain_file && params.synteny_target_gtf)
+        ? SYNTENY_CHECK(ANNOTATION_FREEZE.out.frozen_gtf,
+                        file(params.synteny_chain_file, checkIfExists: true),
+                        file(params.synteny_target_gtf, checkIfExists: true)).out.scores.first()
+        : Channel.of("transcript_id\tsyntenic_locus\tsyntenic_target_gene_id")
+            .collectFile(name: 'synteny_placeholder.tsv', newLine: true).first()
+
     // Gene catalog: one row per gene of the full analysis universe
     BUILD_GENE_CATALOG(
         ANNOTATION_FREEZE.out.frozen_gtf,
-        reference_gtf
+        reference_gtf,
+        ch_conservation,
+        ch_synteny
     )
 
     emit:

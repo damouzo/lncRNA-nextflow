@@ -79,6 +79,12 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("heterogeneity_concordant_frac=${params.heterogeneity_concordant_frac}")),
             "-P", shQuote(paste0("heterogeneity_discordant_frac=${params.heterogeneity_discordant_frac}")),
             "-P", shQuote(paste0("gene_catalog=${gene_catalog}")),
+            "-P", shQuote(paste0("species=${params.species}")),
+            "-P", shQuote(paste0("genome_build=${params.genome_build ?: ''}")),
+            "-P", shQuote(paste0("conservation_metric=${params.conservation_metric}")),
+            "-P", shQuote(paste0("conservation_configured=${params.conservation_bigwig ? true : false}")),
+            "-P", shQuote(paste0("synteny_configured=${(params.synteny_chain_file && params.synteny_target_gtf) ? true : false}")),
+            "-P", shQuote(paste0("synteny_target_species=${params.synteny_target_species ?: ''}")),
             "--output", shQuote(fname)
         )
         cat("Rendering contrast:", ct, "\n")

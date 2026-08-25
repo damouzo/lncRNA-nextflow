@@ -1,0 +1,39 @@
+# Example params.yaml for lncRNA-nextflow
+# Copy and edit; the pipeline consumes these paths as-is (never downloads).
+# Adjust genome/gtf paths to your species/build — the pipeline is species-agnostic.
+
+# ---- Input data (output from nf-core/rnaseq) ----
+input:     samplesheet.csv
+contrasts: comparisons.csv
+outdir:    results
+
+# ---- Reference annotation (species-agnostic) ----
+genome: /path/to/genome.fa
+gtf:    /path/to/annotation.gtf
+# design_formula: '~ batch + condition'
+
+# ---- Species / build metadata ----
+# species is a free-form label used in report/logs only.
+# genome_build is REQUIRED whenever conservation_bigwig or synteny_chain_file
+# is set — it lets the pipeline verify that external resources share the
+# reference assembly (fails fast on mismatch).
+species:      'human'
+genome_build: 'GRCh38.p14'
+
+# ---- Optional: sequence conservation (reporting-only, never a filter) ----
+# phastCons/phyloP/GERP bigWig from UCSC, in the SAME build as genome.
+conservation_bigwig:    /path/to/reference/conservation/hg38.phastCons100way.bw
+conservation_metric:    'phastCons'
+conservation_min_score: 0.5
+
+# ---- Optional: synteny / liftOver (reporting-only, never a filter) ----
+# Chain file = liftOver from the genome build -> target species build.
+synteny_chain_file:     /path/to/reference/liftover/hg38ToMm39.over.chain.gz
+synteny_target_species: 'mouse'
+synteny_target_gtf:     /path/to/reference/mouse/Mus_musculus.GRCm39.gtf
+
+# ---- Optional: reference lncRNA catalogs (reporting-only) ----
+# noncode_bed:     /path/to/noncode.bed
+# lncipedia_bed:   /path/to/lncipedia.bed
+# rnacentral_bed:  /path/to/rnacentral.bed
+# fantomcat_bed:   /path/to/fantomcat.bed

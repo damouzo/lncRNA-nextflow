@@ -27,6 +27,12 @@ params:
   heterogeneity_concordant_frac: 0.50
   heterogeneity_discordant_frac: 0.25
   gene_catalog: null
+  species: ""
+  genome_build: ""
+  conservation_metric: "phastCons"
+  conservation_configured: false
+  synteny_configured: false
+  synteny_target_species: ""
 ---
 
 ```{r setup, include=FALSE}
@@ -98,9 +104,21 @@ catalog <- tryCatch(read_tsv(params$gene_catalog, show_col_types = FALSE),
 de_ann <- de_ct
 if (!is.null(catalog) && nrow(catalog) > 0 && "gene_id" %in% colnames(de_ct)) {
   de_ann <- de_ct %>%
-    left_join(select(catalog, gene_id, gene_name, gene_biotype, origin, class_code),
+    left_join(select(catalog, gene_id, gene_name, gene_biotype, origin, class_code,
+                     conservation_mean, conservation_pct, syntenic_locus, syntenic_target_gene_id),
               by = "gene_id")
 }
+
+# Conservation/synteny gating: a section is only shown when the configured
+# module produced data (not merely when the column exists), otherwise an
+# all-NA column would render empty/confusing plots. Columns are always present
+# in the catalog (NA when the module was skipped).
+has_conservation <- isTRUE(params$conservation_configured) &&
+  !is.null(catalog) && "conservation_mean" %in% colnames(catalog) &&
+  any(!is.na(catalog$conservation_mean))
+has_synteny <- isTRUE(params$synteny_configured) &&
+  !is.null(catalog) && "syntenic_locus" %in% colnames(catalog) &&
+  any(!is.na(catalog$syntenic_locus))
 
 cis <- tryCatch(read_tsv(params$cis_pairs, show_col_types = FALSE),
                 error = function(e) NULL)
@@ -461,6 +479,47 @@ if (show_heterogeneity) {
   } else {
     cat("No additional altered lncRNAs found beyond the standard DESeq2 result.\n")
   }
+}
+```
+
+## Conservation
+
+```{r conservation}
+if (has_conservation) {
+  cat(sprintf("**Metric:** %s (build: %s)\n\n",
+              params$conservation_metric, params$genome_build))
+  cons_sum <- catalog %>%
+    filter(!is.na(conservation_mean)) %>%
+    group_by(origin) %>%
+    summarise(
+      n           = n(),
+      mean_score  = round(mean(conservation_mean, na.rm = TRUE), 3),
+      pct_conserved = round(100 * mean(conservation_pct, na.rm = TRUE), 1),
+      .groups     = "drop"
+    )
+  kable(cons_sum, format = "html")
+} else {
+  cat("**Conservación no evaluada para este run** (conservation_bigwig no configurado).\n")
+}
+```
+
+## Synteny
+
+```{r synteny}
+if (has_synteny) {
+  cat(sprintf("**Target species:** %s\n\n", params$synteny_target_species))
+  syn_sum <- catalog %>%
+    filter(!is.na(syntenic_locus)) %>%
+    group_by(origin) %>%
+    summarise(
+      n             = n(),
+      n_syntenic    = sum(syntenic_locus == TRUE, na.rm = TRUE),
+      pct_syntenic  = round(100 * mean(syntenic_locus == TRUE, na.rm = TRUE), 1),
+      .groups       = "drop"
+    )
+  kable(syn_sum, format = "html")
+} else {
+  cat("**Sintenia no evaluada para este run** (synteny_chain_file/synteny_target_gtf no configurados).\n")
 }
 ```
 

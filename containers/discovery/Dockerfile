@@ -48,6 +48,19 @@ RUN curl -fsSL https://github.com/COMBINE-lab/salmon/releases/download/v1.10.0/s
 # ---- RSeQC ----
 RUN pip3 install --no-cache-dir RSeQC
 
+# ---- pyBigWig (bigWig chrom/length checks + per-interval conservation scoring) ----
+RUN pip3 install --no-cache-dir pyBigWig
+
+# ---- UCSC binaries: liftOver (synteny) ----
+# bigWig handling is done via pyBigWig above, so only liftOver is fetched here.
+# Caveat: UCSC prebuilt binaries (hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64)
+# are linked against an older glibc. On glibc >= 2.34 (ubuntu 22.04) liftOver
+# may need a rebuild from source; keep the base pinned if it starts failing.
+RUN wget -q https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/liftOver \
+    && chmod +x liftOver \
+    && mv liftOver /usr/local/bin/liftOver \
+    && liftOver 2>&1 | head -1 || true
+
 # ---- Verify installations ----
 RUN samtools --version \
     && stringtie --version \
@@ -57,6 +70,8 @@ RUN samtools --version \
     && featureCounts -v 2>&1 | head -1 \
     && salmon --version \
     && infer_experiment.py --help 2>&1 | head -1 \
+    && python3 -c "import pyBigWig; print('pyBigWig', pyBigWig.__version__)" \
+    && liftOver 2>&1 | head -1 || true \
     && echo "All discovery tools verified successfully"
 
 WORKDIR /data

@@ -56,7 +56,39 @@ heterogeneity_analysis:
 
 `design_formula` is a base formula — DESeq2 simplifies to `~ condition` within any group where `batch` is constant.
 
-### 4. Run
+A filled example lives in `assets/params.example.yaml`.
+
+### 4. Optional external resources (conservation & synteny)
+
+The pipeline is **species-agnostic** and never downloads anything: you point it at
+static reference files in your `params.yaml`, exactly like `genome`/`gtf`. When
+`conservation_bigwig` and/or `synteny_chain_file` are set, an early
+`CHECK_REFERENCE_COMPATIBILITY` guard verifies they share the reference assembly
+(fails fast on a build mismatch — the main silent-bug risk). Both are
+**reporting-only**, never filters.
+
+```yaml
+# REQUIRED when enabling conservation or synteny:
+genome_build: 'GRCh38.p14'
+
+# Sequence conservation (phastCons / phyloP / GERP bigWig, same build as genome)
+conservation_bigwig: /path/to/reference/conservation/hg38.phastCons100way.bw
+
+# Synteny (liftOver chain + target-species GTF)
+synteny_chain_file:     /path/to/reference/liftover/hg38ToMm39.over.chain.gz
+synteny_target_species: 'mouse'
+synteny_target_gtf:     /path/to/reference/mouse/Mus_musculus.GRCm39.gtf
+```
+
+Where to get each resource (reference only — the pipeline consumes paths):
+
+| Resource | Where to obtain |
+|----------|-----------------|
+| phastCons/phyloP/GERP bigWig | UCSC Table Browser → *Conservation* track (select your build) |
+| liftOver chain file | UCSC (`hgdownload.soe.ucsc.edu` /goldenPath/*sourceBuild*/liftOver/) or Ensembl |
+| target-species GTF | Ensembl/Ensembl BioMart (`Mus_musculus.GRCm39.gtf`, etc.) |
+
+### 5. Run
 
 ```bash
 nextflow run /path/to/lncRNA-nextflow \
@@ -64,7 +96,7 @@ nextflow run /path/to/lncRNA-nextflow \
     -params-file params.yaml \
     -w /gpfs/scratch/$USER/lncrna_work
 ```
-### 5. Design decisions
+### 6. Design decisions
 
 - **norm_group separation.** Phase B runs independently per norm_group (NB4, MSCline, MNC, MSC) so cell lines and primary samples never share a size-factor normalization. Phase A uses all samples.
 - **tx2gene from the frozen GTF.** `ANNOTATION_FREEZE` parses the frozen GTF directly, so transcript IDs always match what Salmon sees. `gene_id` is anchored to `; ` so `ref_gene_id` is never captured by mistake.
