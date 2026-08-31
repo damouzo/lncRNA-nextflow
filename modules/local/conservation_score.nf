@@ -11,7 +11,6 @@ process CONSERVATION_SCORE {
 
     input:
     path frozen_gtf         // frozen novel lncRNA GTF (transcript/exon features)
-    path bigwig, optional: true     // staged conservation bigWig; absent when unset
 
     output:
     path "conservation_scores.tsv", emit: scores
@@ -21,11 +20,11 @@ process CONSERVATION_SCORE {
     #!/usr/bin/env python3
     import sys
 
-    bw_path = '${bigwig}'.strip()
+    bw_path = '${params.conservation_bigwig ?: ''}'.strip()
     frozen  = '${frozen_gtf}'
 
-    # An optional no-file input can render as empty, "null" or "[]" — treat
-    # all as "not configured".
+    # Groovy renders an unset param as the literal "null" — treat all sentinels
+    # as "not configured".
     if not bw_path or bw_path in ('null', 'none', '[]'):
         print('INFO: conservation_bigwig not configured; skipping CONSERVATION_SCORE')
         # Still emit an empty table so BUILD_GENE_CATALOG's join can rely on
@@ -45,7 +44,7 @@ process CONSERVATION_SCORE {
         m = re.search(r'(?:^|; )' + key + r' "([^"]+)"', attrs)
         return m.group(1) if m else None
 
-    with open(frozen_gtf) as fh:
+    with open(frozen) as fh:
         for line in fh:
             if not line or line.startswith('#'):
                 continue
@@ -72,6 +71,29 @@ process CONSERVATION_SCORE {
 
     bw = pyBigWig.open(bw_path)
     chrom_sizes = bw.chroms()   # cached: cheap now, avoids recomputing per exon
+
+    # GTF and bigWig may name chromosomes differently (Ensembl 'N' vs UCSC
+    # 'chrN') even for the same assembly. Detect the frozen GTF's own
+    # convention via the shared helper (bin/normalize_chrom.py) and reindex
+    # the bigWig names to match it — whichever side actually carries the
+    # 'chr' prefix, the reference is adjusted to the data.
+    import subprocess
+    gtf_has_chr = subprocess.check_output(
+        ['normalize_chrom.py', 'detect', frozen], text=True
+    ).strip() == 'chr'
+
+    def to_source_style(name):
+        has_chr = name.startswith('chr')
+        if gtf_has_chr and not has_chr:
+            return 'chr' + name
+        if not gtf_has_chr and has_chr:
+            return name[3:]
+        return name
+
+    bw_chrom_by_source_name = {to_source_style(k): k for k in chrom_sizes}
+    print(f'INFO: GTF chrom style: {"chr-prefixed" if gtf_has_chr else "no prefix"}; '
+          f'bigWig reindexed to match ({len(bw_chrom_by_source_name)} chroms)', file=sys.stderr)
+
     out = open('conservation_scores.tsv', 'w')
     out.write('transcript_id\\tmean_score\\tmax_score\\tpct_bases_conserved\\n')
 
@@ -81,12 +103,13 @@ process CONSERVATION_SCORE {
             out.write(tid + '\\tNA\\tNA\\tNA\\n')
             continue
         # Exon intervals (0-based half-open for pyBigWig)
+        bw_chrom = bw_chrom_by_source_name.get(t['chrom'])
         vals = []
         for (s, e) in t['exons']:
-            if t['chrom'] not in chrom_sizes:
+            if bw_chrom is None:
                 vals.append([])
                 continue
-            vals.append(bw.values(t['chrom'], s - 1, e))
+            vals.append(bw.values(bw_chrom, s - 1, e))
         flat = [v for sub in vals for v in sub if v is not None]
         if not flat:
             out.write(tid + '\\tNA\\tNA\\tNA\\n')

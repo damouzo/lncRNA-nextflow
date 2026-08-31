@@ -169,18 +169,6 @@ process CIS_ASSOCIATIONS {
     cat(sprintf("Cis associations: %d total, %d significant (FDR < %.2f)\\n",
                 nrow(cis_results), n_sig, FDR_CUTOFF))
 
-    # Annotate with DESeq2 results if available
-    de <- tryCatch({
-        read_tsv("${deseq2_summary}", show_col_types = FALSE)
-    }, error = function(e) NULL)
-
-    if (!is.null(de) && nrow(de) > 0 && "gene_id" %in% colnames(de)) {
-        # DE is per-contrast; annotate the lncRNA side on the first match
-        de_idx <- match(cis_sig\$lncrna_id, de\$gene_id)
-        cis_sig\$lncrna_DE_log2FC <- de\$log2FoldChange[de_idx]
-        cis_sig\$lncrna_DE_padj   <- de\$padj[de_idx]
-    }
-
     write_tsv(cis_results, "${group}_cis_pairs.tsv")
     write_tsv(cis_sig, "${group}_cis_pairs_significant.tsv")
 

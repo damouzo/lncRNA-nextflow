@@ -14,6 +14,7 @@ process DESEQ2_DE {
     output:
     path "${group}_deseq2_results/*",              emit: all_results
     path "${group}_deseq2_results/dds.rds",        emit: dds_rds
+    path "${group}_deseq2_results/design_diagnostics.txt", emit: design_diagnostics
     tuple val(group), path("${group}_deseq2_results/contrasts_summary.tsv"), emit: contrasts_summary
 
     script:
@@ -40,6 +41,31 @@ process DESEQ2_DE {
                         length(batch_levels)))
         }
     }
+
+    # Pre-flight: check design matrix rank. A rank-deficient design (e.g. batch fully
+    # confounded with condition) will silently produce unstable or uninterpretable
+    # DESeq2 results. Warn early with a clear diagnostic.
+    dir.create(paste0("${group}_deseq2_results"), showWarnings = FALSE, recursive = TRUE)
+    diag_file <- file.path("${group}_deseq2_results", "design_diagnostics.txt")
+    sink(diag_file)
+    n_coef <- ncol(model.matrix(as.formula(formula_used), data = coldata))
+    rank_mm <- qr(model.matrix(as.formula(formula_used), data = coldata))\$rank
+    cat(sprintf("formula: %s\\n", formula_used))
+    cat(sprintf("rank: %d / %d coefficients\\n", rank_mm, n_coef))
+    if (rank_mm < n_coef) {
+        cat("WARNING: design matrix is rank-deficient.\\n")
+        cat("This usually means a covariate is confounded with condition or batch.\\n")
+        if ("batch" %in% colnames(coldata) && nchar(paste(unique(coldata\$batch), collapse = "")) > 0) {
+            cat("\\nCondition x batch contingency table:\\n")
+            print(table(coldata\$condition, coldata\$batch))
+        }
+        cat("\\nThe pipeline will continue, but downstream results may be unreliable.\\n")
+    } else {
+        cat("OK\\n")
+    }
+    sink()
+    # Also echo to stdout so it's visible in the Nextflow log
+    writeLines(readLines(diag_file))
 
     contrasts <- read_tsv("${contrasts_tsv}", show_col_types = FALSE,
                           col_names = c("contrast_name", "numerator", "denominator", "batch"))

@@ -82,7 +82,45 @@ process ANNOTATION_FREEZE {
     gtf_lines <- readLines("frozen_lncrna.gtf")
     gtf_parts <- strsplit(gtf_lines, "\\t", fixed = TRUE)
     gtf_ok    <- lengths(gtf_parts) >= 9L
-    gtf_attrs <- vapply(gtf_parts[gtf_ok], function(p) p[[9L]], character(1))
+
+    # `stringtie --merge -G` reuses the reference transcript_id for transcripts
+    # that only partially match it (class_code != "=", e.g. containment "c"/"k"),
+    # which then collides with the same ID in ref_txg above. tximport keeps only
+    # the first tx2gene match per transcript, so every read for that transcript
+    # silently gets attributed to the reference gene and the novel gene ends up
+    # with zero counts everywhere. Disambiguate those IDs before they're used
+    # for quantification or tx2gene; exact matches ("=") keep the real accession.
+    ok_lines  <- gtf_lines[gtf_ok]
+    ok_parts  <- strsplit(ok_lines, "\\t", fixed = TRUE)
+    feature   <- vapply(ok_parts, function(p) p[[3L]], character(1))
+    attrs_all <- vapply(ok_parts, function(p) p[[9L]], character(1))
+
+    tx_mask    <- feature == "transcript"
+    tx_ids     <- extract_attr(attrs_all[tx_mask], "transcript_id")
+    tx_genes   <- extract_attr(attrs_all[tx_mask], "gene_id")
+    tx_class   <- extract_attr(attrs_all[tx_mask], "class_code")
+    ref_id_set <- unique(ref_txg\$transcript_id)
+
+    needs_rename <- !is.na(tx_class) & tx_class != "=" & strip_version(tx_ids) %in% ref_id_set
+    if (any(needs_rename)) {
+        old_ids    <- tx_ids[needs_rename]
+        rename_map <- setNames(paste0(tx_genes[needs_rename], "__", old_ids), old_ids)
+
+        line_ids <- extract_attr(attrs_all, "transcript_id")
+        hit      <- line_ids %in% old_ids
+        ok_lines[hit] <- mapply(function(line, old) {
+            sub(paste0('transcript_id "', old, '"'),
+                paste0('transcript_id "', rename_map[[old]], '"'),
+                line, fixed = TRUE)
+        }, ok_lines[hit], line_ids[hit])
+
+        cat(sprintf("INFO: disambiguated %d transcript IDs reused from the reference (class_code != '=')\\n",
+                    length(old_ids)))
+        gtf_lines[gtf_ok] <- ok_lines
+        writeLines(gtf_lines, "frozen_lncrna.gtf")
+    }
+
+    gtf_attrs <- vapply(strsplit(ok_lines, "\\t", fixed = TRUE), function(p) p[[9L]], character(1))
     has_tx <- grepl("transcript_id", gtf_attrs, fixed = TRUE)
     gtf_attrs <- gtf_attrs[has_tx]
     nv_tx2gene <- unique(data.frame(

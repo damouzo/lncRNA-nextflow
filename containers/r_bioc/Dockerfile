@@ -13,6 +13,13 @@ LABEL org.opencontainers.image.description="R/Bioconductor quantification & stat
 LABEL org.opencontainers.image.source="https://github.com/damouzo/lncRNA-nextflow"
 LABEL org.opencontainers.image.licenses="MIT"
 
+RUN apt-get update && apt-get install -y --no-install-recommends bedtools gffread python3 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Shared chr-prefix normalization helper used by CONSERVATION_SCORE,
+# SYNTENY_CHECK, and CATALOG_OVERLAP — all three call it from PATH.
+COPY bin/normalize_chrom.py /usr/local/bin/normalize_chrom.py
+
 RUN R -e " \
     BiocManager::install(c( \
         'tximport', \

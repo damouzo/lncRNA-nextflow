@@ -16,8 +16,6 @@ process CHECK_REFERENCE_COMPATIBILITY {
 
     input:
     path genome_fa              // reference fasta; .fai generated in the task dir
-    path conservation_bw, optional: true   // staged conservation bigWig; absent when unset
-    path synteny_chain, optional: true     // staged liftOver chain; absent when unset
 
     output:
     path "reference_compatibility.log", emit: compatibility_log
@@ -31,26 +29,25 @@ process CHECK_REFERENCE_COMPATIBILITY {
     echo "species        = ${params.species}" | tee -a reference_compatibility.log
     echo "genome_build   = ${params.genome_build ?: 'UNSET'}" | tee -a reference_compatibility.log
 
-    # Normalized copies (Groovy renders an unset param as the literal "null",
-    # and an optional no-file path input can render as empty, "null" or "[]").
-    # Reduce all of them to a single empty string here, then decide the SKIP.
+    # Resource paths come straight from params (the reference dir is mounted in
+    # the container, same as genome). Groovy renders an unset param as the
+    # literal "null" — reduce all sentinels to a real empty here, then SKIP.
     bigwig="${params.conservation_bigwig ?: ''}"
     chain="${params.synteny_chain_file ?: ''}"
-    # Paths staged by Nextflow for container visibility override the params
-    # string whenever the file was actually passed in.
-    if [ -n "${conservation_bw}" ] && [ "${conservation_bw}" != "null" ] && [ "${conservation_bw}" != "[]" ]; then bigwig="${conservation_bw}"; fi
-    if [ -n "${synteny_chain}" ] && [ "${synteny_chain}" != "null" ] && [ "${synteny_chain}" != "[]" ]; then chain="${synteny_chain}"; fi
+    # coerce the literal "null"/"[]"/"none" to empty
+    [ "\$bigwig" = "null" ] || [ "\$bigwig" = "[]" ] && bigwig=""
+    [ "\$chain" = "null" ]  || [ "\$chain" = "[]" ]  && chain=""
+
+    # Fail fast before touching the reference index if nothing is configured.
+    if [ -z "\$bigwig" ] && [ -z "\$chain" ]; then
+        echo "SKIP: neither conservation_bigwig nor synteny_chain_file set" | tee -a reference_compatibility.log
+        exit 0
+    fi
 
     # Chromosome size index of the reference genome (created locally, never
     # mutates the reference directory even if it is writable).
     samtools faidx "${genome_fa}"
     awk -v OFS='\\t' '\$1 !~ /^#/ {print \$1, \$2}' "${genome_fa}".fai > genome_sizes.tsv
-
-    if [ -z "\$bigwig" ] && [ -z "\$chain" ]; then
-        # Nothing external configured: nothing to validate.
-        echo "SKIP: neither conservation_bigwig nor synteny_chain_file set" | tee -a reference_compatibility.log
-        exit 0
-    fi
 
     if [ -z "${params.genome_build ?: ''}" ]; then
         echo "ERROR: genome_build is required to validate external references." | tee -a reference_compatibility.log
@@ -58,10 +55,10 @@ process CHECK_REFERENCE_COMPATIBILITY {
         exit 1
     fi
 
-    # Staged paths (from Nextflow inputs) override the params string; export so
-    # the python heredoc (single-quoted, no bash expansion) can read them.
-    export COMPAT_BIGWIG="$bigwig"
-    export COMPAT_CHAIN="$chain"
+    # Normalized resource paths; export so the python heredoc (single-quoted,
+    # no bash expansion) can read them.
+    export COMPAT_BIGWIG="\$bigwig"
+    export COMPAT_CHAIN="\$chain"
 
     python3 - <<'PYEOF'
 import os
@@ -81,12 +78,12 @@ chain  = '' if chain in ('none', '[]', 'null') else chain
 fai = {}
 with open('genome_sizes.tsv') as fh:
     for line in fh:
-        c, s = line.rstrip('\n').split('\t')
+        c, s = line.rstrip('\\n').split('\\t')
         fai[c] = int(s)
 
 def warn(m):
     with open('reference_compatibility.log', 'a') as out:
-        out.write(m + '\n')
+        out.write(m + '\\n')
 
 if bigwig:
     import pyBigWig
@@ -125,8 +122,8 @@ if chain:
     else:
         # chain score tName tSize tStrand tStart tEnd qName qSize qStrand qStart qEnd
         sides = {
-            't': (first[1], int(first[2])),
-            'q': (first[5], int(first[7])),
+            't': (first[2], int(first[3])),
+            'q': (first[7], int(first[8])),
         }
         fai_norm = {norm(c): gsize for c, gsize in fai.items()}
         matched = None
@@ -148,7 +145,7 @@ PYEOF
 
     # Chain target log line — only write it when a chain was actually checked,
     # so the published log can be trusted as evidence for methods/supplementary.
-    if [ -n "$chain" ]; then
+    if [ -n "\$chain" ]; then
         echo "  chain check complete (see python log above)" >> reference_compatibility.log
         echo "  synteny target species (params): ${params.synteny_target_species ?: 'unset'}" >> reference_compatibility.log
     fi

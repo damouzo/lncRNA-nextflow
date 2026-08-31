@@ -124,6 +124,17 @@ cis <- tryCatch(read_tsv(params$cis_pairs, show_col_types = FALSE),
                 error = function(e) NULL)
 cis_sig <- tryCatch(read_tsv(params$cis_pairs_sig, show_col_types = FALSE),
                     error = function(e) NULL)
+
+# Annotate cis pairs with DE stats from THIS contrast only
+# (left_join keeps all cis rows — lncRNAs without a DE match get NA)
+if (!is.null(cis_sig) && nrow(cis_sig) > 0 && !is.null(de_ct) && nrow(de_ct) > 0) {
+  cis_sig <- cis_sig %>%
+    left_join(
+      select(de_ct, gene_id, lncrna_DE_log2FC = log2FoldChange, lncrna_DE_padj = padj),
+      by = c("lncrna_id" = "gene_id")
+    )
+}
+
 ora <- tryCatch(read_tsv(params$ora, show_col_types = FALSE),
                 error = function(e) NULL)
 gsea <- tryCatch(read_tsv(params$gsea, show_col_types = FALSE),
@@ -192,7 +203,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0) {
     up = n_up, down = n_dn
   ), format = "html")
 } else {
-  cat("**No differential expression results found for this contrast.**\n\n")
+  cat("No differential expression results found for this contrast.\n\n")
   cat("The contrast was declared in the analysis but no DE output was recorded upstream. ")
   cat("This usually means DESeq2 skipped or failed it (e.g. missing condition level or too few samples in a batch subset). ")
   cat("Check the pipeline log for `SKIP`/`ERROR` lines mentioning this contrast.\n")
@@ -346,10 +357,10 @@ correlation and `padj` the BH-corrected significance.
 
 ```{r cis}
 if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
-  cat("**Significant cis pairs:**\n")
+  cat("Significant cis pairs:\n")
   datatable(cis_sig, options = list(pageLength = 20))
 } else {
-  cat("**No significant cis-regulatory associations found.**\n")
+  cat("No significant cis-regulatory associations found.\n")
 }
 ```
 
@@ -376,7 +387,7 @@ if (!is.null(ora) && nrow(ora) > 0 && all(c("GeneRatio", "p.adjust", "Count") %i
 if (!is.null(ora) && nrow(ora) > 0) {
   datatable(compact_list_columns(ora), escape = FALSE, options = list(pageLength = 20))
 } else {
-  cat("**No ORA enrichment terms found for this contrast.**\n")
+  cat("No ORA enrichment terms found for this contrast.\n")
   cat("The analysis completed but no gene-set passed the threshold.\n")
 }
 ```
@@ -409,7 +420,7 @@ if (!is.null(gsea) && nrow(gsea) > 0 && "core_enrichment" %in% colnames(gsea) &&
 if (!is.null(gsea) && nrow(gsea) > 0) {
   datatable(compact_list_columns(gsea), escape = FALSE, options = list(pageLength = 20))
 } else {
-  cat("**No GSEA enrichment found for this contrast.**\n")
+  cat("No GSEA enrichment found for this contrast.\n")
   cat("The ranked gene-set analysis completed with no significant sets.\n")
 }
 ```
@@ -446,7 +457,7 @@ if (!is.null(het_cv_ct) && nrow(het_cv_ct) > 0) {
   t_stat <- unique(het_cv_ct$t_statistic)[1]
   p_val  <- unique(het_cv_ct$p_value)[1]
   cat(sprintf(
-    "\n- **lncRNA CV**: mean = %.3f (n = %d)\n- **Coding CV**: mean = %.3f (n = %d)\n- **Welch t-test**: t = %.3f, p = %.3g\n",
+    "\n- lncRNA CV: mean = %.3f (n = %d)\n- Coding CV: mean = %.3f (n = %d)\n- Welch t-test: t = %.3f, p = %.3g\n",
     unique(het_cv_ct$mean_cv_lncrna)[1], unique(het_cv_ct$n_lncrna_genes)[1],
     unique(het_cv_ct$mean_cv_coding)[1], unique(het_cv_ct$n_coding_genes)[1],
     ifelse(is.na(t_stat), NA, t_stat), ifelse(is.na(p_val), NA, p_val)
@@ -486,10 +497,12 @@ if (show_heterogeneity) {
 
 ```{r conservation}
 if (has_conservation) {
-  cat(sprintf("**Metric:** %s (build: %s)\n\n",
+  cat(sprintf("Metric: %s (build: %s)\n\n",
               params$conservation_metric, params$genome_build))
-  cons_sum <- catalog %>%
-    filter(!is.na(conservation_mean)) %>%
+  # Scoped to genes tested in this contrast (de_ann), not the whole catalog —
+  # otherwise every report would show the same genome-wide summary.
+  cons_data <- de_ann %>% filter(!is.na(conservation_mean))
+  cons_sum <- cons_data %>%
     group_by(origin) %>%
     summarise(
       n           = n(),
@@ -497,9 +510,71 @@ if (has_conservation) {
       pct_conserved = round(100 * mean(conservation_pct, na.rm = TRUE), 1),
       .groups     = "drop"
     )
-  kable(cons_sum, format = "html")
+  if (nrow(cons_sum) > 0) {
+    kable(cons_sum, format = "html")
+  } else {
+    cat("No tested genes with conservation data for this contrast.\n")
+  }
 } else {
-  cat("**Conservación no evaluada para este run** (conservation_bigwig no configurado).\n")
+  cat("Conservation not evaluated for this run (conservation_bigwig not configured).\n")
+}
+```
+
+### Conservation vs differential expression
+
+Splits the same genes by DE outcome in this contrast — is conservation higher or
+lower among the ones that actually changed?
+
+```{r conservation-by-sig}
+if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in% colnames(cons_data)) {
+  cons_by_sig <- cons_data %>%
+    filter(!is.na(padj)) %>%
+    mutate(sig = ifelse(padj < 0.05, "significant (padj<0.05)", "not significant")) %>%
+    group_by(origin, sig) %>%
+    summarise(
+      n             = n(),
+      mean_score    = round(mean(conservation_mean, na.rm = TRUE), 3),
+      pct_conserved = round(100 * mean(conservation_pct, na.rm = TRUE), 1),
+      .groups       = "drop"
+    )
+  if (nrow(cons_by_sig) > 0) {
+    kable(cons_by_sig, format = "html")
+  }
+}
+```
+
+```{r conservation-plot, fig.width=7, fig.height=4}
+if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in% colnames(cons_data)) {
+  plot_df <- cons_data %>%
+    filter(!is.na(padj)) %>%
+    mutate(sig = ifelse(padj < 0.05, "significant", "not significant"))
+  if (nrow(plot_df) > 0) {
+    p <- ggplot(plot_df, aes(sig, conservation_mean, fill = sig)) +
+      geom_violin(alpha = 0.6) +
+      geom_boxplot(width = 0.15, outlier.shape = NA) +
+      facet_wrap(~origin, scales = "free_y") +
+      labs(x = NULL, y = "Mean phastCons score", fill = NULL) +
+      theme_minimal() +
+      theme(legend.position = "none")
+    print(p)
+  }
+}
+```
+
+### Most conserved significant novel lncRNAs
+
+```{r conservation-top-table}
+if (has_conservation && exists("cons_data")) {
+  top_cons <- cons_data %>%
+    filter(origin == "novel", !is.na(padj), padj < 0.05) %>%
+    select(any_of(c("gene_id", "class_code", "conservation_mean", "conservation_pct",
+                    "log2FoldChange", "padj"))) %>%
+    arrange(desc(conservation_mean))
+  if (nrow(top_cons) > 0) {
+    datatable(top_cons, filter = "top", options = list(pageLength = 10))
+  } else {
+    cat("No significant novel lncRNAs with conservation data in this contrast.\n")
+  }
 }
 ```
 
@@ -507,9 +582,11 @@ if (has_conservation) {
 
 ```{r synteny}
 if (has_synteny) {
-  cat(sprintf("**Target species:** %s\n\n", params$synteny_target_species))
-  syn_sum <- catalog %>%
-    filter(!is.na(syntenic_locus)) %>%
+  cat(sprintf("Target species: %s\n\n", params$synteny_target_species))
+  # Scoped to genes tested in this contrast (de_ann), not the whole catalog —
+  # otherwise every report would show the same genome-wide summary.
+  syn_data <- de_ann %>% filter(!is.na(syntenic_locus))
+  syn_sum <- syn_data %>%
     group_by(origin) %>%
     summarise(
       n             = n(),
@@ -517,9 +594,52 @@ if (has_synteny) {
       pct_syntenic  = round(100 * mean(syntenic_locus == TRUE, na.rm = TRUE), 1),
       .groups       = "drop"
     )
-  kable(syn_sum, format = "html")
+  if (nrow(syn_sum) > 0) {
+    kable(syn_sum, format = "html")
+  } else {
+    cat("No tested genes with synteny data for this contrast.\n")
+  }
 } else {
-  cat("**Sintenia no evaluada para este run** (synteny_chain_file/synteny_target_gtf no configurados).\n")
+  cat("Synteny not evaluated for this run (synteny_chain_file/synteny_target_gtf not configured).\n")
+}
+```
+
+### Synteny vs differential expression
+
+```{r synteny-by-sig}
+if (has_synteny && exists("syn_data") && nrow(syn_data) > 0 && "padj" %in% colnames(syn_data)) {
+  syn_by_sig <- syn_data %>%
+    filter(!is.na(padj)) %>%
+    mutate(sig = ifelse(padj < 0.05, "significant (padj<0.05)", "not significant")) %>%
+    group_by(origin, sig) %>%
+    summarise(
+      n             = n(),
+      n_syntenic    = sum(syntenic_locus == TRUE, na.rm = TRUE),
+      pct_syntenic  = round(100 * mean(syntenic_locus == TRUE, na.rm = TRUE), 1),
+      .groups       = "drop"
+    )
+  if (nrow(syn_by_sig) > 0) {
+    kable(syn_by_sig, format = "html")
+  }
+}
+```
+
+### Significant novel lncRNAs with a syntenic locus
+
+Candidate orthologous loci in `r params$synteny_target_species` — a starting point for
+cross-species follow-up, not proof of conserved function.
+
+```{r synteny-top-table}
+if (has_synteny && exists("syn_data")) {
+  top_syn <- syn_data %>%
+    filter(origin == "novel", syntenic_locus == TRUE, !is.na(padj), padj < 0.05) %>%
+    select(any_of(c("gene_id", "class_code", "syntenic_target_gene_id",
+                    "log2FoldChange", "padj")))
+  if (nrow(top_syn) > 0) {
+    datatable(top_syn, filter = "top", options = list(pageLength = 10))
+  } else {
+    cat("No significant novel lncRNAs with a syntenic locus in this contrast.\n")
+  }
 }
 ```
 

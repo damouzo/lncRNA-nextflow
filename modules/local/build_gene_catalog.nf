@@ -136,17 +136,25 @@ process BUILD_GENE_CATALOG {
         filter(!is.na(transcript_id), !is.na(gene_id)) %>%
         distinct(transcript_id, .keep_all = TRUE)
 
-    read_scores <- function(f) {
-        x <- tryCatch(read_tsv(f, show_col_types = FALSE), error = function(e) NULL)
-        if (is.null(x) || nrow(x) == 0) {
-            return(data.frame(transcript_id = character(), stringsAsFactors = FALSE))
-        }
-        x <- x[x$transcript_id %in% tx2gene_frozen$transcript_id, ]
-        x
+read_scores <- function(f, cols) {
+    x <- tryCatch(read_tsv(f, show_col_types = FALSE), error = function(e) NULL)
+    if (is.null(x)) {
+        # Unreadable file: build a 0-row frame with the expected columns so
+        # downstream joins/summaries still resolve their symbols.
+        x <- as.data.frame(setNames(lapply(cols, function(cc) character(0)), cols),
+                           stringsAsFactors = FALSE)
+    } else {
+        x <- x[x\$transcript_id %in% tx2gene_frozen\$transcript_id, ]
     }
+    # For a header-only placeholder (0 rows) the columns are already correct;
+    # they just aggregate to NA downstream.
+    x
+}
 
-    cons <- read_scores("${conservation_scores}")
-    synth <- read_scores("${synteny_scores}")
+cons  <- read_scores("${conservation_scores}",
+                     c("transcript_id", "mean_score", "max_score", "pct_bases_conserved"))
+synth <- read_scores("${synteny_scores}",
+                     c("transcript_id", "syntenic_locus", "syntenic_target_gene_id"))
 
     catalog <- catalog %>%
         left_join(
@@ -154,8 +162,8 @@ process BUILD_GENE_CATALOG {
                 left_join(tx2gene_frozen, by = "transcript_id") %>%
                 group_by(gene_id) %>%
                 summarise(
-                    conservation_mean = suppressWarnings(mean(mean_score, na.rm = TRUE)),
-                    conservation_pct  = suppressWarnings(mean(pct_bases_conserved, na.rm = TRUE)),
+                    conservation_mean = suppressWarnings(mean(as.numeric(mean_score), na.rm = TRUE)),
+                    conservation_pct  = suppressWarnings(mean(as.numeric(pct_bases_conserved), na.rm = TRUE)),
                     .groups = "drop"
                 ),
             by = "gene_id"

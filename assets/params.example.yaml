@@ -16,9 +16,10 @@ gtf:    /path/to/annotation.gtf
 # species is a free-form label used in report/logs only.
 # genome_build is REQUIRED whenever conservation_bigwig or synteny_chain_file
 # is set — it lets the pipeline verify that external resources share the
-# reference assembly (fails fast on mismatch).
+# reference assembly (fails fast on mismatch). Any string is fine; it is used
+# to match chromosome lengths, not to interpret the build name.
 species:      'human'
-genome_build: 'GRCh38.p14'
+genome_build: 'hg38'    # free-form; use the UCSC build name matching your bigWig/chain
 
 # ---- Optional: sequence conservation (reporting-only, never a filter) ----
 # phastCons/phyloP/GERP bigWig from UCSC, in the SAME build as genome.
@@ -28,9 +29,11 @@ conservation_min_score: 0.5
 
 # ---- Optional: synteny / liftOver (reporting-only, never a filter) ----
 # Chain file = liftOver from the genome build -> target species build.
+# Target GTF = Ensembl GTF of the target species (chromosomes without 'chr',
+# normalized automatically against the chain's naming).
 synteny_chain_file:     /path/to/reference/liftover/hg38ToMm39.over.chain.gz
 synteny_target_species: 'mouse'
-synteny_target_gtf:     /path/to/reference/mouse/Mus_musculus.GRCm39.gtf
+synteny_target_gtf:     /path/to/reference/mouse/Mus_musculus.GRCm39.115.gtf
 
 # ---- Optional: reference lncRNA catalogs (reporting-only) ----
 # noncode_bed:     /path/to/noncode.bed

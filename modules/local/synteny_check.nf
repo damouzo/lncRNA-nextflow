@@ -16,8 +16,6 @@ process SYNTENY_CHECK {
 
     input:
     path frozen_gtf         // frozen novel lncRNA GTF (transcript/exon features)
-    path chain_file, optional: true     // staged liftOver chain; absent when unset
-    path target_gtf, optional: true     // target-species annotated GTF; absent when unset
 
     output:
     path "synteny_scores.tsv", emit: scores
@@ -28,23 +26,25 @@ process SYNTENY_CHECK {
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # Coerce Groovy's "null" string to a real empty for the skip test; the
-    # staged chain/target inputs override the params string when files are passed.
-    # Both resources are required — skip cleanly if either is missing.
-    chain="${chain_file}"
-    target="${target_gtf}"
-    if [ -z "\$chain" ] || [ "\$chain" = "null" ] || [ "\$chain" = "[]" ] || \
-       [ -z "\$target" ] || [ "\$target" = "null" ] || [ "\$target" = "[]" ] || \
-       [ -z "${params.synteny_chain_file ?: ''}" ] || [ -z "${params.synteny_target_gtf ?: ''}" ]; then
+    # Both resources are required; read from params (reference dir is mounted).
+    chain="${params.synteny_chain_file ?: ''}"
+    target="${params.synteny_target_gtf ?: ''}"
+    [ "\$chain" = "null" ]  || [ "\$chain" = "[]" ]  && chain=""
+    [ "\$target" = "null" ] || [ "\$target" = "[]" ] && target=""
+    if [ -z "\$chain" ] || [ -z "\$target" ]; then
         echo "INFO: synteny_chain_file or synteny_target_gtf not configured; skipping SYNTENY_CHECK"
         printf 'transcript_id\\tsyntenic_locus\\tsyntenic_target_gene_id\\n' > synteny_scores.tsv
         : > synteny_unmapped.bed
         exit 0
     fi
 
-    # ---- 1. Source BED12 from the frozen GTF (exonic span, genome coords) ----
+    # ---- 1. Source BED12 from the frozen GTF (exonic span, genome coords), ----
+    #         plus a local copy of the chain with its tName column rewritten to
+    #         match the frozen GTF's own chromosome-naming convention (Ensembl
+    #         'N' vs UCSC 'chrN') — the reference is adapted to the data, not
+    #         the other way round, so liftOver reads our BED as-is.
     python3 - <<'PYEOF'
-import re
+import re, gzip
 
 trans = {}
 
@@ -87,20 +87,63 @@ with open('synteny_source.bed', 'w') as out:
             str(tstart - 1), str(tend), '0',
             str(len(exons)), block, bstarts
         ]) + '\\n')
+
+import subprocess
+gtf_has_chr = subprocess.check_output(
+    ['normalize_chrom.py', 'detect', '${frozen_gtf}'], text=True
+).strip() == 'chr'
+
+def to_source_style(name):
+    has_chr = name.startswith('chr')
+    if gtf_has_chr and not has_chr:
+        return 'chr' + name
+    if not gtf_has_chr and has_chr:
+        return name[3:]
+    return name
+
+chain_f = '${params.synteny_chain_file}'
+opener = gzip.open if chain_f.endswith(('.gz', '.bgz')) else open
+with opener(chain_f, 'rt') as fh, open('synteny_chain_local.chain', 'w') as out:
+    for line in fh:
+        if line.startswith('chain '):
+            f = line.split()
+            f[2] = to_source_style(f[2])   # tName (source/reference side)
+            out.write(' '.join(f) + '\\n')
+        else:
+            out.write(line)
+
+print(f'INFO: frozen GTF chrom style: {"chr-prefixed" if gtf_has_chr else "no prefix"}; '
+      'chain tName column reindexed to match')
 PYEOF
 
-    # ---- 2. liftOver ----
-    liftOver synteny_source.bed "\$chain" synteny_lifted.bed synteny_unmapped.bed
+    # ---- 2. liftOver (against the locally reindexed chain) ----
+    liftOver synteny_source.bed synteny_chain_local.chain synteny_lifted.bed synteny_unmapped.bed
 
     # ---- 3. Target-species lncRNA features as BED6 (from target GTF) ----
+    # Chromosome naming: the chain file (UCSC) uses 'chrN' but the target GTF
+    # (Ensembl) usually uses 'N'. Normalize the target BED to the chain's naming
+    # convention, else bedtools intersect (step 4) never matches.
     python3 - <<'PYEOF'
-import re
-BIOTYPES = {${params.annotated_lncrna_biotypes.collect { "\"$it\"" }.join(", ")}}
+import re, subprocess
+
+chain_has_chr = subprocess.check_output(
+    ['normalize_chrom.py', 'chain-qname', '${params.synteny_chain_file}'], text=True
+).strip() == 'chr'
+
+def to_chain_style(name):
+    has_chr = name.startswith('chr')
+    if chain_has_chr and not has_chr:
+        return 'chr' + name
+    if not chain_has_chr and has_chr:
+        return name[3:]
+    return name
+
 def extract_attr(attrs, key):
     m = re.search(r'(?:^|; )' + key + r' "([^"]+)"', attrs)
     return m.group(1) if m else None
 
-with open('${target_gtf}') as fh, open('target_lnc_exons.bed', 'w') as out:
+BIOTYPES = {${params.annotated_lncrna_biotypes.collect { "\"$it\"" }.join(", ")}}
+with open('${params.synteny_target_gtf}') as fh, open('target_lnc_exons.bed', 'w') as out:
     for line in fh:
         if not line or line.startswith('#'):
             continue
@@ -116,7 +159,8 @@ with open('${target_gtf}') as fh, open('target_lnc_exons.bed', 'w') as out:
         gid = extract_attr(attrs, 'gene_id')
         if not gid:
             continue
-        out.write('\\t'.join([p[0], str(int(p[3]) - 1), p[4], gid, '0', p[6]]) + '\\n')
+        chrom = to_chain_style(p[0])
+        out.write('\\t'.join([chrom, str(int(p[3]) - 1), p[4], gid, '0', p[6]]) + '\\n')
 PYEOF
 
     # ---- 4. Intersect lifted loci with target lncRNA exons; build output ----
