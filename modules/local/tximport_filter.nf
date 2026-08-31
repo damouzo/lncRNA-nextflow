@@ -57,7 +57,7 @@ process TXIMPORT_AND_FILTER {
     cat("Matched", length(shared), "samples\\n")
 
     txi <- tximport(quant_files, type = "salmon", tx2gene = tx2gene,
-                    ignoreTxVersion = TRUE)
+                    ignoreTxVersion = FALSE)
 
     # Condition-blind filtering: keep genes with >= 10 counts in >= 3 samples or 1/4 of samples
     min_n <- max(3, floor(ncol(txi\$counts) / 4))

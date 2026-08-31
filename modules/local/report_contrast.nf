@@ -19,7 +19,7 @@ process REPORT_CONTRAST {
     tuple val(group), path(de_summary), path(cis_pairs),
           path(cis_pairs_sig), path(ora), path(gsea),
           path(heterogeneity), path(heterogeneity_cv),
-          path(coldata), path(contrasts_tsv)
+          path(coldata), path(contrasts_tsv), path(tpm_rds)
     path template         // report_template.qmd
     path gene_catalog     // gene_catalog.tsv (origin/class_code/biotype annotations)
 
@@ -85,6 +85,7 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("conservation_configured=${params.conservation_bigwig ? true : false}")),
             "-P", shQuote(paste0("synteny_configured=${(params.synteny_chain_file && params.synteny_target_gtf) ? true : false}")),
             "-P", shQuote(paste0("synteny_target_species=${params.synteny_target_species ?: ''}")),
+            "-P", shQuote(paste0("tpm=${tpm_rds}")),
             "--output", shQuote(fname)
         )
         cat("Rendering contrast:", ct, "\n")

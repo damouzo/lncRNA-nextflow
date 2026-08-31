@@ -135,8 +135,9 @@ workflow QUANTIFICATION {
         .join(ch_het_summary_all)
         .join(ch_het_cv_summary_all)
         .join(ch_ct_grp)
-        .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, ct_tsv ->
-            tuple(g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, ct_tsv)
+        .join(TXIMPORT_AND_FILTER.out.tpm_rds)
+        .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, ct_tsv, tpm ->
+            tuple(g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, ct_tsv, tpm)
         }
 
     REPORT_CONTRAST(
