@@ -74,24 +74,20 @@ process CONSERVATION_SCORE {
 
     # GTF and bigWig may name chromosomes differently (Ensembl 'N' vs UCSC
     # 'chrN') even for the same assembly. Detect the frozen GTF's own
-    # convention via the shared helper (bin/normalize_chrom.py) and reindex
-    # the bigWig names to match it — whichever side actually carries the
-    # 'chr' prefix, the reference is adjusted to the data.
-    import subprocess
-    gtf_has_chr = subprocess.check_output(
-        ['normalize_chrom.py', 'detect', frozen], text=True
-    ).strip() == 'chr'
+    # convention and reindex the bigWig names to match it — whichever side
+    # actually carries the 'chr' prefix, the reference is adjusted to the data.
+    source_has_chr = next((t['chrom'].startswith('chr') for t in trans.values()), False)
 
     def to_source_style(name):
         has_chr = name.startswith('chr')
-        if gtf_has_chr and not has_chr:
+        if source_has_chr and not has_chr:
             return 'chr' + name
-        if not gtf_has_chr and has_chr:
+        if not source_has_chr and has_chr:
             return name[3:]
         return name
 
     bw_chrom_by_source_name = {to_source_style(k): k for k in chrom_sizes}
-    print(f'INFO: GTF chrom style: {"chr-prefixed" if gtf_has_chr else "no prefix"}; '
+    print(f'INFO: GTF chrom style: {"chr-prefixed" if source_has_chr else "no prefix"}; '
           f'bigWig reindexed to match ({len(bw_chrom_by_source_name)} chroms)', file=sys.stderr)
 
     out = open('conservation_scores.tsv', 'w')

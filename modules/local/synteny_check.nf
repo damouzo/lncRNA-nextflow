@@ -88,16 +88,13 @@ with open('synteny_source.bed', 'w') as out:
             str(len(exons)), block, bstarts
         ]) + '\\n')
 
-import subprocess
-gtf_has_chr = subprocess.check_output(
-    ['normalize_chrom.py', 'detect', '${frozen_gtf}'], text=True
-).strip() == 'chr'
+source_has_chr = next((t['chrom'].startswith('chr') for t in trans.values()), False)
 
 def to_source_style(name):
     has_chr = name.startswith('chr')
-    if gtf_has_chr and not has_chr:
+    if source_has_chr and not has_chr:
         return 'chr' + name
-    if not gtf_has_chr and has_chr:
+    if not source_has_chr and has_chr:
         return name[3:]
     return name
 
@@ -112,7 +109,7 @@ with opener(chain_f, 'rt') as fh, open('synteny_chain_local.chain', 'w') as out:
         else:
             out.write(line)
 
-print(f'INFO: frozen GTF chrom style: {"chr-prefixed" if gtf_has_chr else "no prefix"}; '
+print(f'INFO: frozen GTF chrom style: {"chr-prefixed" if source_has_chr else "no prefix"}; '
       'chain tName column reindexed to match')
 PYEOF
 
@@ -124,11 +121,16 @@ PYEOF
     # (Ensembl) usually uses 'N'. Normalize the target BED to the chain's naming
     # convention, else bedtools intersect (step 4) never matches.
     python3 - <<'PYEOF'
-import re, subprocess
+import gzip, re
 
-chain_has_chr = subprocess.check_output(
-    ['normalize_chrom.py', 'chain-qname', '${params.synteny_chain_file}'], text=True
-).strip() == 'chr'
+chain_has_chr = False
+chain_f = '${params.synteny_chain_file}'
+opener = gzip.open if chain_f.endswith(('.gz', '.bgz')) else open
+with opener(chain_f, 'rt') as fh:
+    for line in fh:
+        if line.startswith('chain '):
+            chain_has_chr = line.split()[7].startswith('chr')   # qName (target side)
+            break
 
 def to_chain_style(name):
     has_chr = name.startswith('chr')

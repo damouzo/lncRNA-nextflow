@@ -61,10 +61,6 @@ RUN wget -q https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/liftOver \
     && mv liftOver /usr/local/bin/liftOver \
     && liftOver 2>&1 | head -1 || true
 
-# Shared chr-prefix normalization helper used by CONSERVATION_SCORE,
-# SYNTENY_CHECK, and CATALOG_OVERLAP — all three call it from PATH.
-COPY bin/normalize_chrom.py /usr/local/bin/normalize_chrom.py
-
 # ---- Verify installations ----
 RUN samtools --version \
     && stringtie --version \
