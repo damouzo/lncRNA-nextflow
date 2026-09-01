@@ -184,6 +184,32 @@ synth <- read_scores("${synteny_scores}",
             by = "gene_id"
         )
 
+    # ---- Monoexonic u (lincRNA) low-confidence flag ----
+    # Count exons per gene_id in the frozen GTF, then flag novel genes with
+    # class_code "u" and a single exon. Reporting-only — never a filter.
+    system(paste("grep -P '\\texon\\t'", shQuote("${frozen_gtf}"),
+                 "> frozen_exon_lines.txt"))
+    exon_lines <- readLines("frozen_exon_lines.txt")
+    if (length(exon_lines) > 0) {
+        exon <- fill_table(exon_lines)
+        exon\$gene_id <- extract_attr(exon\$attrs, "gene_id")
+        n_exons_per_gene <- exon %>%
+            filter(!is.na(gene_id)) %>%
+            distinct(gene_id, start, end) %>%
+            count(gene_id, name = "n_exons")
+    } else {
+        n_exons_per_gene <- data.frame(gene_id = character(), n_exons = integer())
+    }
+
+    catalog <- catalog %>%
+        left_join(n_exons_per_gene, by = "gene_id") %>%
+        mutate(
+            n_exons = coalesce(n_exons, 0L),
+            u_single_exon_low_confidence = origin == "novel" &
+                grepl("u", class_code, fixed = TRUE) &
+                n_exons == 1L
+        )
+
     if (nrow(catalog) == 0) stop("Gene catalog is empty — check reference GTF parsing")
 
     write_tsv(catalog, "gene_catalog.tsv")

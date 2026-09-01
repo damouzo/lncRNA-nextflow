@@ -544,18 +544,20 @@ if (!is.null(ora) && nrow(ora) > 0) {
 
 ```{r gsea-ridgeplot, fig.width=7, fig.height=5}
 if (!is.null(gsea) && nrow(gsea) > 0 && "core_enrichment" %in% colnames(gsea) &&
-    !is.null(de_ct) && "stat" %in% colnames(de_ct)) {
+    !is.null(de_ct) && nrow(de_ct) > 0) {
+  rank_col <- if ("stat" %in% colnames(de_ct)) "stat" else "log2FoldChange"
+  rank_label <- if (rank_col == "stat") "DE test statistic" else "log2 fold-change"
   top_gsea <- gsea %>% arrange(p.adjust) %>% slice_head(n = 10)
   ridge_df <- top_gsea %>%
     select(Description, core_enrichment) %>%
     separate_rows(core_enrichment, sep = "/") %>%
     rename(gene_id = core_enrichment) %>%
-    left_join(select(de_ct, gene_id, stat), by = "gene_id") %>%
-    filter(!is.na(stat))
+    left_join(select(de_ct, gene_id, all_of(rank_col)), by = "gene_id") %>%
+    filter(!is.na(.data[[rank_col]]))
   if (nrow(ridge_df) > 0) {
-    p <- ggplot(ridge_df, aes(stat, reorder(Description, stat, FUN = median))) +
+    p <- ggplot(ridge_df, aes(.data[[rank_col]], reorder(Description, .data[[rank_col]], FUN = median))) +
       geom_density_ridges(fill = "#6a1b9a", alpha = 0.6) +
-      labs(title = "Top 10 GSEA terms", x = "DE test statistic", y = NULL) +
+      labs(title = "Top 10 GSEA terms", x = rank_label, y = NULL) +
       theme_minimal()
     print(p)
   } else {

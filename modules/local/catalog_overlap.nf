@@ -63,7 +63,27 @@ process CATALOG_OVERLAP {
         cat("  LNCipedia BED not configured or not found — skipping\\n")
     }
 
-    # ---- NONCODE (stub) ----
+    # ---- NONCODE ----
+    ncode_bed <- "${params.noncode_bed ?: ''}"
+    if (nchar(ncode_bed) > 0 && ncode_bed != "null" && ncode_bed != "[]" && file.exists(ncode_bed)) {
+        ncode <- import(ncode_bed)
+        ncode_ov <- findOverlaps(gtf, ncode)
+        ncode_ov_ids <- unique(tx_ids[queryHits(ncode_ov)])
+        ncode_ov_ids <- ncode_ov_ids[ncode_ov_ids %in% consensus[[id_col]]]
+        cat(sprintf("  NONCODE: %d overlapping transcripts\\n", length(ncode_ov_ids)))
+        if (length(ncode_ov_ids) > 0) {
+            ncode_hit <- consensus[[id_col]] %in% ncode_ov_ids
+            consensus\$known_catalog_hit[ncode_hit] <- TRUE
+            consensus\$catalog_sources[ncode_hit] <- ifelse(
+                consensus\$catalog_sources[ncode_hit] == "none",
+                "NONCODE",
+                paste(consensus\$catalog_sources[ncode_hit], "NONCODE", sep = ",")
+            )
+        }
+    } else {
+        cat("  NONCODE BED not configured or not found — skipping\\n")
+    }
+
     # ---- RNAcentral (stub) ----
     # ---- FANTOM CAT (stub) ----
 

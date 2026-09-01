@@ -43,6 +43,7 @@ process BUILD_DECOY_INDEX {
         -t gentrome.fa \\
         -d decoys.txt \\
         -p ${task.cpus} \\
+        ${params.salmon_index_sparse ? '--sparse' : ''} \\
         -i salmon_index \\
         --gencode
     """

@@ -18,7 +18,7 @@ process STRINGTIE2_PER_SAMPLE {
     stringtie \\
         -p ${task.cpus} \\
         -G "${reference_gtf}" \\
-        -e \\
+        --rf \\
         -o "${sample}.transcripts.gtf" \\
         -A "${sample}.gene_abund.tab" \\
         -C "${sample}.coverage.gtf" \\

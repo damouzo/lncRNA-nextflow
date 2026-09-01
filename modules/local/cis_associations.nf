@@ -138,7 +138,7 @@ process CIS_ASSOCIATIONS {
             target_gene_id   = gene,
             target_gene_name = pairs\$target_gene_name[i],
             spearman_rho     = cor_test\$estimate,
-            spearman_pvalue  = cor_test\$p.value,
+            spearman_pvalue  = max(cor_test\$p.value, .Machine\$double.xmin),
             n_samples        = length(lnc_expr),
             stringsAsFactors = FALSE
         )

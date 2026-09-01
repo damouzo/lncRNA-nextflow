@@ -24,6 +24,28 @@ process EXPRESSION_RECURRENCE {
     MIN_REPS <- ${params.expression_recurrence_min_reps}
     CPM_THRESHOLD <- 1.0
 
+    extract_attr <- function(attrs, key) {
+        pat <- paste0('(?:^|; )', key, ' "([^"]+)"')
+        m <- regexpr(pat, attrs, perl = TRUE)
+        ans <- rep(NA_character_, length(attrs))
+        ok <- m > 0L
+        if (any(ok)) ans[ok] <- sub(paste0('.*', pat, '.*\$'), '\\\\1', attrs[ok], perl = TRUE)
+        ans
+    }
+
+    # Parse class_code from merged GTF by transcript_id
+    gtf_lines <- readLines("${merged_gtf}")
+    gtf_parts <- strsplit(gtf_lines, "\\t", fixed = TRUE)
+    gtf_ok <- lengths(gtf_parts) >= 9L
+    gtf_attrs <- vapply(gtf_parts[gtf_ok], function(p) p[[9L]], character(1))
+    gtf_has_tx <- grepl("transcript_id", gtf_attrs, fixed = TRUE)
+    tx_cc <- data.frame(
+        transcript_id = extract_attr(gtf_attrs[gtf_has_tx], "transcript_id"),
+        class_code    = extract_attr(gtf_attrs[gtf_has_tx], "class_code"),
+        stringsAsFactors = FALSE
+    ) %>% filter(!is.na(transcript_id), !is.na(class_code)) %>%
+        distinct(transcript_id, .keep_all = TRUE)
+
     # Read the catalog table
     catalog <- read_tsv("${catalog_table}", show_col_types = FALSE)
 
@@ -133,6 +155,8 @@ process EXPRESSION_RECURRENCE {
         match(catalog[[id_col]], rec_df\$transcript_id)]
     catalog\$n_reps_expressed[is.na(catalog\$n_reps_expressed)] <- 0
     catalog\$passes_recurrence <- catalog\$n_reps_expressed >= MIN_REPS
+
+    catalog\$class_code <- tx_cc\$class_code[match(catalog[[id_col]], tx_cc\$transcript_id)]
 
     n_pass <- sum(catalog\$passes_recurrence, na.rm = TRUE)
     n_total <- nrow(catalog)

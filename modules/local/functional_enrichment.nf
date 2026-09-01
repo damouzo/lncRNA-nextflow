@@ -75,26 +75,35 @@ process FUNCTIONAL_ENRICHMENT {
         # ---- ORA: DE-significant cis targets (guilt by association) ----
         de_sig <- ct_data\$gene_id[!is.na(ct_data\$padj) & ct_data\$padj < 0.05]
         foreground <- unique(intersect(targets, de_sig))
-        if (length(foreground) < 2) {
+        if (length(foreground) < 5) {
             # fallback: all cis targets expressed in this contrast
             foreground <- unique(intersect(targets, universe))
         }
         cat("Contrast", ct, ": ORA foreground =", length(foreground), "cis targets\\n")
 
-        if (length(foreground) >= 2) {
+        if (length(foreground) >= 5) {
             ego <- tryCatch({
                 enrichGO(gene = foreground,
                          universe = universe,
                          OrgDb = org.Hs.eg.db,
                          keyType = "ENSEMBL",
                          ont = "BP",
-                         pAdjustMethod = "BH")
+                         pAdjustMethod = "BH",
+                         pvalueCutoff = 0.1,
+                         minGSSize = 5)
             }, error = function(e) NULL)
             if (!is.null(ego) && nrow(as.data.frame(ego)) > 0) {
                 ego_df <- as.data.frame(ego)
                 ego_df\$contrast <- ct
                 ora_all[[ct]] <- ego_df
+                cat(sprintf("  ORA: %d GO-BP terms (p<0.1)\n", nrow(ego_df)))
+            } else {
+                cat(sprintf("  ORA: enrichGO returned 0 terms (foreground=%d, universe=%d)\n",
+                            length(foreground), length(universe)))
             }
+        } else {
+            cat(sprintf("  ORA: insufficient foreground (%d genes, need >= 5)\n",
+                        length(foreground)))
         }
 
         # ---- GSEA: all protein-coding genes ranked by DE stat ----

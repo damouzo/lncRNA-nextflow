@@ -112,7 +112,7 @@ workflow DISCOVERY {
     EXPRESSION_RECURRENCE(
         CATALOG_OVERLAP.out.overlap_table,
         ch_fc_collected,
-        STRINGTIE2_MERGE.out.merged_gtf
+        TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf
     )
 
     ANNOTATION_FREEZE(
