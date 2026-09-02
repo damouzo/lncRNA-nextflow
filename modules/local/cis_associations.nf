@@ -37,6 +37,10 @@ process CIS_ASSOCIATIONS {
     }
     cat("Catalog:", nrow(lnc_df), "lncRNAs (novel+annotated),", nrow(pc_df), "protein-coding targets\\n")
 
+    # GRanges only accepts + - *; normalize anything else (".", NA, empty) to "*"
+    lnc_df\$strand <- ifelse(lnc_df\$strand %in% c("+", "-", "*"), lnc_df\$strand, "*")
+    pc_df\$strand  <- ifelse(pc_df\$strand  %in% c("+", "-", "*"), pc_df\$strand,  "*")
+
     if (nrow(lnc_df) == 0 || nrow(pc_df) == 0) {
         cat("WARNING: empty lncRNA or target set; writing empty output\\n")
         write_tsv(data.frame(), "${group}_cis_pairs.tsv")
@@ -71,7 +75,9 @@ process CIS_ASSOCIATIONS {
         gene_name = pc_df\$gene_name
     )
 
-    ov <- findOverlaps(lnc_window, pc_gr)
+    # Cis for proximity: strand-agnostic by intent. Default below would restrict
+    # to same-strand pairs and silently drop opposite-strand cis pairs.
+    ov <- findOverlaps(lnc_window, pc_gr, ignore.strand = TRUE)
     pairs <- data.frame(
         lncrna_id        = lnc_df\$gene_id[queryHits(ov)],
         lncrna_origin    = lnc_df\$origin[queryHits(ov)],

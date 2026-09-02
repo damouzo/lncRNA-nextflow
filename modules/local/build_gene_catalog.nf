@@ -72,7 +72,9 @@ process BUILD_GENE_CATALOG {
         filter(!is.na(gene_id)) %>%
         mutate(
             origin     = ifelse(gene_biotype %in% ANNOT_BIOTYPES, "annotated_lncrna", "reference_other"),
-            class_code = NA_character_
+            class_code = NA_character_,
+            # GRanges only accepts + - *; some GTFs use "." or empty for unknown strand
+            strand     = ifelse(strand %in% c("+", "-", "*"), strand, "*")
         ) %>%
         distinct(gene_id, .keep_all = TRUE) %>%
         select(gene_id, gene_name, chromosome, start, end, strand,
@@ -97,7 +99,7 @@ process BUILD_GENE_CATALOG {
             chromosome = dplyr::first(chromosome),
             start      = min(start),
             end        = max(end),
-            strand     = dplyr::first(strand),
+            strand     = ifelse(first(strand) %in% c("+", "-", "*"), first(strand), "*"),
             class_code = paste(sort(unique(na.omit(class_code))), collapse = ","),
             .groups    = "drop"
         ) %>%
