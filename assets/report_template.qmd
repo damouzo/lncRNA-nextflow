@@ -122,6 +122,20 @@ compact_list_columns <- function(tab) {
   }
   tab
 }
+
+# Round numeric columns before rendering tables. p-value/adj columns keep
+# 3 significant digits (notation) instead of a fixed round so tiny values
+# survive; everything else gets a fixed number of decimals.
+round_numeric_cols <- function(df, digits = 3) {
+  if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) return(df)
+  p_cols <- grep("pvalue|padj|p\\.adjust|p_adjust|p\\.value|p_value|qvalue",
+                 names(df), ignore.case = TRUE, value = TRUE)
+  for (nm in names(df)) {
+    if (!is.numeric(df[[nm]])) next
+    df[[nm]] <- if (nm %in% p_cols) signif(df[[nm]], 3) else round(df[[nm]], digits)
+  }
+  df
+}
 ```
 
 ## Contrast: `r contrast`
@@ -242,32 +256,21 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
     mutate(origin_label = ORIGIN_LABELS[origin]) %>%
     select(origin_label, n_tested, n_sig) %>%
     arrange(origin_label)
-  kable(cat_sum, format = "html",
+kable(cat_sum, format = "html",
         col.names = c("Origin", "Genes tested", "Significant (padj<0.05)"))
-
-  if (any(cat_sum$origin_label == ORIGIN_LABELS["reference_other"])) {
-    cat("\n*\"Other reference genes (background)\" includes protein-coding and other non-lncRNA reference genes. ",
-        "This category exists only so that DESeq2 normalizes over the full transcriptome and enrichment analyses ",
-        "have a proper background — it is not a biologically interesting category for lncRNA-focused interpretation.*\n")
-  }
 } else {
   cat("No gene catalog available for this report.")
 }
 ```
 
+*"Other reference genes (background)" includes protein-coding and other non-lncRNA reference genes. This category exists only so that DESeq2 normalizes over the full transcriptomeand enrichment analyses have a proper background — it is not a biologically interesting category for lncRNA-focused interpretation.*
+
+*Annotated lncRNAs (reference) are the lncRNAs coming from the reference annotation GTF used to build the catalog — genome build `r params$genome_build`, species `r params$species`.*
+
 ### lncRNA class codes {.unnumbered}
 
 GFFCOMPARE assigns a `class_code` to each novel transcript. The code indicates the
 relationship between the novel transcript and the reference annotation.
-
-```{r class-code-legend}
-legend_df <- data.frame(
-  Code = names(CLASS_CODE_LEGEND),
-  Description = unname(CLASS_CODE_LEGEND),
-  stringsAsFactors = FALSE
-)
-kable(legend_df, format = "html", col.names = c("class_code", "Interpretation"))
-```
 
 ```{r class-code-summary}
 novel_de <- de_ann %>% filter(origin == "novel")
@@ -282,12 +285,24 @@ if (nrow(novel_de) > 0) {
       n_sig    = n_distinct(gene_id[!is.na(padj) & padj < 0.05]),
       .groups  = "drop"
     ) %>%
+    mutate(interpretation = ifelse(
+      class_code == "unknown",
+      "No GFFCOMPARE class assigned",
+      coalesce(unname(CLASS_CODE_LEGEND[class_code]), class_code)
+    )) %>%
+    select(class_code, interpretation, n_tested, n_sig) %>%
     arrange(desc(n_tested))
+  cc_sum <- bind_rows(cc_sum, data.frame(
+    class_code     = "Total (unique genes)",
+    interpretation = "All classes combined",
+    n_tested       = n_distinct(novel_de$gene_id),
+    n_sig          = n_distinct(novel_de$gene_id[!is.na(novel_de$padj) & novel_de$padj < 0.05])
+  ))
   cat(sprintf("Novel lncRNAs tested: %d  |  Significant: %d\n\n",
               nrow(novel_de),
               sum(novel_de$padj < 0.05, na.rm = TRUE)))
   kable(cc_sum, format = "html",
-        col.names = c("class_code", "Tested", "Significant (padj<0.05)"))
+        col.names = c("class_code", "Interpretation", "Tested", "Significant (padj<0.05)"))
 } else {
   cat("No novel lncRNAs tested for this contrast.\n")
 }
@@ -296,6 +311,7 @@ if (nrow(novel_de) > 0) {
 ## lncRNA detection per sample (QC)
 
 Number of lncRNAs (novel + annotated) detected per sample at TPM > 0.5.
+This figure covers all samples in the norm_group (not only this contrast's conditions).
 
 ```{r lncrna-per-sample, fig.width=8, fig.height=5}
 if (!is.null(lncrna_per_sample) && nrow(lncrna_per_sample) > 0) {
@@ -337,37 +353,39 @@ if (!is.null(de_ann) && nrow(de_ann) > 0) {
   ), format = "html")
 } else {
   cat("No differential expression results found for this contrast.\n\n")
-  cat("The contrast was declared in the analysis but no DE output was recorded upstream. ")
-  cat("This usually means DESeq2 skipped or failed it (e.g. missing condition level or too few samples in a batch subset). ")
+  cat("The contrast was declared in the analysis but no DE output was recorded upstream.")
+  cat("This usually means DESeq2 skipped or failed it (e.g. missing condition level or too few samples in a batch subset).")
   cat("Check the pipeline log for `SKIP`/`ERROR` lines mentioning this contrast.\n")
 }
 ```
 
 ### Volcano plot
 
-Colored by `origin` (green: annotated lncRNAs, fuchsia: novel lncRNAs, gray: protein-coding/other).
-Point size marks significance (large = padj<0.05, small = not significant); significant
+Colored by `origin` (green: annotated lncRNAs, fuchsia: novel lncRNAs).
+Point size marks significance)(large = padj<0.05, small = not significant); significant
 genes are labeled.
 
 ```{r volcano, fig.width=8, fig.height=6}
 if (!is.null(de_ann) && nrow(de_ann) > 0 &&
     all(c("log2FoldChange", "pvalue") %in% colnames(de_ann))) {
-  de_ann <- de_ann %>% mutate(
-    sig    = ifelse(!is.na(padj) & padj < 0.05, "FDR<0.05", "ns"),
-    origin = ifelse(is.na(origin), "reference_other", origin),
-    logp   = -log10(pvalue),
-    label  = coalesce(gene_name, gene_id)
-  )
-  p <- ggplot(de_ann, aes(log2FoldChange, logp)) +
+  volcano_df <- de_ann %>%
+    filter(origin %in% c("novel", "annotated_lncrna")) %>%
+    mutate(
+      sig    = ifelse(!is.na(padj) & padj < 0.05, "FDR<0.05", "ns"),
+      origin = ifelse(is.na(origin), "reference_other", origin),
+      logp   = -log10(pvalue),
+      label  = coalesce(gene_name, gene_id)
+    )
+  p <- ggplot(volcano_df, aes(log2FoldChange, logp)) +
     geom_point(aes(color = origin, size = sig), alpha = 0.6) +
     geom_text_repel(
-      data = filter(de_ann, sig == "FDR<0.05") %>%
+      data = filter(volcano_df, sig == "FDR<0.05") %>%
                arrange(pvalue) %>% slice_head(n = 20),
       aes(label = label), size = 3, max.overlaps = Inf, min.segment.length = 0.2
     ) +
     scale_color_manual(
-      values = ORIGIN_COLORS[sort(unique(de_ann$origin))],
-      labels = ORIGIN_LABELS[sort(unique(de_ann$origin))],
+      values = ORIGIN_COLORS[sort(unique(volcano_df$origin))],
+      labels = ORIGIN_LABELS[sort(unique(volcano_df$origin))],
       na.value = "#7f7f7f"
     ) +
     scale_size_manual(values = c("FDR<0.05" = 3, "ns" = 0.8)) +
@@ -380,45 +398,102 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
 }
 ```
 
+Protein-coding genes were included in normalization and DE testing but are not shown here; see the standard bulk RNA-seq DEG report for protein-coding results.
+
 ### Tested lncRNAs by class
 
-Every tested class is shown, including those with zero hits. Light gray = not
-significant, dark = significant (split by direction).
+Significant genes only, split by direction (red = up, blue = down) and shown
+side by side per class. Novel class combinations without significant genes are
+omitted to keep the panel readable.
 
-```{r class-barplot}
+```{r class-barplot, fig.width=9, fig.height=6}
 lnc_by_class <- NULL
 if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
   lnc_by_class <- de_ann %>%
     filter(origin %in% c("novel", "annotated_lncrna"), !is.na(padj)) %>%
     mutate(
       label  = ifelse(origin == "novel",
-                      sapply(coalesce(class_code, "unknown"), format_class_code),
+                      coalesce(class_code, "unknown"),
                       coalesce(gene_biotype, "lncRNA")),
       origin_label = ORIGIN_LABELS[origin],
       status = case_when(
-        padj >= 0.05        ~ "not significant",
-        log2FoldChange > 0  ~ "significant (up)",
-        TRUE                ~ "significant (down)"
+        padj < 0.05 & log2FoldChange > 0  ~ "significant (up)",
+        padj < 0.05                        ~ "significant (down)",
+        TRUE                               ~ "not significant"
       )
     ) %>%
     count(origin_label, label, status) %>%
-    complete(nesting(origin_label, label), status, fill = list(n = 0))
+    complete(nesting(origin_label, label),
+             status = c("not significant", "significant (up)", "significant (down)"),
+             fill = list(n = 0)) %>%
+    filter(status != "not significant") %>%
+    group_by(origin_label, label) %>%
+    mutate(total = sum(n)) %>%
+    ungroup() %>%
+    filter(origin_label != ORIGIN_LABELS["novel"] | total > 0) %>%
+    group_by(origin_label) %>%
+    mutate(label = stats::reorder(label, total)) %>%
+    ungroup()
 }
 if (!is.null(lnc_by_class) && nrow(lnc_by_class) > 0) {
-  p <- ggplot(lnc_by_class, aes(label, n, fill = status)) +
-    geom_col(position = "stack") +
-    facet_wrap(~origin_label, scales = "free_x") +
+  p <- ggplot(lnc_by_class, aes(n, label, fill = status)) +
+    geom_col(position = "dodge") +
+    facet_wrap(~origin_label, scales = "free_y") +
     scale_fill_manual(values = c(
-      "not significant"    = "#d9d9d9",
       "significant (up)"   = "#b71c1c",
       "significant (down)" = "#1565c0"
     )) +
-    labs(x = NULL, y = "N genes", fill = NULL) +
+    labs(x = "N genes", y = NULL, fill = NULL) +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    theme(axis.text.y = element_text(size = 8))
   print(p)
 } else {
   cat("No lncRNA genes tested for this contrast.")
+}
+```
+#### Counts by class and origin
+```{r class-summary-table, results='asis'}
+if (!is.null(catalog) && nrow(catalog) > 0 &&
+    !is.null(de_ann) && nrow(de_ann) > 0) {
+  lnc_origins <- c("novel", "annotated_lncrna")
+  class_label <- function(df) {
+    df %>%
+      mutate(
+        origin = ifelse(is.na(origin), "reference_other", origin),
+        label  = ifelse(origin == "novel",
+                        sapply(coalesce(class_code, "unknown"), format_class_code),
+                        coalesce(gene_biotype, "lncRNA"))
+      ) %>%
+      filter(origin %in% lnc_origins)
+  }
+  cls_cat <- class_label(catalog) %>% count(origin, label, name = "in_catalog")
+  cls_de  <- class_label(de_ann) %>%
+    group_by(origin, label) %>%
+    summarise(
+      tested          = n(),
+      sig_up          = sum(!is.na(padj) & padj < 0.05 & log2FoldChange > 0, na.rm = TRUE),
+      sig_down        = sum(!is.na(padj) & padj < 0.05 & log2FoldChange < 0, na.rm = TRUE),
+      median_baseMean = median(baseMean, na.rm = TRUE),
+      .groups         = "drop"
+    )
+  cls_tab <- cls_cat %>%
+    full_join(cls_de, by = c("origin", "label")) %>%
+    mutate(
+      origin_label = ORIGIN_LABELS[origin],
+      across(c(in_catalog, tested, sig_up, sig_down), ~ replace_na(.x, 0))
+    ) %>%
+    select(origin_label, label, in_catalog, tested, sig_up, sig_down, median_baseMean) %>%
+    arrange(origin_label, desc(in_catalog))
+  cat('<details><summary><b>Counts by class and origin — click to expand</b></summary>\n')
+  cat(htmltools::doRenderTags(htmltools::tagList(datatable(
+    round_numeric_cols(cls_tab),
+    colnames = c("Class / origin", "Class", "In catalog", "Tested",
+                   "Significant up", "Significant down", "Median baseMean"),
+    rownames = FALSE,
+    options = list(pageLength = 25)))))
+  cat('\n</details>\n')
+} else {
+  cat("No catalog or DE data available for the class summary table.")
 }
 ```
 
@@ -441,7 +516,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0) {
                     "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
-    datatable(tab, filter = "top", options = list(pageLength = 20))
+    datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
   } else {
     "No significant DE genes in this contrast."
   }
@@ -461,7 +536,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
                     "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
-    datatable(tab, filter = "top", options = list(pageLength = 20))
+    datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
   } else {
     "No significant annotated lncRNA genes in this contrast."
   }
@@ -482,7 +557,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
                     "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
-    datatable(tab, filter = "top", options = list(pageLength = 20))
+    datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
   } else {
     "No significant novel lncRNA genes in this contrast."
   }
@@ -506,7 +581,7 @@ correlation and `padj` the BH-corrected significance.
 ```{r cis}
 if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
   cat("Significant cis pairs:\n")
-  datatable(cis_sig, options = list(pageLength = 20))
+  datatable(round_numeric_cols(cis_sig), options = list(pageLength = 20))
 } else {
   cat("No significant cis-regulatory associations found.\n")
 }
@@ -531,12 +606,14 @@ if (!is.null(ora) && nrow(ora) > 0 && all(c("GeneRatio", "p.adjust", "Count") %i
 }
 ```
 
-```{r ora}
+```{r ora, results='asis'}
 if (!is.null(ora) && nrow(ora) > 0) {
-  datatable(compact_list_columns(ora), escape = FALSE, options = list(pageLength = 20))
+  cat('<details><summary><b>Full ORA results table — click to expand</b></summary>\n')
+  cat(htmltools::doRenderTags(htmltools::tagList(
+    datatable(round_numeric_cols(compact_list_columns(ora)), escape = FALSE, options = list(pageLength = 20)))))
+  cat('\n</details>\n')
 } else {
-  cat("No ORA enrichment terms found for this contrast.\n")
-  cat("The analysis completed but no gene-set passed the threshold.\n")
+  cat("_No ORA terms passed the significance threshold for this contrast. This is expected for small DE gene lists — GSEA below uses the full ranked list and can still detect pathway-level signal._\n")
 }
 ```
 
@@ -566,12 +643,14 @@ if (!is.null(gsea) && nrow(gsea) > 0 && "core_enrichment" %in% colnames(gsea) &&
 }
 ```
 
-```{r gsea}
+```{r gsea, results='asis'}
 if (!is.null(gsea) && nrow(gsea) > 0) {
-  datatable(compact_list_columns(gsea), escape = FALSE, options = list(pageLength = 20))
+  cat('<details><summary><b>Full GSEA results table — click to expand</b></summary>\n')
+  cat(htmltools::doRenderTags(htmltools::tagList(
+    datatable(round_numeric_cols(compact_list_columns(gsea)), escape = FALSE, options = list(pageLength = 20)))))
+  cat('\n</details>\n')
 } else {
-  cat("No GSEA enrichment found for this contrast.\n")
-  cat("The ranked gene-set analysis completed with no significant sets.\n")
+  cat("_No GSEA gene sets passed the significance threshold for this contrast. This is expected when no coordinated shift exists across the ranked gene list; see ORA above for the single-gene test._\n")
 }
 ```
 
@@ -587,14 +666,14 @@ show_heterogeneity <- !is.null(het_ct) && nrow(het_ct) > 0
 ```{r heterogeneity-intro, results='asis'}
 if (show_heterogeneity) {
   cat('<div style="text-align: justify;">\n\n')
-  cat("Complementary, patient-level diagnostic (Carrasco-Leon et al. 2021, *Leukemia*): ",
-      "a standard group-mean DE test can miss lncRNAs whose expression is heterogeneous ",
+  cat("Complementary, patient-level diagnostic (Carrasco-Leon et al. 2021, *Leukemia*):",
+      "a standard group-mean DE test can miss lncRNAs whose expression is heterogeneous",
       "across individual case samples. This does not replace the DESeq2 result above.\n\n")
   cat('</div>\n')
 }
 ```
 
-```{r heterogeneity-cv-plot, eval=show_heterogeneity, fig.width=6, fig.height=4, results='asis'}
+```{r heterogeneity-cv-plot, eval=show_heterogeneity, fig.width=6, fig.height=4}
 if (!is.null(het_cv_ct) && nrow(het_cv_ct) > 0) {
   p <- ggplot(het_cv_ct, aes(origin_group, cv, fill = origin_group)) +
     geom_violin(alpha = 0.6) +
@@ -604,14 +683,22 @@ if (!is.null(het_cv_ct) && nrow(het_cv_ct) > 0) {
     theme(legend.position = "none")
   print(p)
 
-  t_stat <- unique(het_cv_ct$t_statistic)[1]
-  p_val  <- unique(het_cv_ct$p_value)[1]
-  cat(sprintf(
-    "\n- lncRNA CV: mean = %.3f (n = %d)\n- Coding CV: mean = %.3f (n = %d)\n- Welch t-test: t = %.3f, p = %.3g\n",
-    unique(het_cv_ct$mean_cv_lncrna)[1], unique(het_cv_ct$n_lncrna_genes)[1],
-    unique(het_cv_ct$mean_cv_coding)[1], unique(het_cv_ct$n_coding_genes)[1],
-    ifelse(is.na(t_stat), NA, t_stat), ifelse(is.na(p_val), NA, p_val)
-  ))
+  cv_stats <- data.frame(
+    Metric = c("lncRNA CV", "Coding CV", "Welch t-test"),
+    Value = c(
+      sprintf("mean = %.3f (n = %d)",
+              unique(het_cv_ct$mean_cv_lncrna)[1],
+              unique(het_cv_ct$n_lncrna_genes)[1]),
+      sprintf("mean = %.3f (n = %d)",
+              unique(het_cv_ct$mean_cv_coding)[1],
+              unique(het_cv_ct$n_coding_genes)[1]),
+      sprintf("t = %.3f, p = %.3g",
+              unique(het_cv_ct$t_statistic)[1],
+              unique(het_cv_ct$p_value)[1])
+    ),
+    stringsAsFactors = FALSE
+  )
+  kable(cv_stats, format = "html", col.names = c("Metric", "Value"))
 } else {
   cat("No CV comparison data available for this contrast.\n")
 }
@@ -636,7 +723,7 @@ if (show_heterogeneity) {
     select(any_of(c("gene_id", "gene_name", "class_code", "direction",
                     "concordant_frac", "discordant_frac", "n_case", "n_control")))
   if (nrow(tab) > 0) {
-    datatable(tab, filter = "top", options = list(pageLength = 20))
+    datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
   } else {
     cat("No additional altered lncRNAs found beyond the standard DESeq2 result.\n")
   }
@@ -663,10 +750,10 @@ if (has_conservation) {
   if (nrow(cons_sum) > 0) {
     kable(cons_sum, format = "html")
   } else {
-    cat("No tested genes with conservation data for this contrast. ")
+    cat("No tested genes with conservation data for this contrast.")
     if (sum(de_ann$origin == "novel", na.rm = TRUE) == 0) {
-      cat("This is expected when no novel lncRNAs passed the DESeq2 independent filtering step ")
-      cat("for this contrast (e.g. low-abundance novel transcripts in primary samples with shallow sequencing). ")
+      cat("This is expected when no novel lncRNAs passed the DESeq2 independent filtering step")
+      cat("for this contrast (e.g. low-abundance novel transcripts in primary samples with shallow sequencing).")
     }
     cat("Conservation scores are only computed for novel lncRNAs.\n")
   }
@@ -726,7 +813,7 @@ if (has_conservation && exists("cons_data")) {
                     "log2FoldChange", "padj"))) %>%
     arrange(desc(conservation_mean))
   if (nrow(top_cons) > 0) {
-    datatable(top_cons, filter = "top", options = list(pageLength = 10))
+    datatable(round_numeric_cols(top_cons), filter = "top", options = list(pageLength = 10))
   } else {
     cat("No significant novel lncRNAs with conservation data in this contrast.\n")
   }
@@ -752,10 +839,10 @@ if (has_synteny) {
   if (nrow(syn_sum) > 0) {
     kable(syn_sum, format = "html")
   } else {
-    cat("No tested genes with synteny data for this contrast. ")
+    cat("No tested genes with synteny data for this contrast.")
     if (sum(de_ann$origin == "novel", na.rm = TRUE) == 0) {
-      cat("This is expected when no novel lncRNAs passed the DESeq2 independent filtering step ")
-      cat("for this contrast (e.g. low-abundance novel transcripts in primary samples with shallow sequencing). ")
+      cat("This is expected when no novel lncRNAs passed the DESeq2 independent filtering step")
+      cat("for this contrast (e.g. low-abundance novel transcripts in primary samples with shallow sequencing).")
     }
     cat("Synteny checks are only computed for novel lncRNAs.\n")
   }
@@ -796,7 +883,7 @@ if (has_synteny && exists("syn_data")) {
     select(any_of(c("gene_id", "class_code", "syntenic_target_gene_id",
                     "log2FoldChange", "padj")))
   if (nrow(top_syn) > 0) {
-    datatable(top_syn, filter = "top", options = list(pageLength = 10))
+    datatable(round_numeric_cols(top_syn), filter = "top", options = list(pageLength = 10))
   } else {
     cat("No significant novel lncRNAs with a syntenic locus in this contrast.\n")
   }
@@ -805,10 +892,22 @@ if (has_synteny && exists("syn_data")) {
 
 ## Session info
 
-```{r session, echo=FALSE}
-cat("Generated:", format(Sys.time()), "\n")
-si <- tryCatch({
-  if (requireNamespace("sessioninfo", quietly = TRUE)) sessioninfo::session_info() else sessionInfo()
+```{r session, echo=FALSE, results='asis'}
+cat("<details><summary><b>Session info — click to expand</b></summary>\n")
+cat(sprintf("<p>Generated: %s</p>\n", format(Sys.time())))
+si_txt <- tryCatch({
+  capture.output(
+    if (requireNamespace("sessioninfo", quietly = TRUE)) {
+      print(sessioninfo::session_info())
+    } else {
+      print(sessionInfo())
+    }
+  )
 }, error = function(e) NULL)
-if (!is.null(si)) print(si)
+if (!is.null(si_txt) && length(si_txt) > 0) {
+  cat("<pre>\n")
+  cat(htmltools::htmlEscape(paste(si_txt, collapse = "\n")))
+  cat("\n</pre>\n")
+}
+cat("</details>\n")
 ```
