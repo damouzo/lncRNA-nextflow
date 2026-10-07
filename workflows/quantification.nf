@@ -22,7 +22,7 @@ workflow QUANTIFICATION {
     tx2gene_detailed
     design_formula
     gene_catalog
-    outdir
+    _outdir
 
     main:
     // tx2gene_detailed and gene_catalog come from single-execution Discovery processes:
@@ -32,7 +32,7 @@ workflow QUANTIFICATION {
     ch_gene_catalog = gene_catalog.first()
 
     // B3: tximport + independent filtering (condition-blind, keyed by group)
-    ch_txi_in = ch_per_group.map { group, coldata, quants, ct_tsv ->
+    ch_txi_in = ch_per_group.map { group, coldata, quants, _ct_tsv ->
         tuple(group, quants, coldata)
     }
     TXIMPORT_AND_FILTER(ch_txi_in, ch_tx2gene)
@@ -40,7 +40,7 @@ workflow QUANTIFICATION {
     // B4: DESeq2 differential expression
     // Join the finished counts with each group's coldata + contrasts by key;
     // never positionally — completion order != submission order.
-    ch_deseq_key = ch_per_group.map { group, coldata, quants, ct_tsv ->
+    ch_deseq_key = ch_per_group.map { group, coldata, _quants, ct_tsv ->
         tuple(group, coldata, ct_tsv)
     }
     ch_deseq = TXIMPORT_AND_FILTER.out.counts_rds
@@ -78,18 +78,18 @@ workflow QUANTIFICATION {
     // filtered by an inner .join() against the enabled-groups channel, so the process is
     // never scheduled at all for a disabled group (not submitted-then-skipped).
     ch_het_enabled_groups = ch_per_group
-        .map { group, coldata, quants, ct_tsv -> group }
+        .map { group, _coldata, _quants, _ct_tsv -> group }
         .filter { group -> (params.heterogeneity_analysis?.get(group) ?: false) as boolean }
         .map { group -> tuple(group, true) }
 
-    ch_het_key = ch_per_group.map { group, coldata, quants, ct_tsv ->
+    ch_het_key = ch_per_group.map { group, coldata, _quants, ct_tsv ->
         tuple(group, coldata, ct_tsv)
     }
     ch_het_in = TXIMPORT_AND_FILTER.out.counts_rds
         .join(TXIMPORT_AND_FILTER.out.tpm_rds)
         .join(ch_het_key)
         .join(ch_het_enabled_groups)
-        .map { group, counts, tpm, coldata, ct_tsv, flag ->
+        .map { group, counts, tpm, coldata, ct_tsv, _flag ->
             tuple(group, counts, tpm, coldata, ct_tsv)
         }
 
@@ -101,14 +101,14 @@ workflow QUANTIFICATION {
     // way it already treats other empty inputs: the new report section is simply skipped,
     // so disabled-group reports render identically to the pre-feature pipeline.
     ch_het_disabled_groups = ch_per_group
-        .map { group, coldata, quants, ct_tsv -> group }
+        .map { group, _coldata, _quants, _ct_tsv -> group }
         .filter { group -> !((params.heterogeneity_analysis?.get(group) ?: false) as boolean) }
 
-    ch_het_gene_placeholder = Channel
+    ch_het_gene_placeholder = channel
         .of("contrast\tgene_id\tn_case\tn_control\tn_up\tn_down\tn_no_change\tconcordant_frac\tdiscordant_frac\tdirection\taltered_call")
         .collectFile(name: 'heterogeneity_placeholder.tsv', newLine: true)
         .first()
-    ch_het_cv_placeholder = Channel
+    ch_het_cv_placeholder = channel
         .of("contrast\tgene_id\torigin_group\tcv\tn_lncrna_genes\tn_coding_genes\tmean_cv_lncrna\tmean_cv_coding\tmedian_cv_lncrna\tmedian_cv_coding\tt_statistic\tp_value")
         .collectFile(name: 'heterogeneity_cv_placeholder.tsv', newLine: true)
         .first()
@@ -124,7 +124,7 @@ workflow QUANTIFICATION {
     //   - every declared contrast that applies to THIS group gets a report even
     //     when it produced no results upstream, and
     //   - reports land flat (no per-group subdirectory).
-    ch_ct_grp = ch_per_group.map { group, coldata, quants, ct_tsv ->
+    ch_ct_grp = ch_per_group.map { group, coldata, _quants, ct_tsv ->
         tuple(group, coldata, ct_tsv)
     }
     ch_rpt = ch_deseq_summary
@@ -142,7 +142,7 @@ workflow QUANTIFICATION {
 
     REPORT_CONTRAST(
         ch_rpt,
-        Channel.value(file("${params.report_template ?: projectDir + '/assets/report_template.qmd'}")),
+        channel.value(file("${params.report_template ?: projectDir + '/assets/report_template.qmd'}")),
         ch_gene_catalog
     )
 

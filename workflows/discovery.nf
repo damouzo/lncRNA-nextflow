@@ -19,17 +19,19 @@ include { BUILD_GENE_CATALOG }      from '../modules/local/build_gene_catalog'
 include { CHECK_REFERENCE_COMPATIBILITY } from '../modules/local/check_reference_compatibility'
 include { CONSERVATION_SCORE }      from '../modules/local/conservation_score'
 include { SYNTENY_CHECK }           from '../modules/local/synteny_check'
+include { ASSIGN_CATALOG_IDS }      from '../modules/local/assign_catalog_ids'
+include { BUILD_CATALOG_MASTER }    from '../modules/local/build_catalog_master'
 
 workflow DISCOVERY {
     take:
     ch_samplesheet   // tuple: sample, condition, batch, fastq_1, fastq_2, bam, covariates
     genome_fa
     reference_gtf
-    outdir
+    _outdir
 
     main:
     // Extract BAM paths for validation
-    ch_bams = ch_samplesheet.map { sample, cond, batch, fq1, fq2, bam, extra ->
+    ch_bams = ch_samplesheet.map { sample, _cond, _batch, _fq1, _fq2, bam, _extra ->
         tuple(sample, bam)
     }
 
@@ -57,7 +59,7 @@ workflow DISCOVERY {
     // Per-sample StringTie2 assembly — collect GTFs for merge
     STRINGTIE2_PER_SAMPLE(ch_bams_assembly, reference_gtf)
     ch_gtf_list = STRINGTIE2_PER_SAMPLE.out.transcript_gtf
-        .map { sample, gtf -> gtf }
+        .map { _sample, gtf -> gtf }
         .collect()
 
     // Merge StringTie2 assemblies
@@ -80,7 +82,7 @@ workflow DISCOVERY {
 
     // Build CPAT models from reference GTF if not provided
     if (params.cpat_hexamer && params.cpat_logit_model) {
-        ch_cpat_models = Channel.value([
+        ch_cpat_models = channel.value([
             file(params.cpat_hexamer, checkIfExists: true),
             file(params.cpat_logit_model, checkIfExists: true)
         ])
@@ -129,7 +131,7 @@ workflow DISCOVERY {
         CONSERVATION_SCORE(ANNOTATION_FREEZE.out.frozen_gtf)
         ch_conservation = CONSERVATION_SCORE.out.scores.first()
     } else {
-        ch_conservation = Channel.of("transcript_id\tmean_score\tmax_score\tpct_bases_conserved")
+        ch_conservation = channel.of("transcript_id\tmean_score\tmax_score\tpct_bases_conserved")
             .collectFile(name: 'conservation_placeholder.tsv', newLine: true).first()
     }
 
@@ -137,16 +139,41 @@ workflow DISCOVERY {
         SYNTENY_CHECK(ANNOTATION_FREEZE.out.frozen_gtf)
         ch_synteny = SYNTENY_CHECK.out.scores.first()
     } else {
-        ch_synteny = Channel.of("transcript_id\tsyntenic_locus\tsyntenic_target_gene_id")
+        ch_synteny = channel.of("transcript_id\tsyntenic_locus\tsyntenic_target_gene_id")
             .collectFile(name: 'synteny_placeholder.tsv', newLine: true).first()
     }
+
+    // Stable catalog identity: hierarchical IDs (gene + transcript) backed by a
+    // persistent two-level registry outside results/. Runs AFTER freeezing so the
+    // registry only ever sees transcripts that passed all discovery filters.
+    // "cache false" inside the process is a deliberate -resume exception (it
+    // writes outside the Nextflow work dir).
+    ASSIGN_CATALOG_IDS(
+        ANNOTATION_FREEZE.out.frozen_gtf,
+        params.catalog_registry,        // val — may not exist on the first run
+        params.genome_build,
+        params.gtf,
+        params.catalog_registry_project
+    )
 
     // Gene catalog: one row per gene of the full analysis universe
     BUILD_GENE_CATALOG(
         ANNOTATION_FREEZE.out.frozen_gtf,
         reference_gtf,
         ch_conservation,
-        ch_synteny
+        ch_synteny,
+        ASSIGN_CATALOG_IDS.out.catalog_ids,
+        CATALOG_OVERLAP.out.overlap_table
+    )
+
+    // Novel catalog master (gene-level + transcript-level) with join assertions
+    BUILD_CATALOG_MASTER(
+        ASSIGN_CATALOG_IDS.out.catalog_ids,
+        BUILD_GENE_CATALOG.out.gene_catalog,
+        ASSIGN_CATALOG_IDS.out.catalog_tx,
+        CATALOG_OVERLAP.out.overlap_table,
+        EXPRESSION_RECURRENCE.out.recurrence_table,
+        ANNOTATION_FREEZE.out.frozen_gtf
     )
 
     emit:
@@ -154,4 +181,9 @@ workflow DISCOVERY {
     tx2gene_detailed   = ANNOTATION_FREEZE.out.tx2gene_detailed
     gene_catalog       = BUILD_GENE_CATALOG.out.gene_catalog
     strand_consensus   = ch_strandedness
+    catalog_ids        = ASSIGN_CATALOG_IDS.out.catalog_ids
+    catalog_tx         = ASSIGN_CATALOG_IDS.out.catalog_tx
+    catalog_gtf        = ASSIGN_CATALOG_IDS.out.catalog_gtf
+    catalog_master     = BUILD_CATALOG_MASTER.out.master
+    catalog_transcripts= BUILD_CATALOG_MASTER.out.transcripts
 }

@@ -88,6 +88,33 @@ Where to get each resource (reference only — the pipeline consumes paths):
 | liftOver chain file | UCSC (`hgdownload.soe.ucsc.edu` /goldenPath/*sourceBuild*/liftOver/) or Ensembl |
 | target-species GTF | Ensembl/Ensembl BioMart (`Mus_musculus.GRCm39.gtf`, etc.) |
 
+### 4b. Stable catalog identity (novel lncRNA registry, optional)
+
+Novel lncRNAs can receive **stable hierarchical IDs** (`LNC000001`, transcripts
+`LNC000001.1`, …) assigned by a persistent two-level registry that survives across
+runs. Set a registry path *outside* `results/` (must be **absolute** — the registry
+lives on shared storage, and a relative path would resolve against the per-task
+scratch work dir and break persistence):
+
+```yaml
+catalog_registry:         /path/to/outside/catalog/lncrna_catalog_registry.tsv
+catalog_registry_project: MY_PROJECT        # provenance label
+```
+
+- The registry is read and extended, never regenerated; writes are atomic with a
+  `history/` backup, guarded by an atomic `mkdir` lock, and fail fast if the
+  build/annotation change. Transcripts are matched by structural signature; the
+  gene id is inherited from its matched transcripts (span fallback only when no
+  transcript matches). Any ambiguous match writes `registry_review_needed.tsv`
+  and stops for manual resolution — never a silent reassignment.
+- The registry header records `catalog_registry_project`: a run from a *different*
+  project label fails fast unless you explicitly set
+  `catalog_registry_allow_cross_project: true` (provenance/merge escape hatch).
+- `ASSIGN_CATALOG_IDS` sets `cache false` as a deliberate `-resume` exception; the
+  GTF/FASTA/BED of quantification keep the original `MSTRG.*` IDs.
+- Omit `catalog_registry` to disable the feature (columns come out `NA`); no
+  existing run changes behaviour.
+
 ### 5. Run
 
 ```bash

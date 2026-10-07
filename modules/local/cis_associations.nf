@@ -59,8 +59,9 @@ process CIS_ASSOCIATIONS {
         strand   = lnc_df\$strand
     )
     mcols(lnc_gr) <- DataFrame(
-        gene_id  = lnc_df\$gene_id,
-        origin   = lnc_df\$origin,
+        gene_id    = lnc_df\$gene_id,
+        catalog_id = lnc_df\$catalog_id,
+        origin     = lnc_df\$origin,
         class_code = lnc_df\$class_code
     )
     lnc_window <- lnc_gr + WINDOW
@@ -79,11 +80,12 @@ process CIS_ASSOCIATIONS {
     # to same-strand pairs and silently drop opposite-strand cis pairs.
     ov <- findOverlaps(lnc_window, pc_gr, ignore.strand = TRUE)
     pairs <- data.frame(
-        lncrna_id        = lnc_df\$gene_id[queryHits(ov)],
-        lncrna_origin    = lnc_df\$origin[queryHits(ov)],
+        lncrna_id         = lnc_df\$gene_id[queryHits(ov)],
+        lncrna_catalog_id = lnc_df\$catalog_id[queryHits(ov)],
+        lncrna_origin     = lnc_df\$origin[queryHits(ov)],
         lncrna_class_code = lnc_df\$class_code[queryHits(ov)],
-        target_gene_id   = pc_df\$gene_id[subjectHits(ov)],
-        target_gene_name = pc_df\$gene_name[subjectHits(ov)],
+        target_gene_id    = pc_df\$gene_id[subjectHits(ov)],
+        target_gene_name  = pc_df\$gene_name[subjectHits(ov)],
         stringsAsFactors = FALSE
     )
     pairs <- unique(pairs)
@@ -138,8 +140,9 @@ process CIS_ASSOCIATIONS {
         if (is.null(cor_test)) next
 
         cis_list[[length(cis_list) + 1L]] <- data.frame(
-            lncrna_id      = lnc,
-            lncrna_origin  = pairs\$lncrna_origin[i],
+            lncrna_id         = lnc,
+            lncrna_catalog_id = pairs\$lncrna_catalog_id[i],
+            lncrna_origin     = pairs\$lncrna_origin[i],
             lncrna_class_code = pairs\$lncrna_class_code[i],
             target_gene_id   = gene,
             target_gene_name = pairs\$target_gene_name[i],

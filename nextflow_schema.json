@@ -186,6 +186,46 @@
                     "description": "Salmon library type override (e.g. SF, SR). If unset, uses empirical detection from Phase A."
                 }
             }
+        },
+        "catalog_identity": {
+            "title": "Stable Catalog Identity (novel lncRNA registry)",
+            "type": "object",
+            "description": "Persistent two-level (gene+transcript) registry that assigns stable catalog IDs to novel lncRNAs across runs.",
+            "properties": {
+                "catalog_registry": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Persistent TSV registry path OUTSIDE results/. Passed as a val so a missing file on the first run does not fail path resolution. null disables the feature."
+                },
+                "catalog_registry_project": {
+                    "type": "string",
+                    "description": "Provenance label (e.g. CRUK_DDX41_DHX34) recorded as first_seen_project for newly created registry entries."
+                },
+                "catalog_registry_allow_cross_project": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Allow extending a registry that carries a different catalog_registry_project label. Off by default: mixing projects into one registry is a provenance risk."
+                },
+                "catalog_registry_min_reciprocal": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.5,
+                    "description": "Reciprocal overlap threshold used to match novel genes/transcripts against existing registry entries."
+                },
+                "catalog_id_prefix": {
+                    "type": "string",
+                    "default": "LNC",
+                    "description": "String prefix of the hierarchical catalog ID at gene level (e.g. LNC000001)."
+                },
+                "external_catalog_min_reciprocal": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.5,
+                    "description": "Reciprocal overlap threshold for the STRICT external-catalog hit call (known_catalog_hit). "
+                }
+            }
         }
     },
     "allOf": [
@@ -194,6 +234,7 @@
         {"$ref": "#/definitions/phase_a_thresholds"},
         {"$ref": "#/definitions/phase_b_thresholds"},
         {"$ref": "#/definitions/reference_catalogs"},
+        {"$ref": "#/definitions/catalog_identity"},
         {"$ref": "#/definitions/external_tools"}
     ]
 }

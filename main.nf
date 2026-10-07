@@ -29,7 +29,7 @@ workflow {
     )
 
     // ── B1: Build decoy-aware Salmon index (shared across all groups) ─────
-    ch_transcripts_fa = Channel.value(params.gencode_transcripts_fa ?: "")
+    ch_transcripts_fa = channel.value(params.gencode_transcripts_fa ?: "")
     BUILD_DECOY_INDEX(
         DISCOVERY.out.frozen_gtf,
         params.genome,
@@ -42,7 +42,7 @@ workflow {
     // Single shared value = full list of quant dirs; combine() keeps it as one
     // field instead of flattening the tuples into the group tuple
     ch_salmon_quants = SALMON_QUANTIFY.out.quant_results
-        .map { sample, quant_dir -> quant_dir }
+        .map { _sample, quant_dir -> quant_dir }
         .collect()
         .map { q -> [ q ] }
 
@@ -84,13 +84,4 @@ workflow {
         DISCOVERY.out.gene_catalog,
         params.outdir
     )
-}
-
-workflow.onComplete {
-    log.info """
-    ─────────────────────────────────────────
-    lncRNA-discovery pipeline finished
-    Results: ${params.outdir}
-    ─────────────────────────────────────────
-    """.stripIndent()
 }

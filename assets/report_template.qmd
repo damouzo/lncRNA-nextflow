@@ -155,8 +155,11 @@ catalog <- tryCatch(read_tsv(params$gene_catalog, show_col_types = FALSE),
 de_ann <- de_ct
 if (!is.null(catalog) && nrow(catalog) > 0 && "gene_id" %in% colnames(de_ct)) {
   de_ann <- de_ct %>%
-    left_join(select(catalog, gene_id, gene_name, gene_biotype, origin, class_code,
-                     conservation_mean, conservation_pct, syntenic_locus, syntenic_target_gene_id),
+    left_join(select(catalog, any_of(c("gene_id", "gene_name", "gene_biotype", "origin", "class_code",
+                                       "catalog_id", "locus", "ref_gene_name", "known_catalog_hit",
+                                       "catalog_sources",
+                                       "conservation_mean", "conservation_pct", "syntenic_locus",
+                                       "syntenic_target_gene_id"))),
               by = "gene_id")
 }
 
@@ -214,7 +217,7 @@ het_cv_ct <- if (!is.null(het_cv) && "contrast" %in% colnames(het_cv)) {
 } else { NULL }
 if (!is.null(het_ct) && nrow(het_ct) > 0 && !is.null(catalog) && nrow(catalog) > 0) {
   het_ct <- het_ct %>%
-    left_join(select(catalog, gene_id, gene_name, class_code), by = "gene_id")
+    left_join(select(catalog, gene_id, gene_name, class_code, catalog_id), by = "gene_id")
 }
 
 # Per-sample lncRNA detection from TPM matrix (QC)
@@ -363,7 +366,8 @@ if (!is.null(de_ann) && nrow(de_ann) > 0) {
 
 Colored by `origin` (green: annotated lncRNAs, fuchsia: novel lncRNAs).
 Point size marks significance)(large = padj<0.05, small = not significant); significant
-genes are labeled.
+genes are labeled — novel lncRNAs with their stable `catalog_id` when available, falling
+back to the assembly `gene_id`.
 
 ```{r volcano, fig.width=8, fig.height=6}
 if (!is.null(de_ann) && nrow(de_ann) > 0 &&
@@ -374,7 +378,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
       sig    = ifelse(!is.na(padj) & padj < 0.05, "FDR<0.05", "ns"),
       origin = ifelse(is.na(origin), "reference_other", origin),
       logp   = -log10(pvalue),
-      label  = coalesce(gene_name, gene_id)
+      label  = coalesce(gene_name, catalog_id, gene_id)
     )
   p <- ggplot(volcano_df, aes(log2FoldChange, logp)) +
     geom_point(aes(color = origin, size = sig), alpha = 0.6) +
@@ -511,7 +515,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0) {
       origin = recode(origin, !!!ORIGIN_LABELS),
       class_code_label = sapply(coalesce(class_code, ""), format_class_code)
     ) %>%
-    select(any_of(c("gene_id", "gene_name", "origin", "gene_biotype", "class_code",
+    select(any_of(c("gene_id", "catalog_id", "locus", "gene_name", "origin", "gene_biotype", "class_code",
                     "class_code_label",
                     "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
     arrange(padj)
@@ -553,7 +557,9 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
       origin = recode(origin, !!!ORIGIN_LABELS),
       class_code_label = sapply(coalesce(class_code, ""), format_class_code)
     ) %>%
-    select(any_of(c("gene_id", "class_code", "class_code_label",
+    select(any_of(c("gene_id", "catalog_id", "locus", "ref_gene_name",
+                    "known_catalog_hit", "catalog_sources",
+                    "class_code", "class_code_label",
                     "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
@@ -581,7 +587,12 @@ correlation and `padj` the BH-corrected significance.
 ```{r cis}
 if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
   cat("Significant cis pairs:\n")
-  datatable(round_numeric_cols(cis_sig), options = list(pageLength = 20))
+  cis_tab <- round_numeric_cols(cis_sig) %>%
+    select(any_of(c(
+      "lncrna_id", "lncrna_catalog_id", "target_gene_id", "target_gene_name",
+      "spearman_rho", "spearman_pvalue", "padj", "n_samples",
+      "lncrna_DE_log2FC", "lncrna_DE_padj")))
+  datatable(cis_tab, options = list(pageLength = 20))
 } else {
   cat("No significant cis-regulatory associations found.\n")
 }
@@ -720,7 +731,7 @@ if (show_heterogeneity) {
 
   tab <- het_ct %>%
     filter(altered_call == "altered", !(gene_id %in% de_sig_ids)) %>%
-    select(any_of(c("gene_id", "gene_name", "class_code", "direction",
+    select(any_of(c("gene_id", "catalog_id", "gene_name", "class_code", "direction",
                     "concordant_frac", "discordant_frac", "n_case", "n_control")))
   if (nrow(tab) > 0) {
     datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
@@ -809,7 +820,8 @@ if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in
 if (has_conservation && exists("cons_data")) {
   top_cons <- cons_data %>%
     filter(origin == "novel", !is.na(padj), padj < 0.05) %>%
-    select(any_of(c("gene_id", "class_code", "conservation_mean", "conservation_pct",
+    select(any_of(c("gene_id", "catalog_id", "gene_name", "class_code",
+                    "conservation_mean", "conservation_pct",
                     "log2FoldChange", "padj"))) %>%
     arrange(desc(conservation_mean))
   if (nrow(top_cons) > 0) {
@@ -880,7 +892,8 @@ cross-species follow-up, not proof of conserved function.
 if (has_synteny && exists("syn_data")) {
   top_syn <- syn_data %>%
     filter(origin == "novel", syntenic_locus == TRUE, !is.na(padj), padj < 0.05) %>%
-    select(any_of(c("gene_id", "class_code", "syntenic_target_gene_id",
+    select(any_of(c("gene_id", "catalog_id", "gene_name", "class_code",
+                    "syntenic_target_gene_id",
                     "log2FoldChange", "padj")))
   if (nrow(top_syn) > 0) {
     datatable(round_numeric_cols(top_syn), filter = "top", options = list(pageLength = 10))
@@ -889,6 +902,22 @@ if (has_synteny && exists("syn_data")) {
   }
 }
 ```
+
+## Supplementary material (stable catalog identity)
+
+The novel lncRNAs in this run carry stable hierarchical catalog IDs (gene + transcript)
+assigned by a persistent two-level registry. Catalog tables are exported under
+`results/discovery/`:
+
+- `catalog_ids/catalog_ids.tsv` — gene-level mapping (`catalog_id`, `mstrg_gene_id`, `locus`, coordinates, class_codes).
+- `catalog_ids/catalog_tx.tsv` — transcript-level mapping (`catalog_tx_id`, `parent_catalog_id`, structural signature).
+- `catalog_ids/frozen_lncrna.catalog.gtf` — frozen novel transcripts renamed with catalog IDs.
+- `catalog_master/novel_catalog_master.tsv` — gene-level master with external-catalog hits, coverage, conservation and synteny.
+- `catalog_master/novel_transcripts.tsv` — transcript-level master with exon structure.
+
+Only the **strict** external-catalog call (`known_catalog_hit`) feeds the novel figures in this
+report; the per-source coverage columns are informative only and never filter. Strand is always
+anchored to the candidate transcript.
 
 ## Session info
 

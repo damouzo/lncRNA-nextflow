@@ -12,6 +12,8 @@ process BUILD_GENE_CATALOG {
     path reference_gtf      // reference annotation
     path conservation_scores  // per-transcript conservation (header-only placeholder when skipped)
     path synteny_scores       // per-transcript synteny (header-only placeholder when skipped)
+    path catalog_ids          // ASSIGN_CATALOG_IDS gene-level table (catalog_id, locus)
+    path overlap_table        // CATALOG_OVERLAP transcript-level external hits (reporting)
 
     output:
     path "gene_catalog.tsv", emit: gene_catalog
@@ -23,7 +25,7 @@ process BUILD_GENE_CATALOG {
     library(dplyr)
     library(readr)
 
-    ANNOT_BIOTYPES <- c(${params.annotated_lncrna_biotypes.collect { "\"$it\"" } .join(", ")})
+    ANNOT_BIOTYPES <- c(${params.annotated_lncrna_biotypes.collect { bt -> "\"${bt}\"" } .join(", ")})
 
     extract_attr <- function(attrs, key) {
         pat <- paste0('(?:^|; )', key, ' "([^"]+)"')
@@ -129,6 +131,7 @@ process BUILD_GENE_CATALOG {
         data.frame(
             transcript_id = extract_attr(attrs, "transcript_id"),
             gene_id       = extract_attr(attrs, "gene_id"),
+            orig_transcript_id = extract_attr(attrs, "orig_transcript_id"),
             stringsAsFactors = FALSE
         )
     }
@@ -137,6 +140,22 @@ process BUILD_GENE_CATALOG {
     tx2gene_frozen <- map_tx2gene(readLines("tx2gene_frozen_lines.txt")) %>%
         filter(!is.na(transcript_id), !is.na(gene_id)) %>%
         distinct(transcript_id, .keep_all = TRUE)
+
+    # Transcripts whose ids were disambiguated at freeze (reference id reused with
+    # class_code != "=") carry the original id in `orig_transcript_id`; external
+    # catalog evidence (CATALOG_OVERLAP) is keyed on that ORIGINAL id and must be
+    # re-keyed to the renamed id before the join below.
+    has_orig <- !is.na(tx2gene_frozen\$orig_transcript_id)
+    new_to_old <- setNames(tx2gene_frozen\$orig_transcript_id[has_orig],
+                           tx2gene_frozen\$transcript_id[has_orig])
+    remap_tx_id <- function(x) {
+        if (length(new_to_old) == 0) return(x)
+        old_to_new <- setNames(names(new_to_old), unname(new_to_old))
+        y <- as.character(x)
+        hit <- y %in% names(old_to_new)
+        if (any(hit)) y[hit] <- unname(old_to_new[y[hit]])
+        y
+    }
 
 read_scores <- function(f, cols) {
     x <- tryCatch(read_tsv(f, show_col_types = FALSE), error = function(e) NULL)
@@ -211,6 +230,92 @@ synth <- read_scores("${synteny_scores}",
                 grepl("u", class_code, fixed = TRUE) &
                 n_exons == 1L
         )
+
+    # ---- Stable catalog identity + associated reference gene ----
+    # catalog_ids.tsv is produced by ASSIGN_CATALOG_IDS (gene level). It may be
+    # absent on runs with the registry feature disabled — degrade to NA silently.
+    cat_ids <- tryCatch(read_tsv("${catalog_ids}", show_col_types = FALSE), error = function(e) NULL)
+    if (!is.null(cat_ids) && "gene_id" %in% colnames(cat_ids) &&
+        all(c("catalog_id", "locus") %in% colnames(cat_ids))) {
+        # Do NOT pre-initialize catalog_id/locus on `catalog`: both sides would
+        # carry them and left_join() would suffix the shared columns (.x/.y),
+        # dropping the plain catalog_id the master later selects.
+        catalog <- left_join(catalog, select(cat_ids, gene_id, catalog_id, locus), by = "gene_id")
+    } else {
+        catalog\$catalog_id <- NA_character_
+        catalog\$locus      <- NA_character_
+    }
+
+    # ---- Reference protein-coding genes: nearest / overlapping / host ----
+    refcoding <- ref %>%
+        filter(!is.na(gene_id), gene_biotype == "protein_coding",
+               !is.na(chromosome), !is.na(start), !is.na(end)) %>%
+        distinct(gene_id, gene_name, chromosome, start, end, strand)
+
+    which.max <- function(x) which(x == max(x, na.rm = TRUE))[1]
+    which.min <- function(x) which(x == min(x, na.rm = TRUE))[1]
+
+    assign_ref <- function(chr, start, end, strand, refcoding) {
+        base <- list(id = NA_character_, name = NA_character_, dist = NA_integer_, rel = NA_character_)
+        if (is.na(chr) || is.na(start) || is.na(end)) return(base)
+        sub <- refcoding[refcoding\$chromosome == chr, , drop = FALSE]
+        if (nrow(sub) == 0) return(list(id = base\$id, name = base\$name, dist = base\$dist, rel = "intergenic"))
+        w <- pmax(0L, pmin(end, sub\$end) - pmax(start, sub\$start) + 1L)
+        ov <- which(w > 0L)
+        if (length(ov) > 0) {
+            best <- ov[which.max(w[ov])]
+            same <- substr(sub\$strand[best], 1, 1) == strsplit(strand, "")[[1]][1]
+            contained <- start >= sub\$start[best] && end <= sub\$end[best]
+            rel <- if (same) { if (contained) "intronic" else "overlap_sense" } else "overlap_antisense"
+            return(list(id = sub\$gene_id[best], name = sub\$gene_name[best], dist = 0L, rel = rel))
+        }
+        dist <- pmin(abs(start - sub\$end), abs(sub\$start - end))
+        k <- which.min(dist)
+        rel <- if (end <= sub\$start[k]) "upstream" else if (start >= sub\$end[k]) "downstream" else "intergenic"
+        list(id = sub\$gene_id[k], name = sub\$gene_name[k], dist = as.integer(dist[k]), rel = rel)
+    }
+
+    catalog\$ref_gene_id       <- NA_character_
+    catalog\$ref_gene_name     <- NA_character_
+    catalog\$ref_gene_distance <- NA_integer_
+    catalog\$ref_gene_relation <- NA_character_
+    nov_idx <- which(catalog\$origin == "novel")
+    for (i in nov_idx) {
+        rr <- assign_ref(catalog\$chromosome[i], catalog\$start[i], catalog\$end[i],
+                         catalog\$strand[i], refcoding)
+        catalog\$ref_gene_id[i]       <- rr\$id
+        catalog\$ref_gene_name[i]     <- rr\$name
+        catalog\$ref_gene_distance[i] <- rr\$dist
+        catalog\$ref_gene_relation[i] <- rr\$rel
+    }
+
+    # ---- External catalog hits (reporting): aggregate transcript-level evidence ----
+    ov_tab <- tryCatch(read_tsv("${overlap_table}", show_col_types = FALSE), error = function(e) data.frame())
+    # CATALOG_OVERLAP keeps the CODING_CONSENSUS id column (`ID`), not
+    # `transcript_id` — renormalize like build_catalog_master's renorm_tx().
+    tid_over <- intersect(c("transcript_id", "ID"), colnames(ov_tab))
+    if (nrow(ov_tab) > 0 && length(tid_over) == 1) ov_tab\$transcript_id <- ov_tab[[tid_over[1]]]
+    if (nrow(ov_tab) > 0 && "transcript_id" %in% colnames(ov_tab) &&
+        "known_catalog_hit" %in% colnames(ov_tab)) {
+        ov_tab\$transcript_id <- remap_tx_id(ov_tab\$transcript_id)
+        ov_keep <- ov_tab[ov_tab\$transcript_id %in% tx2gene_frozen\$transcript_id, , drop = FALSE]
+        ov_gene <- ov_keep %>%
+            left_join(tx2gene_frozen, by = "transcript_id") %>%
+            group_by(gene_id) %>%
+            summarise(
+                known_catalog_hit = any(!is.na(known_catalog_hit) & known_catalog_hit),
+                catalog_sources = paste(unique(na.omit(catalog_sources)), collapse = ","),
+                .groups = "drop")
+        ov_gene\$known_catalog_hit[is.na(ov_gene\$known_catalog_hit)] <- FALSE
+        catalog <- left_join(catalog, ov_gene, by = "gene_id") %>%
+            mutate(
+                known_catalog_hit = ifelse(origin == "novel", coalesce(known_catalog_hit, FALSE), NA),
+                catalog_sources   = ifelse(origin == "novel" & !is.na(catalog_sources), catalog_sources, NA_character_)
+            )
+    } else {
+        catalog\$known_catalog_hit <- NA
+        catalog\$catalog_sources   <- NA_character_
+    }
 
     if (nrow(catalog) == 0) stop("Gene catalog is empty — check reference GTF parsing")
 
