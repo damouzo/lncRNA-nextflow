@@ -2,6 +2,7 @@
 // Strictly condition-blind — no contrast-based filtering anywhere in this phase
 
 include { BAM_QUICKCHECK }          from '../modules/local/bam_quickcheck'
+include { BUILD_INFER_BED }         from '../modules/local/build_infer_bed'
 include { INFER_STRANDEDNESS }      from '../modules/local/infer_strandedness'
 include { STRINGTIE2_PER_SAMPLE }   from '../modules/local/stringtie_per_sample'
 include { STRINGTIE2_MERGE }        from '../modules/local/stringtie_merge'
@@ -21,6 +22,13 @@ include { CONSERVATION_SCORE }      from '../modules/local/conservation_score'
 include { SYNTENY_CHECK }           from '../modules/local/synteny_check'
 include { ASSIGN_CATALOG_IDS }      from '../modules/local/assign_catalog_ids'
 include { BUILD_CATALOG_MASTER }    from '../modules/local/build_catalog_master'
+include { BUILD_F1_REGIONS }        from '../modules/local/build_f1_regions'
+include { FLANK_COUNTS }            from '../modules/local/flank_counts'
+include { FLANK_COVERAGE_RATIO }    from '../modules/local/flank_coverage_ratio'
+include { ANTISENSE_COUNTS }        from '../modules/local/antisense_counts'
+include { FLAG_ANTISENSE_LEAKAGE }  from '../modules/local/flag_antisense_leakage'
+include { DERIVE_THRESHOLDS }       from '../modules/local/derive_thresholds'
+include { COMPUTE_TIER_FINAL }      from '../modules/local/compute_tier_final'
 
 workflow DISCOVERY {
     take:
@@ -52,8 +60,12 @@ workflow DISCOVERY {
     ch_bams_assembly = BAM_QUICKCHECK.out.validated
     ch_bams_fc       = BAM_QUICKCHECK.out.validated
 
-    // Empirical strandedness detection
-    ch_strandedness = INFER_STRANDEDNESS(ch_bams_strand, reference_gtf)
+    // Empirical strandedness detection. The reference BED12 is built once, not
+    // per sample, and only the file paths are collected (CHECK_STRANDEDNESS reads
+    // one summary table across all samples).
+    BUILD_INFER_BED(reference_gtf)
+    ch_strand_files = INFER_STRANDEDNESS(ch_bams_strand, BUILD_INFER_BED.out.bed12)
+        .map { _sample, strandedness_txt -> strandedness_txt }
         .collect()
 
     // Per-sample StringTie2 assembly — collect GTFs for merge
@@ -176,11 +188,82 @@ workflow DISCOVERY {
         ANNOTATION_FREEZE.out.frozen_gtf
     )
 
+    // ── F1: candidate/control regions and flags (Phase A, post-freeze) ─────
+    // Terminal: nothing downstream depends on these outputs (design rule B).
+    // Counts are per-sample (parallel); a single aggregation task merges the
+    // matrices and computes metrics. Thresholds are a separate cheap process, so
+    // the threshold rule can change with -resume without re-counting the BAMs.
+    //
+    // Channel cardinality: the single-file channels feeding the per-sample
+    // counters are collapsed to value channels with .first(). A queue channel
+    // paired with the 50-item BAM channel is zipped 1:1, which would silently
+    // run the counter on one sample and derive thresholds from a partial cohort.
+    ch_f1_coldata = ch_samplesheet
+        .map { sample, _cond, _batch, _fq1, _fq2, bam, extra ->
+            "${sample}\t${extra.norm_group ?: 'NA'}\t${bam.name}" }
+        .collectFile(name: 'f1_coldata.tsv', newLine: true)
+        .first()                                     // val — one cohort coldata
+
+    BUILD_F1_REGIONS(
+        ANNOTATION_FREEZE.out.frozen_gtf,
+        reference_gtf,
+        EXPRESSION_RECURRENCE.out.recurrence_table
+    )
+    // val — one region table and SAFs, reused by every sample's counters
+    ch_f1_regions   = BUILD_F1_REGIONS.out.regions.first()
+    ch_f1_flank_saf = BUILD_F1_REGIONS.out.flank_saf.first()
+    ch_f1_anti_saf  = BUILD_F1_REGIONS.out.antisense_saf.first()
+
+    // F1.3 (mono-exonic flank coverage) is exploratory and off by default: it did
+    // not pass its pre-specified control separation, so it does not gate tier_final
+    // (categorical mono-exonic rule replaces it). When disabled we feed an empty
+    // flank_metrics table so the population stays unchanged and no flank work runs.
+    if (params.run_flank_check) {
+        FLANK_COUNTS(BAM_QUICKCHECK.out.validated, ch_f1_flank_saf)
+        ch_flank_s2 = FLANK_COUNTS.out.s2.map { _sample, f -> f }.collect()
+        ch_flank_s1 = FLANK_COUNTS.out.s1.map { _sample, f -> f }.collect()
+        FLANK_COVERAGE_RATIO(
+            ch_flank_s2,
+            ch_flank_s1,
+            ch_f1_coldata,
+            ch_f1_regions
+        )
+        ch_flank_metrics = FLANK_COVERAGE_RATIO.out.flank_metrics
+    } else {
+        ch_flank_metrics = channel.of(
+            "element_id\tset\tnorm_group\tflank_ratio_median\topp_strand_ratio_median\tn_samples_used\tflank_len_used"
+        ).collectFile(name: 'flank_metrics_disabled.tsv', newLine: true).first()
+        log.info "F1.3 flank check disabled (run_flank_check=false)"
+    }
+
+    ANTISENSE_COUNTS(BAM_QUICKCHECK.out.validated, ch_f1_anti_saf)
+    ch_anti_s2 = ANTISENSE_COUNTS.out.s2.map { _sample, f -> f }.collect()
+    ch_anti_s1 = ANTISENSE_COUNTS.out.s1.map { _sample, f -> f }.collect()
+    FLAG_ANTISENSE_LEAKAGE(
+        ch_anti_s2,
+        ch_anti_s1,
+        ch_f1_coldata,
+        ch_f1_regions
+    )
+
+    DERIVE_THRESHOLDS(
+        ch_flank_metrics,
+        FLAG_ANTISENSE_LEAKAGE.out.antisense_metrics
+    )
+    COMPUTE_TIER_FINAL(
+        ANNOTATION_FREEZE.out.frozen_gtf,
+        reference_gtf,
+        ch_flank_metrics,
+        FLAG_ANTISENSE_LEAKAGE.out.antisense_metrics,
+        DERIVE_THRESHOLDS.out.thresholds,
+        DERIVE_THRESHOLDS.out.sensitivity
+    )
+
     emit:
     frozen_gtf        = ANNOTATION_FREEZE.out.frozen_gtf
     tx2gene_detailed   = ANNOTATION_FREEZE.out.tx2gene_detailed
     gene_catalog       = BUILD_GENE_CATALOG.out.gene_catalog
-    strand_consensus   = ch_strandedness
+    strand_consensus   = ch_strand_files
     catalog_ids        = ASSIGN_CATALOG_IDS.out.catalog_ids
     catalog_tx         = ASSIGN_CATALOG_IDS.out.catalog_tx
     catalog_gtf        = ASSIGN_CATALOG_IDS.out.catalog_gtf

@@ -20,6 +20,7 @@ process BUILD_GENE_CATALOG {
     path "catalog_stats.tsv", emit: catalog_stats
 
     script:
+    def allow_single_exon_r = params.tier1_allow_single_exon ? "TRUE" : "FALSE"
     """
     #!/usr/bin/env Rscript
     library(dplyr)
@@ -93,6 +94,50 @@ process BUILD_GENE_CATALOG {
     nov <- fill_table(nov_lines)
     nov\$gene_id <- extract_attr(nov\$attrs, "gene_id")
     nov\$class_code <- extract_attr(nov\$attrs, "class_code")
+    nov\$transcript_id <- extract_attr(nov\$attrs, "transcript_id")
+
+    # ---- Tier 1 (transcript level), docs/analysis_plan.md §2 ----
+    # Parent biotype comes from the gffcompare `ref_gene_id` attribute, which is
+    # present for the classes that need it (j/o -> Tier 1b parent whitelist).
+    # Classes i/x are Tier 1a by class and do not consult the parent here; their
+    # reference host is resolved separately in F1 via `cmp_ref` -> reference
+    # tx2gene (gffcompare's `cmp_ref_gene` holds a gene name, not an id).
+    TIER1  <- c(${params.tier1_classes.collect { cc -> "\"${cc}\"" } .join(", ")})
+    TIER1A <- c(${params.tier1a_classes.collect { cc -> "\"${cc}\"" } .join(", ")})
+    TIER1_PARENT <- c(${params.tier1_parent_biotypes.collect { bt -> "\"${bt}\"" } .join(", ")})
+    ALLOW_SINGLE_EXON <- ${allow_single_exon_r}
+    nov\$parent_gene_id <- strip_version(extract_attr(nov\$attrs, "ref_gene_id"))
+    nov\$parent_biotype <- ref\$gene_biotype[match(nov\$parent_gene_id, ref\$gene_id)]
+    nov\$tx_novel_type <- ifelse(
+        nov\$class_code %in% TIER1A, "1a",
+        ifelse(nov\$class_code %in% TIER1 & nov\$class_code %in% c("j", "o") &
+               nov\$parent_biotype %in% TIER1_PARENT, "1b", "2"))
+
+    # ---- Categorical mono-exonic rule (no derived threshold) ----
+    # A mono-exonic transcript of any class is demoted to Tier 2 and marked
+    # single_exon_low_confidence unless tier1_allow_single_exon is set.
+    system(paste("grep -P '\\texon\\t'", shQuote("${frozen_gtf}"),
+                 "> novel_exon_lines.txt"))
+    nov_exon_lines <- readLines("novel_exon_lines.txt")
+    if (length(nov_exon_lines) > 0) {
+        nov_exon <- fill_table(nov_exon_lines)
+        nov_exon\$transcript_id <- extract_attr(nov_exon\$attrs, "transcript_id")
+        tx_exon_n <- nov_exon %>%
+            filter(!is.na(transcript_id)) %>%
+            distinct(transcript_id, start, end) %>%
+            count(transcript_id, name = "tx_n_exons")
+    } else {
+        tx_exon_n <- data.frame(transcript_id = character(), tx_n_exons = integer())
+    }
+    nov <- nov %>%
+        left_join(tx_exon_n, by = "transcript_id") %>%
+        mutate(
+            tx_n_exons = coalesce(tx_n_exons, 0L),
+            tx_single_exon = tx_n_exons == 1L,
+            tx_tier1_static = tx_novel_type %in% c("1a", "1b") &
+                (!tx_single_exon | ALLOW_SINGLE_EXON),
+            tx_single_exon_low_confidence = tx_novel_type %in% c("1a", "1b") & tx_single_exon
+        )
 
     nov_cat <- nov %>%
         filter(!is.na(gene_id)) %>%
@@ -103,6 +148,16 @@ process BUILD_GENE_CATALOG {
             end        = max(end),
             strand     = ifelse(first(strand) %in% c("+", "-", "*"), first(strand), "*"),
             class_code = paste(sort(unique(na.omit(class_code))), collapse = ","),
+            parent_biotype         = if (all(is.na(parent_biotype))) NA_character_ else
+                                     dplyr::first(na.omit(parent_biotype)),
+            n_transcripts          = n(),
+            n_tier1_transcripts    = sum(tx_tier1_static),
+            frac_tier1_transcripts = mean(tx_tier1_static),
+            tier_static            = sum(tx_tier1_static) >= 1,
+            single_exon_low_confidence = any(tx_single_exon_low_confidence),
+            novel_type             = if (any(tx_novel_type == "1a")) "1a" else
+                                     if (any(tx_novel_type == "1b")) "1b" else
+                                     if (any(tx_novel_type == "2"))  "2"  else NA_character_,
             .groups    = "drop"
         ) %>%
         mutate(
@@ -111,7 +166,9 @@ process BUILD_GENE_CATALOG {
             gene_name    = NA_character_
         ) %>%
         select(gene_id, gene_name, chromosome, start, end, strand,
-               gene_biotype, origin, class_code)
+               gene_biotype, origin, class_code, parent_biotype,
+               n_transcripts, n_tier1_transcripts, frac_tier1_transcripts,
+               tier_static, single_exon_low_confidence, novel_type)
 
     # ---- Merge: novel wins if a gene_id ever collides with reference ----
     catalog <- bind_rows(nov_cat, ref_cat) %>%

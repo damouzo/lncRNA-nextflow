@@ -14,14 +14,16 @@ process STRINGTIE2_PER_SAMPLE {
     path "${sample}.coverage.gtf", emit: coverage_gtf
 
     script:
-    """
-    stringtie \\
-        -p ${task.cpus} \\
-        -G "${reference_gtf}" \\
-        --rf \\
-        -o "${sample}.transcripts.gtf" \\
-        -A "${sample}.gene_abund.tab" \\
-        -C "${sample}.coverage.gtf" \\
-        "${bam}"
-    """
+    def strand_flag = Strandedness.stringtieFlag(params.library_strandedness)
+    // Build the command explicitly (no stripIndent ambiguity) so the reverse case
+    // is byte-identical to the pre-contract command and Phase A -resume still hits.
+    def flag_line = strand_flag ? "    ${strand_flag} \\\n" : ""
+    "stringtie \\\n" +
+    "    -p ${task.cpus} \\\n" +
+    "    -G \"${reference_gtf}\" \\\n" +
+    flag_line +
+    "    -o \"${sample}.transcripts.gtf\" \\\n" +
+    "    -A \"${sample}.gene_abund.tab\" \\\n" +
+    "    -C \"${sample}.coverage.gtf\" \\\n" +
+    "    \"${bam}\"\n"
 }

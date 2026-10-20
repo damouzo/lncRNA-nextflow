@@ -13,13 +13,14 @@ process FEATURECOUNTS_EXPRESSION {
     path "${sample}.featureCounts.tsv.summary", emit: summary
 
     script:
+    def strandness = Strandedness.featurecountsStrand(params.library_strandedness, params.featurecounts_strandness)
     """
     featureCounts \\
         -a "${candidate_gtf}" \\
         -o "${sample}.featureCounts.tsv" \\
         -t exon \\
         -g transcript_id \\
-        -s ${params.featurecounts_strandness} \\
+        -s ${strandness} \\
         -T ${task.cpus} \\
         -p \\
         --countReadPairs \\

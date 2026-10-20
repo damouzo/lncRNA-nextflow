@@ -79,15 +79,28 @@
                     "default": 3,
                     "description": "Minimum biological replicates with expression support"
                 },
-                "antisense_pct_threshold": {
-                    "type": "integer",
-                    "default": 95,
-                    "description": "Top N% expression percentile for antisense risk flag"
+                "tier1_classes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": ["u", "x", "i", "j", "o"],
+                    "description": "gffcompare class codes considered Tier 1 at the transcript level (see docs/analysis_plan.md)"
                 },
-                "monoexonic_intron_ratio": {
-                    "type": "number",
-                    "default": 0.3,
-                    "description": "Intron-coverage ratio threshold for monoexonic risk flag"
+                "tier1a_classes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": ["u", "x", "i"],
+                    "description": "Subset of tier1_classes assigned novel_type 1a; other tier1 classes (j/o) are 1b only when the parent gene is not protein_coding"
+                },
+                "tier1_parent_biotypes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": ["lncRNA"],
+                    "description": "Parent-gene biotype whitelist for j/o Tier 1b; other parents (pseudogenes, TEC, small-RNA hosts) go to Tier 2"
+                },
+                "tier1_allow_single_exon": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When false (default), mono-exonic transcripts of any class are demoted to Tier 2 and marked single_exon_low_confidence. Categorical rule, no derived threshold."
                 },
                 "annotated_lncrna_biotypes": {
                     "type": "array",
@@ -160,6 +173,81 @@
                 }
             }
         },
+        "strandedness": {
+            "title": "Library Strandedness",
+            "type": "object",
+            "description": "Single strandedness contract shared by Salmon, featureCounts and StringTie (see lib/Strandedness.groovy). reverse = fr-firststrand (dUTP), the usual RNA-seq case.",
+            "properties": {
+                "library_strandedness": {
+                    "type": "string",
+                    "enum": ["reverse", "forward", "unstranded"],
+                    "default": "reverse",
+                    "description": "Single source of truth. reverse -> ISR/-s 2/--rf; forward -> ISF/-s 1/--fr; unstranded -> IU/-s 0/(no flag)."
+                },
+                "salmon_libtype": {
+                    "type": "string",
+                    "pattern": "^(A|U|IU|MU|OU|ISR|ISF|MSR|MSF|OSR|OSF|SR|SF)$",
+                    "description": "OPTIONAL override of the Salmon -l value. If set it must match the libtype derived from library_strandedness or the pipeline fails."
+                },
+                "featurecounts_strandness": {
+                    "type": "integer",
+                    "enum": [0, 1, 2],
+                    "description": "OPTIONAL override of featureCounts -s. If set it must match the value derived from library_strandedness (0/1/2) or the pipeline fails."
+                },
+                "strandedness_min_fidelity": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.7,
+                    "description": "Minimum E/(E+O) strandedness fidelity per sample before CHECK_STRANDEDNESS warns (observed 0.80-0.89 in the pilot cohort)."
+                },
+                "strandedness_guard_strict": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, a sample below strandedness_min_fidelity becomes a hard failure instead of a warning."
+                },
+                "salmon_min_compat_ratio": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.7,
+                    "description": "Hard floor for compatible_fragment_ratio; below it CHECK_SALMON_LIBTYPE fails (otherwise informational)."
+                },
+                "salmon_min_orientation_ratio": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.7,
+                    "description": "Hard floor for declared/(declared+opposite) in lib_format_counts.json (e.g. ISR/(ISR+ISF) >= 0.70)."
+                }
+            }
+        },
+        "f1_flags": {
+            "title": "F1 flags (metrics and derived thresholds)",
+            "type": "object",
+            "description": "Phase A mono-exonic flank and antisense-leakage flags. Thresholds are derived from controls at run time (docs/analysis_plan.md).",
+            "properties": {
+                "run_flank_check": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run the exploratory F1.3 mono-exonic flank coverage check. Off by default: it failed its pre-specified control separation and does not gate tier_final."
+                },
+                "f1_flank_bp": {"type": "integer", "default": 2000, "description": "Flank window (+/- bp) around mono-exonic candidates"},
+                "f1_min_flank_len": {"type": "integer", "default": 200, "description": "Minimum unmasked flank length; shorter means the flank is NA"},
+                "f1_control_cap": {"type": "integer", "default": 2000, "description": "Maximum elements per control set"},
+                "f1_seed": {"type": "integer", "default": 42, "description": "Seed for deterministic control sampling"},
+                "f1_min_reads": {"type": "integer", "default": 10, "description": "Minimum same-strand reads for a sample to contribute a metric"},
+                "f1_min_controls": {"type": "integer", "default": 100, "description": "Minimum control-set size to trust a derived threshold"},
+                "f1_neg_reject_min": {"type": "number", "default": 0.9, "description": "Minimum neg_flank rejection rate at the derived flank threshold"},
+                "f1_flank_percentile": {"type": "number", "default": 10, "description": "Flank threshold percentile of pos_flank flank_ratio_median"},
+                "f1_antisense_percentile": {"type": "number", "default": 95, "description": "Antisense threshold percentile of null_antisense ratio_median"},
+                "flank_ratio_threshold": {"type": "number", "description": "Override for the derived flank threshold (takes priority when set)"},
+                "antisense_ratio_threshold": {"type": "number", "description": "Override for the derived antisense threshold (takes priority when set)"},
+                "flank_ratio_default": {"type": "number", "default": 2.0, "description": "Fallback flank threshold when controls are unreliable"},
+                "antisense_ratio_default": {"type": "number", "default": 0.15, "description": "Fallback antisense threshold when controls are unreliable"},
+                "f1_antisense_pos_flag_max": {"type": "number", "default": 0.3, "description": "Max fraction of pos_antisense flagged at the derived antisense threshold before it is reported as not specific (diagnostic only)"}
+            }
+        },
         "external_tools": {
             "title": "External Tool Dependencies",
             "type": "object",
@@ -179,11 +267,6 @@
                     "type": "string",
                     "format": "file-path",
                     "description": "Reference transcriptome FASTA for Salmon index. Derived from GTF+genome via gffread if not provided."
-                },
-                "salmon_libtype": {
-                    "type": "string",
-                    "pattern": "^[SFUR]([SFUR])?$",
-                    "description": "Salmon library type override (e.g. SF, SR). If unset, uses empirical detection from Phase A."
                 }
             }
         },
@@ -235,6 +318,8 @@
         {"$ref": "#/definitions/phase_b_thresholds"},
         {"$ref": "#/definitions/reference_catalogs"},
         {"$ref": "#/definitions/catalog_identity"},
+        {"$ref": "#/definitions/strandedness"},
+        {"$ref": "#/definitions/f1_flags"},
         {"$ref": "#/definitions/external_tools"}
     ]
 }

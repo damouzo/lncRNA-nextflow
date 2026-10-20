@@ -47,7 +47,10 @@ outdir:      results
 genome:      /path/to/genome.fa
 gtf:         /path/to/annotation.gtf
 design_formula: '~ batch + condition'
-salmon_libtype: 'SR'
+
+# Single strandedness contract for Salmon, featureCounts and StringTie.
+# reverse = fr-firststrand (dUTP), the usual RNA-seq case.
+library_strandedness: reverse
 
 # Optional, per norm_group, default off:
 heterogeneity_analysis:
@@ -56,7 +59,19 @@ heterogeneity_analysis:
 
 `design_formula` is a base formula — DESeq2 simplifies to `~ condition` within any group where `batch` is constant.
 
+`salmon_libtype` and `featurecounts_strandness` still exist but only as optional
+overrides of the derived values; if set they must be coherent with
+`library_strandedness` or the pipeline fails. Two strandedness guards run before
+and after quantification: `CHECK_STRANDEDNESS` compares the empirical RSeQC
+orientation against the contract, and `CHECK_SALMON_LIBTYPE` verifies the actual
+Salmon `expected_format` and `compatible_fragment_ratio` per sample.
+
 A filled example lives in `assets/params.example.yaml`.
+
+> Note: `catalog_export/*` is retired and no longer produced. The corrected
+> FASTA/BED/GTF and gene/transcript tables will be emitted under `deliverables/catalog/`
+> in the F4.3 deliverable layer; until then `results/*/catalog_export/` in older runs
+> is stale and must not be used.
 
 ### 4. Optional external resources (conservation & synteny)
 

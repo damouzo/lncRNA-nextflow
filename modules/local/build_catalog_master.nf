@@ -191,8 +191,11 @@ process BUILD_CATALOG_MASTER {
         select(ids, gene_id, catalog_id, locus, class_codes),
         select(gc, gene_id, gene_name, chromosome, start, end, strand, class_code,
                catalog_id_ = catalog_id, ref_gene_id, ref_gene_name, ref_gene_distance,
-               ref_gene_relation, n_exons, conservation_mean, conservation_pct,
-               syntenic_locus, syntenic_target_gene_id, u_single_exon_low_confidence),
+               ref_gene_relation, parent_biotype, novel_type, tier_static,
+               n_tier1_transcripts, frac_tier1_transcripts,
+               n_exons, conservation_mean, conservation_pct,
+               syntenic_locus, syntenic_target_gene_id,
+               single_exon_low_confidence, u_single_exon_low_confidence),
         by = "gene_id")
     m <- m %>% distinct(gene_id, .keep_all = TRUE)
     assert_nrow(m, n0, "master×gene_catalog")
@@ -215,12 +218,13 @@ process BUILD_CATALOG_MASTER {
             known_catalog_hit = ifelse(is.na(known_catalog_hit), FALSE, known_catalog_hit)) %>%
         select(catalog_id, gene_id, gene_name, locus, chromosome, start, end, strand,
                n_transcripts, n_exons, class_codes, consensus_noncoding, n_reps_expressed,
-               ref_gene_id, ref_gene_name, ref_gene_distance, ref_gene_relation,
+               novel_type, tier_static, n_tier1_transcripts, frac_tier1_transcripts,
+               ref_gene_id, ref_gene_name, ref_gene_distance, ref_gene_relation, parent_biotype,
                known_catalog_hit, catalog_sources,
                lncipedia_id, lncipedia_pct, noncode_id, noncode_pct,
                fantomcat_id, fantomcat_pct, rnacentral_id, rnacentral_pct,
                conservation_mean, conservation_pct, syntenic_locus, syntenic_target_gene_id,
-               u_single_exon_low_confidence)
+               single_exon_low_confidence, u_single_exon_low_confidence)
     assert_nrow(m, n0, "master-final")
 
     if (any(is.na(m\$catalog_id))) stop("catalog_id NA for a novel gene in master")

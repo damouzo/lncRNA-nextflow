@@ -35,3 +35,7 @@ Thumbs.db
 *.temp
 .opensrc/
 internal_audition.md
+
+# Python
+__pycache__/
+*.pyc

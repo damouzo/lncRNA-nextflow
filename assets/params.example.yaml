@@ -12,6 +12,27 @@ genome: /path/to/genome.fa
 gtf:    /path/to/annotation.gtf
 # design_formula: '~ batch + condition'
 
+# ---- Library strandedness (single contract) ----
+# Drives Salmon (-l ISR/ISF/IU), featureCounts (-s 2/1/0) and StringTie (--rf/--fr/none).
+# reverse = fr-firststrand (dUTP), the usual RNA-seq case.
+library_strandedness: reverse
+# Optional overrides — must be coherent with library_strandedness or the run fails:
+# salmon_libtype: ISR
+# featurecounts_strandness: 2
+# strandedness_min_fidelity: 0.70   # CHECK_STRANDEDNESS warning floor (E/(E+O))
+# strandedness_guard_strict: false  # true = low fidelity is a hard failure
+# salmon_min_compat_ratio: 0.70     # CHECK_SALMON_LIBTYPE compatible_fragment_ratio floor
+
+# ---- Tier 1 definition (docs/analysis_plan.md) ----
+# By default a mono-exonic transcript of any class is demoted to Tier 2 and marked
+# single_exon_low_confidence (categorical rule, no derived threshold). Set true to
+# keep mono-exonic transcripts in Tier 1.
+# tier1_allow_single_exon: false
+
+# ---- F1.3 exploratory flank check (disabled by default) ----
+# F1.3 did not pass its pre-specified control separation and does not gate tier_final.
+# run_flank_check: false
+
 # ---- Species / build metadata ----
 # species is a free-form label used in report/logs only.
 # genome_build is REQUIRED whenever conservation_bigwig or synteny_chain_file

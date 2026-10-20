@@ -16,7 +16,8 @@ process SALMON_QUANTIFY {
           emit: quant_results
 
     script:
-    def strand_flag = params.salmon_libtype ?: 'A'
+    def paired = fastq_2 != null && (fastq_2 instanceof List ? !fastq_2.isEmpty() : fastq_2.toString().trim().length() > 0)
+    def strand_flag = Strandedness.salmonLibtype(params.library_strandedness, params.salmon_libtype, paired)
     """
     salmon quant \\
         -i salmon_index \\

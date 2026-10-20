@@ -7,6 +7,8 @@ include { DISCOVERY }               from './workflows/discovery'
 include { QUANTIFICATION }          from './workflows/quantification'
 include { BUILD_DECOY_INDEX }       from './modules/local/build_decoy_index'
 include { SALMON_QUANTIFY }         from './modules/local/salmon_quantify'
+include { CHECK_STRANDEDNESS }      from './modules/local/check_strandedness'
+include { CHECK_SALMON_LIBTYPE }    from './modules/local/check_salmon_libtype'
 include { SPLIT_BY_NORMGROUP }      from './modules/local/split_normgroup'
 
 workflow {
@@ -28,6 +30,11 @@ workflow {
         params.outdir
     )
 
+    // ── A2b: Strandedness guard — fail before Salmon if the empirical
+    // orientation disagrees with the declared contract. Tiny task: on failure
+    // the run aborts and any queued Salmon task is terminated.
+    CHECK_STRANDEDNESS(DISCOVERY.out.strand_consensus)
+
     // ── B1: Build decoy-aware Salmon index (shared across all groups) ─────
     ch_transcripts_fa = channel.value(params.gencode_transcripts_fa ?: "")
     BUILD_DECOY_INDEX(
@@ -38,10 +45,21 @@ workflow {
     ch_salmon_index = BUILD_DECOY_INDEX.out.index_dir.first()
 
     // ── B2: Salmon quantification — all samples, once ─────────────────────
-    SALMON_QUANTIFY(ch_samples, ch_salmon_index)
+    // Force a channel dependency so SALMON_QUANTIFY only starts after the
+    // strandedness guard has passed (not merely "runs earlier").
+    ch_samples_for_salmon = ch_samples
+        .combine(CHECK_STRANDEDNESS.out.summary)
+        .map { sample, cond, batch, fq1, fq2, bam, extra, _summary ->
+            tuple(sample, cond, batch, fq1, fq2, bam, extra)
+        }
+    SALMON_QUANTIFY(ch_samples_for_salmon, ch_salmon_index)
+
+    // ── B2b: Per-sample library-type guard (fails early on a wrong -l) ─────
+    CHECK_SALMON_LIBTYPE(SALMON_QUANTIFY.out.quant_results)
+
     // Single shared value = full list of quant dirs; combine() keeps it as one
     // field instead of flattening the tuples into the group tuple
-    ch_salmon_quants = SALMON_QUANTIFY.out.quant_results
+    ch_salmon_quants = CHECK_SALMON_LIBTYPE.out.checked
         .map { _sample, quant_dir -> quant_dir }
         .collect()
         .map { q -> [ q ] }
