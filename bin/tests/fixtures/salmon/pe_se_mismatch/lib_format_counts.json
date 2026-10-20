@@ -1,0 +1,8 @@
+{
+ "read_files": "A_single.fq.gz",
+ "expected_format": "ISR",
+ "compatible_fragment_ratio": 1.0,
+ "num_assigned_fragments": 1000,
+ "num_frags_with_concordant_consistent_mappings": 990,
+ "ISR": 990
+}

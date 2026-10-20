@@ -1,0 +1,97 @@
+{
+  "contract": "lncrna-deliverables",
+  "version": "1.0",
+  "description": "Machine-readable contract for the published deliverables. Validated by bin/validate_deliverables.py (stdlib only). Required columns must be present; extra columns are allowed. Row counts are lower bounds.",
+  "files": [
+    {
+      "path": "catalog/catalog_genes.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier_static", "type": "bool"},
+        {"name": "tier_final", "type": "bool"},
+        {"name": "n_tier1_transcripts", "type": "int"},
+        {"name": "single_exon_low_confidence", "type": "bool"},
+        {"name": "antisense_status", "type": "string"}
+      ]
+    },
+    {
+      "path": "catalog/catalog_tx.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "transcript_id", "type": "string"},
+        {"name": "gene_id", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier_static", "type": "bool"},
+        {"name": "tier_final", "type": "bool"}
+      ]
+    },
+    {
+      "path": "catalog/tier_final_by_class.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "tier1_allow_single_exon", "type": "bool"},
+        {"name": "unit", "type": "string"},
+        {"name": "class_set", "type": "string"},
+        {"name": "n", "type": "int"}
+      ]
+    },
+    {
+      "path": "contrasts/<id>/de_full.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "contrast", "type": "string"},
+        {"name": "baseMean", "type": "float"},
+        {"name": "log2FoldChange", "type": "float"},
+        {"name": "lfcSE", "type": "float"},
+        {"name": "pvalue", "type": "float"},
+        {"name": "padj", "type": "float"},
+        {"name": "significant", "type": "bool"},
+        {"name": "tested", "type": "bool"},
+        {"name": "not_tested_reason", "type": "string"},
+        {"name": "padj_na_reason", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier_static", "type": "bool"},
+        {"name": "tier_final", "type": "bool"},
+        {"name": "antisense_status", "type": "string"}
+      ]
+    },
+    {
+      "path": "contrasts/<id>/de_significant.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "log2FoldChange", "type": "float"},
+        {"name": "padj", "type": "float"}
+      ]
+    },
+    {
+      "path": "contrasts/<id>/summary.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "contrast", "type": "string"},
+        {"name": "n_universe", "type": "int"},
+        {"name": "n_tested", "type": "int"},
+        {"name": "n_significant", "type": "int"}
+      ]
+    },
+    {
+      "path": "expression/<group>_counts.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "gene_id", "type": "string"}
+      ]
+    }
+  ]
+}

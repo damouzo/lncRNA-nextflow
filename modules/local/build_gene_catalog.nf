@@ -96,7 +96,7 @@ process BUILD_GENE_CATALOG {
     nov\$class_code <- extract_attr(nov\$attrs, "class_code")
     nov\$transcript_id <- extract_attr(nov\$attrs, "transcript_id")
 
-    # ---- Tier 1 (transcript level), docs/analysis_plan.md §2 ----
+    # ---- Tier 1 (transcript level) ----
     # Parent biotype comes from the gffcompare `ref_gene_id` attribute, which is
     # present for the classes that need it (j/o -> Tier 1b parent whitelist).
     # Classes i/x are Tier 1a by class and do not consult the parent here; their

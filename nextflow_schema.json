@@ -83,7 +83,7 @@
                     "type": "array",
                     "items": {"type": "string"},
                     "default": ["u", "x", "i", "j", "o"],
-                    "description": "gffcompare class codes considered Tier 1 at the transcript level (see docs/analysis_plan.md)"
+                    "description": "gffcompare class codes considered Tier 1 at the transcript level"
                 },
                 "tier1a_classes": {
                     "type": "array",
@@ -225,7 +225,7 @@
         "f1_flags": {
             "title": "F1 flags (metrics and derived thresholds)",
             "type": "object",
-            "description": "Phase A mono-exonic flank and antisense-leakage flags. Thresholds are derived from controls at run time (docs/analysis_plan.md).",
+            "description": "Phase A mono-exonic flank and antisense-leakage flags. Thresholds are derived from controls at run time.",
             "properties": {
                 "run_flank_check": {
                     "type": "boolean",

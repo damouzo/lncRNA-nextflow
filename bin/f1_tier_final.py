@@ -4,24 +4,26 @@
 Applies the Tier 1 rules at the TRANSCRIPT level and aggregates to gene:
 
   tier_static(tx) = class tier (1a/1b) AND (multi-exonic OR tier1_allow_single_exon)
-  tier_final(tx)  = tier_static(tx) AND not antisense-leakage flag
+  tier_final(tx)  = tier_static(tx)          # D1: F1.4 does NOT demote
 
 The mono-exonic rule is categorical (no derived threshold): by default a
 mono-exonic transcript of any class is demoted to Tier 2 and marked
 `single_exon_low_confidence`. Gene tier_static = n_tier1_transcripts >= 1;
 gene single_exon_low_confidence = any demoted transcript.
 
-F1.3 (flank coverage) is exploratory and NOT applied to tier_final: its columns
-are reported when metrics are present, otherwise NA. tier_final depends only on
-the class/structure rule and the F1.4 antisense flag.
+F1.3 (flank) and F1.4 (antisense) are INFORMATIONAL: their columns are emitted for
+traceability but do NOT gate tier_final. `antisense_status` is `evaluated` when the
+element has at least one numeric antisense ratio, else `not_evaluable` (NA is never
+"clean"). `x_host_leak_suspect` and `thresholds_status` travel with the table.
 
-Also emits the F1.6 sensitivity table (alternative antisense percentiles, plus
-flank percentiles when flank metrics are present).
+Also emits the F1.6 tables: per-class composition with and without
+tier1_allow_single_exon, and the (now informational) threshold sensitivity.
 """
 
 import argparse
 import os
 import sys
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import f1_common as C  # noqa: E402
@@ -35,7 +37,14 @@ def flank_pass(values, thr):
 
 
 def antisense_risk(values, thr):
-    return bool(values) and any(v <= thr for v in values)
+    """True when any evaluated norm_group is at or below the leakage floor."""
+    return bool(values) and thr is not None and any(v <= thr for v in values)
+
+
+def antisense_status(values):
+    """`evaluated` when at least one numeric antisense ratio exists, else
+    `not_evaluable` (an element with no usable region is never 'clean')."""
+    return "evaluated" if values else "not_evaluable"
 
 
 def values_by_element(rows, value_col):
@@ -50,33 +59,51 @@ def values_by_element(rows, value_col):
 def evaluate_tx(tid, class_code, parent_biotype, mono, flank_vals, anti_vals,
                 t_flank, r_anti, tier1, tier1a, parent_bios, allow_single_exon):
     """-> (novel_type|None, single_exon_low_confidence, flank_pass|None,
-    antisense_risk, tier_static, tier_final)."""
+    antisense_risk, tier_static, tier_final). tier_final == tier_static (D1)."""
     nt = C.tier_of(class_code, parent_biotype, tier1a, tier1, parent_bios)
     if nt is None:
         return None, False, None, False, False, False
     single_exon = mono and not allow_single_exon
     static = not single_exon
     fpass = flank_pass(flank_vals.get("cand:%s" % tid, []), t_flank) if t_flank is not None else None
-    arisk = antisense_risk(anti_vals.get("cand_antisense:%s" % tid, []), r_anti) if r_anti is not None else False
-    final = static and not arisk
-    return nt, single_exon, fpass, arisk, static, final
+    arisk = antisense_risk(anti_vals.get("cand_antisense:%s" % tid, []), r_anti)
+    return nt, single_exon, fpass, arisk, static, static
 
 
-def count_final_genes(frozen, frozen_exons, gene_biotype, tier1, tier1a,
-                      parent_bios, flank_vals, anti_vals, t_flank, r_anti,
+def count_tier1_genes(frozen, frozen_exons, gene_biotype, tier1, tier1a, parent_bios,
                       allow_single_exon):
+    """Tier 1 genes under one mono-exonic setting (no thresholds involved)."""
     genes = set()
     for t in frozen["transcript"]:
-        tid = t["transcript_id"]
         parent = C.ref_gene_of(t)
         pb = gene_biotype.get(parent) if parent else None
-        _, _, _, _, _, final = evaluate_tx(
-            tid, t.get("class_code"), pb, len(frozen_exons.get(tid, [])) == 1,
-            flank_vals, anti_vals, t_flank, r_anti, tier1, tier1a, parent_bios,
-            allow_single_exon)
-        if final:
-            genes.add(t["gene_id"])
-    return len(genes)
+        nt = C.tier_of(t.get("class_code"), pb, tier1a, tier1, parent_bios)
+        if nt is None:
+            continue
+        if len(frozen_exons.get(t["transcript_id"], [])) == 1 and not allow_single_exon:
+            continue
+        genes.add(t["gene_id"])
+    return genes
+
+
+def class_composition(frozen, frozen_exons, gene_biotype, tier1, tier1a, parent_bios,
+                      allow_single_exon):
+    """-> (Counter class_code -> n Tier1 transcripts,
+           Counter frozenset(classes) -> n Tier1 genes) for one setting."""
+    tx_by_class = Counter()
+    gene_sets = {}
+    for t in frozen["transcript"]:
+        parent = C.ref_gene_of(t)
+        pb = gene_biotype.get(parent) if parent else None
+        nt = C.tier_of(t.get("class_code"), pb, tier1a, tier1, parent_bios)
+        if nt is None:
+            continue
+        if len(frozen_exons.get(t["transcript_id"], [])) == 1 and not allow_single_exon:
+            continue
+        cc = t.get("class_code")
+        tx_by_class[cc] += 1
+        gene_sets.setdefault(t["gene_id"], set()).add(cc)
+    return tx_by_class, Counter(frozenset(s) for s in gene_sets.values())
 
 
 def _num(x):
@@ -88,14 +115,19 @@ def _num(x):
         return None
 
 
+def _fmt(x):
+    return "NA" if x is None else ("%.6g" % x)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--frozen-gtf", required=True)
     ap.add_argument("--reference-gtf", required=True)
-    ap.add_argument("--flank-metrics", required=True)
+    ap.add_argument("--flank-metrics", default="",
+                    help="optional; F1.3 disabled leaves this empty")
     ap.add_argument("--antisense-metrics", required=True)
     ap.add_argument("--thresholds", required=True)
-    ap.add_argument("--sensitivity-thresholds", required=True)
+    ap.add_argument("--sensitivity-thresholds", default="")
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--tier1-classes", default="u,x,i,j,o")
     ap.add_argument("--tier1a-classes", default="u,x,i")
@@ -107,8 +139,8 @@ def main():
     parent_bios = set(C.parse_list(args.tier1_parent_biotypes))
     allow_single_exon = args.tier1_allow_single_exon
 
-    for p in (args.frozen_gtf, args.reference_gtf, args.flank_metrics,
-              args.antisense_metrics, args.thresholds, args.sensitivity_thresholds):
+    for p in (args.frozen_gtf, args.reference_gtf, args.antisense_metrics,
+              args.thresholds):
         C.ensure_file(p, "input")
     os.makedirs(args.outdir, exist_ok=True)
 
@@ -118,9 +150,11 @@ def main():
     r_anti = _num(thr["antisense_ratio"]["value"]) if "antisense_ratio" in thr else None
     status = ", ".join(sorted({r.get("status", "") for r in thr_rows if r.get("status")})) or ""
 
-    _, flank_rows = C.read_tsv(args.flank_metrics)
+    flank_vals = {}
+    if args.flank_metrics:
+        _, flank_rows = C.read_tsv(args.flank_metrics)
+        flank_vals = values_by_element(flank_rows, "flank_ratio_median")
     _, anti_rows = C.read_tsv(args.antisense_metrics)
-    flank_vals = values_by_element(flank_rows, "flank_ratio_median")
     anti_vals = values_by_element(anti_rows, "ratio_median")
 
     reference = C.load_gtf(args.reference_gtf, {"gene"})
@@ -133,6 +167,7 @@ def main():
 
     tx_rows = []
     gene_static, gene_final, gene_novel_type, gene_single_exon = {}, {}, {}, {}
+    gene_anti_status, gene_anti_suspect = {}, {}
     for t in frozen["transcript"]:
         tid = t["transcript_id"]
         parent = C.ref_gene_of(t)
@@ -150,63 +185,78 @@ def main():
             gene_novel_type[gene] = "1a"
         elif nt == "1b" and gene_novel_type.get(gene) != "1a":
             gene_novel_type[gene] = "1b"
+        avals = anti_vals.get("cand_antisense:%s" % tid, [])
+        a_status = antisense_status(avals)
+        if a_status == "evaluated":
+            gene_anti_status[gene] = "evaluated"
+        if arisk:
+            gene_anti_suspect[gene] = True
         tx_rows.append((tid, gene, t.get("class_code"), pb, nt or "2",
                         "TRUE" if mono else "FALSE",
                         "TRUE" if single_exon else "FALSE",
                         _fmt(C.median(flank_vals.get("cand:%s" % tid, []))),
                         "NA" if fpass is None else ("TRUE" if fpass else "FALSE"),
-                        _fmt(C.median(anti_vals.get("cand_antisense:%s" % tid, []))),
-                        "TRUE" if arisk else "FALSE",
+                        a_status,
+                        _fmt(C.median(avals)), len(avals),
+                        "TRUE" if arisk else "FALSE", status,
                         "TRUE" if static else "FALSE",
                         "TRUE" if final else "FALSE"))
 
     C.write_tsv(tx_rows, os.path.join(args.outdir, "tier_final_transcripts.tsv"),
                 ["transcript_id", "gene_id", "class_code", "parent_biotype",
                  "novel_type", "monoexonic", "single_exon_low_confidence",
-                 "flank_ratio_median", "flank_pass", "antisense_ratio_median",
-                 "antisense_risk", "tier_static", "tier_final"])
+                 "flank_ratio_median", "flank_pass", "antisense_status",
+                 "antisense_ratio_median", "n_groups_evaluated",
+                 "x_host_leak_suspect", "thresholds_status",
+                 "tier_static", "tier_final"])
 
     gene_rows = []
     for gene in sorted(set(gene_static) | set(gene_final)):
         ns = gene_static.get(gene, 0)
-        nf = gene_final.get(gene, 0)
         gene_rows.append((gene, gene_novel_type.get(gene, "2"),
-                          "TRUE" if ns >= 1 else "FALSE", ns, nf,
+                          "TRUE" if ns >= 1 else "FALSE", ns,
                           "TRUE" if gene_single_exon.get(gene) else "FALSE",
-                          "TRUE" if nf >= 1 else "FALSE", status))
+                          gene_anti_status.get(gene, "not_evaluable"),
+                          "TRUE" if gene_anti_suspect.get(gene) else "FALSE",
+                          "TRUE" if gene_final.get(gene, 0) >= 1 else "FALSE",
+                          status))
     C.write_tsv(gene_rows, os.path.join(args.outdir, "tier_final_genes.tsv"),
                 ["gene_id", "novel_type", "tier_static", "n_tier1_transcripts",
-                 "n_tier1_transcripts_final", "single_exon_low_confidence",
-                 "tier_final", "thresholds_status"])
+                 "single_exon_low_confidence", "antisense_status",
+                 "x_host_leak_suspect", "tier_final", "thresholds_status"])
 
-    # ---- F1.6 sensitivity: vary one threshold at a time ----
-    _, sens = C.read_tsv(args.sensitivity_thresholds)
-    sens_rows = [("baseline", "derived", _fmt(t_flank), _fmt(r_anti),
-                  str(sum(1 for r in gene_rows if r[6] == "TRUE")))]
-    for row in sens:
-        metric = row["metric"]
-        alt = _num(row["value"])
-        if metric == "flank_ratio":
-            if t_flank is None:
-                continue
-            n = count_final_genes(frozen, frozen_exons, gene_biotype, tier1, tier1a,
-                                  parent_bios, flank_vals, anti_vals, alt, r_anti,
-                                  allow_single_exon)
-            sens_rows.append((metric, row["percentile"], _fmt(alt), _fmt(r_anti), str(n)))
-        else:
-            n = count_final_genes(frozen, frozen_exons, gene_biotype, tier1, tier1a,
-                                  parent_bios, flank_vals, anti_vals, t_flank, alt,
-                                  allow_single_exon)
-            sens_rows.append((metric, row["percentile"], _fmt(t_flank), _fmt(alt), str(n)))
+    # ---- F1.6 per-class composition, with and without tier1_allow_single_exon ----
+    by_class_rows = []
+    totals = {}
+    for allow in (False, True):
+        tag = "TRUE" if allow else "FALSE"
+        tx_by_class, genes_by_set = class_composition(
+            frozen, frozen_exons, gene_biotype, tier1, tier1a, parent_bios, allow)
+        totals[allow] = sum(genes_by_set.values())
+        for cc in sorted(tx_by_class):
+            by_class_rows.append((tag, "transcript", cc, tx_by_class[cc]))
+        for cs in sorted(genes_by_set, key=lambda s: (len(s), sorted(s))):
+            by_class_rows.append((tag, "gene", "+".join(sorted(cs)), genes_by_set[cs]))
+        by_class_rows.append((tag, "gene", "ALL", totals[allow]))
+    C.write_tsv(by_class_rows, os.path.join(args.outdir, "tier_final_by_class.tsv"),
+                ["tier1_allow_single_exon", "unit", "class_set", "n"])
+
+    # ---- F1.6 sensitivity: thresholds are informational after D1 (tier_final is
+    # categorical), so the counts here do not move; kept for the record. ----
+    n_tier1 = sum(1 for r in gene_rows if r[7] == "TRUE")
+    sens_rows = [("baseline", "derived", _fmt(t_flank), _fmt(r_anti), str(n_tier1))]
+    if args.sensitivity_thresholds:
+        _, sens = C.read_tsv(args.sensitivity_thresholds)
+        for row in sens:
+            sens_rows.append((row["metric"], row["percentile"], _fmt(t_flank),
+                              _fmt(r_anti), str(n_tier1)))
     C.write_tsv(sens_rows, os.path.join(args.outdir, "tier_final_sensitivity.tsv"),
                 ["changed", "percentile", "flank_ratio_threshold",
                  "antisense_ratio_threshold", "n_tier1_final_genes"])
-    print("F1 tier_final: %d transcripts, %d Tier1 genes (status=%s)"
-          % (len(tx_rows), sum(1 for r in gene_rows if r[6] == "TRUE"), status or "ok"))
 
-
-def _fmt(x):
-    return "NA" if x is None else ("%.6g" % x)
+    print("F1 tier_final: %d transcripts, %d Tier1 genes (allow_single_exon=%s), "
+          "%d Tier1 genes (allow_single_exon=true), status=%s"
+          % (len(tx_rows), totals[False], "false", totals[True], status or "ok"))
 
 
 if __name__ == "__main__":

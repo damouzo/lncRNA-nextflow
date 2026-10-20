@@ -1,0 +1,13 @@
+{
+ "read_files": "[ A_1.fq.gz, A_2.fq.gz]",
+ "expected_format": "ISR",
+ "compatible_fragment_ratio": 1.0,
+ "num_compatible_fragments": 42358422,
+ "num_assigned_fragments": 42358422,
+ "num_frags_with_concordant_consistent_mappings": 40906101,
+ "num_frags_with_inconsistent_or_orphan_mappings": 1483065,
+ "ISR": 40906101,
+ "ISF": 0,
+ "SF": 752788,
+ "SR": 730277
+}

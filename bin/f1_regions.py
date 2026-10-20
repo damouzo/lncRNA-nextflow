@@ -252,7 +252,7 @@ def build(ref, frozen, recurrence, outdir, args):
         # The SAF feature is placed on the HOST strand: -s 2 then counts host
         # (sense) reads and -s 1 counts candidate (antisense) reads, so
         # ratio = antisense/sense = candidate/host is directly comparable to the
-        # null (a coding gene measured on its own strand). See analysis_plan §6.
+        # null (a coding gene measured on its own strand).
         hstrand = host_strand(host, t["strand"], gene_loc)
         eid = "cand_antisense:%s" % t["transcript_id"]
         regions.append((eid, "antisense", "candidate", t["chrom"], hstrand, host or ""))

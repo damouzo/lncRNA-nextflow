@@ -14,6 +14,7 @@ process COMPUTE_TIER_FINAL {
     output:
     path "tier_final_transcripts.tsv", emit: tier_final_transcripts
     path "tier_final_genes.tsv", emit: tier_final_genes
+    path "tier_final_by_class.tsv", emit: by_class
     path "tier_final_sensitivity.tsv", emit: sensitivity_table
 
     script:

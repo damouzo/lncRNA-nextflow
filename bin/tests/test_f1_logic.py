@@ -281,6 +281,8 @@ def test_tier_final():
     check(F.flank_pass([], 2.5) is None, "flank pass unevaluable")
     check(F.antisense_risk([0.1, 0.3], 0.15) is True, "antisense risk")
     check(F.antisense_risk([0.1], 0.05) is False, "antisense no risk")
+    check(F.antisense_status([0.1]) == "evaluated", "antisense_status evaluated")
+    check(F.antisense_status([]) == "not_evaluable", "antisense_status not_evaluable")
     t1a, t1, pb = {"u", "x", "i"}, {"u", "x", "i", "j", "o"}, {"lncRNA"}
     # monoexonic u, allow=False -> demoted and marked
     nt, se, fp, ar, st, fin = F.evaluate_tx("M1", "u", None, True,
@@ -299,11 +301,12 @@ def test_tier_final():
                                           {}, {"cand_antisense:M3": [0.5]}, 2.5, 0.15,
                                           t1, t1a, pb, False)
     check(st3 is True and fin3 is True, "multiexonic x -> final")
-    # multi-exonic x, antisense risk -> dropped
-    _, _, _, _, _, fin4 = F.evaluate_tx("M4", "x", None, False,
-                                        {}, {"cand_antisense:M4": [0.1]}, 2.5, 0.15,
-                                        t1, t1a, pb, False)
-    check(fin4 is False, "multiexonic x antisense risk -> dropped")
+    # multi-exonic x with antisense risk: D1 -> NOT dropped (F1.4 informational)
+    _, _, _, ar4, st4, fin4 = F.evaluate_tx("M4", "x", None, False,
+                                            {}, {"cand_antisense:M4": [0.1]}, 2.5, 0.15,
+                                            t1, t1a, pb, False)
+    check(st4 is True and fin4 is True and ar4 is True,
+          "multiexonic x antisense risk -> tier_final = tier_static (D1)")
     # j with coding parent -> not static
     nt5, _, _, _, st5, fin5 = F.evaluate_tx("M5", "j", "protein_coding", False,
                                             {}, {}, 2.5, 0.15, t1, t1a, pb, False)
@@ -312,6 +315,44 @@ def test_tier_final():
     _, _, fp6, _, _, fin6 = F.evaluate_tx("M6", "x", None, False,
                                           {}, {}, None, 0.15, t1, t1a, pb, False)
     check(fp6 is None and fin6 is True, "flank disabled -> multi-exonic x still final")
+
+
+def test_class_composition():
+    print("class composition (F1.6, D2 units)")
+    d = tempfile.mkdtemp()
+    ref = os.path.join(d, "ref.gtf")
+    frozen = os.path.join(d, "frozen.gtf")
+    with open(ref, "w") as fh:
+        fh.write('1\tX\tgene\t100\t200\t.\t+\t.\tgene_id "L1"; gene_biotype "lncRNA";\n')
+        fh.write('1\tX\tgene\t300\t400\t.\t-\t.\tgene_id "P1"; gene_biotype "protein_coding";\n')
+    with open(frozen, "w") as fh:
+        # gene M1: two transcripts, class i (multi) + class x (multi) -> Tier1 set {i,x}
+        fh.write('1\tS\ttranscript\t100\t200\t.\t+\t.\tgene_id "M1"; transcript_id "M1.1"; class_code "i";\n')
+        fh.write('1\tS\texon\t100\t120\t.\t+\t.\tgene_id "M1"; transcript_id "M1.1";\n')
+        fh.write('1\tS\texon\t180\t200\t.\t+\t.\tgene_id "M1"; transcript_id "M1.1";\n')
+        fh.write('1\tS\ttranscript\t100\t200\t.\t+\t.\tgene_id "M1"; transcript_id "M1.2"; class_code "x";\n')
+        fh.write('1\tS\texon\t100\t120\t.\t+\t.\tgene_id "M1"; transcript_id "M1.2";\n')
+        fh.write('1\tS\texon\t180\t200\t.\t+\t.\tgene_id "M1"; transcript_id "M1.2";\n')
+        # gene M2: single mono-exonic u -> demoted only when allow_single_exon=false
+        fh.write('1\tS\ttranscript\t100\t110\t.\t+\t.\tgene_id "M2"; transcript_id "M2.1"; class_code "u";\n')
+        fh.write('1\tS\texon\t100\t110\t.\t+\t.\tgene_id "M2"; transcript_id "M2.1";\n')
+        # gene M3: j with protein_coding parent -> Tier 2 always
+        fh.write('1\tS\ttranscript\t300\t400\t.\t-\t.\tgene_id "M3"; transcript_id "M3.1"; class_code "j"; cmp_ref "P1"; cmp_ref_gene "P1sym";\n')
+        fh.write('1\tS\texon\t300\t320\t.\t-\t.\tgene_id "M3"; transcript_id "M3.1";\n')
+        fh.write('1\tS\texon\t380\t400\t.\t-\t.\tgene_id "M3"; transcript_id "M3.1";\n')
+    t1a, t1, pb = {"u", "x", "i"}, {"u", "x", "i", "j", "o"}, {"lncRNA"}
+    gene_biotype = {"L1": "lncRNA", "P1": "protein_coding"}
+    frozen_g = C.load_gtf(frozen, {"transcript", "exon"})
+    exons = C.exon_map(frozen_g)
+    tx_off, genes_off = F.class_composition(frozen_g, exons, gene_biotype, t1, t1a, pb, False)
+    check(tx_off == {"i": 1, "x": 1}, "transcripts Tier1 by class (allow=false)")
+    check(sum(genes_off.values()) == 1, "M2 demoted: only M1 keeps Tier1 (allow=false)")
+    check(genes_off[frozenset({"i", "x"})] == 1, "gene class set {i,x} counted once")
+    tx_on, genes_on = F.class_composition(frozen_g, exons, gene_biotype, t1, t1a, pb, True)
+    check(tx_on == {"i": 1, "x": 1, "u": 1}, "mono u added when allow=true")
+    check(sum(genes_on.values()) == 2, "M2 recovered when allow=true")
+    # j with coding parent never enters the composition
+    check(not any("j" in cs for cs in genes_on), "j coding parent excluded")
 
 
 def test_merge_and_assignment():
@@ -423,7 +464,8 @@ def main():
                test_regions_integration, test_regions_host_fallback, test_metrics,
                test_merge_and_assignment,
                test_featurecounts_semicolon_fixture, test_merge_multi_sample_duplicate,
-               test_cardinality_guard, test_thresholds, test_tier_final):
+               test_cardinality_guard, test_thresholds, test_tier_final,
+               test_class_composition):
         fn()
     print()
     if FAILS:

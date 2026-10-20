@@ -7,6 +7,9 @@ novel genes: `BUILD_GENE_CATALOG` in R writes `gene_catalog.tsv`, and
 they agree on `tier_static` and `n_tier1_transcripts` for every novel gene, so a
 drift in either implementation is caught after a run.
 
+It also asserts the D1 invariant `tier_final == tier_static` in
+`tier_final_genes.tsv` (F1.4 does not gate the tier).
+
 Run after a run:
   python3 bin/tests/check_tier_consistency.py \
       results/discovery/gene_catalog/gene_catalog.tsv \
@@ -42,6 +45,9 @@ def main():
         if str(g.get("n_tier1_transcripts")) != str(t.get("n_tier1_transcripts")):
             mismatches.append((gid, "n_tier1_transcripts %s != %s"
                                % (g.get("n_tier1_transcripts"), t.get("n_tier1_transcripts"))))
+        if t.get("tier_static") != t.get("tier_final"):
+            mismatches.append((gid, "D1 broken: tier_final %s != tier_static %s"
+                               % (t.get("tier_final"), t.get("tier_static"))))
 
     print("novel genes: gene_catalog=%d, tier_final=%d, mismatches=%d"
           % (len(gc), len(tf), len(mismatches)))
@@ -50,7 +56,9 @@ def main():
     if mismatches:
         sys.exit(1)
     print("tier_static consistent between BUILD_GENE_CATALOG and COMPUTE_TIER_FINAL")
+    print("D1 invariant holds: tier_final == tier_static")
 
 
 if __name__ == "__main__":
     main()
+

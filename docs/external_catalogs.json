@@ -1,0 +1,9 @@
+{
+  "description": "Pinned external lncRNA catalogs for F2.1/F2.2. Fill `version` and `url` with the exact pinned release before running --mode download. `file` may be set to an existing local BED instead of downloading. Feature counts and md5 are recorded in run_info/external_catalogs.tsv.",
+  "sources": [
+    {"name": "lncipedia", "version": "", "url": "", "file": "", "note": "LNCipedia hg38 BED (BED6 or BED12). Record the exact release used."},
+    {"name": "noncode", "version": "", "url": "", "file": "", "note": "NONCODE hg38 BED (BED6 or BED12). Record the exact release used."},
+    {"name": "rnacentral", "version": "", "url": "", "file": "", "note": "Optional. RNAcentral hg38 lncRNA BED, if easily available."},
+    {"name": "fantomcat", "version": "", "url": "", "file": "", "note": "Optional. FANTOM CAT, only if an hg38 BED exists."}
+  ]
+}

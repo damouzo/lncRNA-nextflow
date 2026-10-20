@@ -1,0 +1,8 @@
+Reading reference gene model /ref.bed12 ... done
+Total 100000 reads
+This is PairEnd Data
+Fraction of reads failed to determine: 0.0100
+Fraction of reads explained by "1++,1--,2+-,2-+": 0.0900
+Fraction of reads explained by "1+-,1-+,2++,2--": 0.8800
+Fraction of reads explained by "++,--": 0.0100
+Fraction of reads explained by "+-,-+": 0.0100

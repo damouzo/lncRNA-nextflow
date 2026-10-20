@@ -1,0 +1,9 @@
+{
+ "read_files": "[ A_1.fq.gz, A_2.fq.gz]",
+ "expected_format": "ISF",
+ "compatible_fragment_ratio": 1.0,
+ "num_assigned_fragments": 1000,
+ "num_frags_with_concordant_consistent_mappings": 990,
+ "ISF": 990,
+ "ISR": 0
+}
