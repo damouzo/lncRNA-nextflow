@@ -29,6 +29,7 @@ include { ANTISENSE_COUNTS }        from '../modules/local/antisense_counts'
 include { FLAG_ANTISENSE_LEAKAGE }  from '../modules/local/flag_antisense_leakage'
 include { DERIVE_THRESHOLDS }       from '../modules/local/derive_thresholds'
 include { COMPUTE_TIER_FINAL }      from '../modules/local/compute_tier_final'
+include { PUBLISH_CATALOG }         from '../modules/local/publish_catalog'
 
 workflow DISCOVERY {
     take:
@@ -259,6 +260,19 @@ workflow DISCOVERY {
         DERIVE_THRESHOLDS.out.sensitivity
     )
 
+    // ── F4.3 / F4.3b: catalog deliverable ──────────────────────────────────
+    // Builds deliverables/catalog/ (contract tables + annotation/ with LNC ids).
+    PUBLISH_CATALOG(
+        BUILD_GENE_CATALOG.out.gene_catalog,
+        COMPUTE_TIER_FINAL.out.tier_final_genes,
+        COMPUTE_TIER_FINAL.out.tier_final_transcripts,
+        GFFCOMPARE.out.annotated_gtf,
+        EXPRESSION_RECURRENCE.out.recurrence_table,
+        ANNOTATION_FREEZE.out.frozen_gtf,
+        ASSIGN_CATALOG_IDS.out.catalog_gtf,
+        genome_fa
+    )
+
     emit:
     frozen_gtf        = ANNOTATION_FREEZE.out.frozen_gtf
     tx2gene_detailed   = ANNOTATION_FREEZE.out.tx2gene_detailed
@@ -269,4 +283,6 @@ workflow DISCOVERY {
     catalog_gtf        = ASSIGN_CATALOG_IDS.out.catalog_gtf
     catalog_master     = BUILD_CATALOG_MASTER.out.master
     catalog_transcripts= BUILD_CATALOG_MASTER.out.transcripts
+    thresholds         = DERIVE_THRESHOLDS.out.thresholds
+    tier_sensitivity   = COMPUTE_TIER_FINAL.out.sensitivity_table
 }

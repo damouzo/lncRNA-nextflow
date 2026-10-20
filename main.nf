@@ -10,6 +10,7 @@ include { SALMON_QUANTIFY }         from './modules/local/salmon_quantify'
 include { CHECK_STRANDEDNESS }      from './modules/local/check_strandedness'
 include { CHECK_SALMON_LIBTYPE }    from './modules/local/check_salmon_libtype'
 include { SPLIT_BY_NORMGROUP }      from './modules/local/split_normgroup'
+include { PUBLISH_RUN_INFO }        from './modules/local/publish_run_info'
 
 workflow {
 
@@ -101,5 +102,24 @@ workflow {
         validateInput.out.design_formula,
         DISCOVERY.out.gene_catalog,
         params.outdir
+    )
+
+    // ── F4.6 / F4.7: run metadata + generated READMEs ──────────────────────
+    // Samples index keyed by sample (norm_group comes from the covariates).
+    ch_sample_rows = ch_samples.map { sample, cond, batch, _fq1, _fq2, _bam, extra ->
+        "${sample}\t${extra.norm_group ?: 'NA'}\t${cond}\t${batch ?: 'NA'}"
+    }
+    ch_sample_index = ch_sample_rows
+        .collectFile(name: 'sample_index.tsv', newLine: true,
+                     seed: 'sample\tnorm_group\tcondition\tbatch\n')
+        .first()
+
+    PUBLISH_RUN_INFO(
+        ch_sample_index,
+        CHECK_STRANDEDNESS.out.summary,
+        DISCOVERY.out.thresholds,
+        DISCOVERY.out.gene_catalog,
+        DISCOVERY.out.tier_sensitivity,
+        channel.value(file("${projectDir}/docs/deliverables_contract.json"))
     )
 }

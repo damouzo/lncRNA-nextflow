@@ -118,6 +118,13 @@ def validate(base_dir, contract):
         if not matches:
             errors.append("no file matches contract path: %s" % spec["path"])
             continue
+        kind = spec.get("kind", "table")
+        if kind != "table":
+            # file/gtf/fasta: existence is the contract.
+            for path in matches:
+                if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                    errors.append("%s: empty or not a file" % path)
+            continue
         for path in matches:
             errors.extend(validate_table(path, spec))
     return errors
@@ -133,7 +140,7 @@ def describe(contract):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", required=True, help="deliverables directory")
+    ap.add_argument("--dir", help="deliverables directory")
     ap.add_argument("--contract", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                        "..", "docs", "deliverables_contract.json"))
     ap.add_argument("--describe", action="store_true")
@@ -142,6 +149,8 @@ def main():
     if args.describe:
         print(describe(contract))
         return
+    if not args.dir:
+        ap.error("--dir is required unless --describe is given")
     errors = validate(args.dir, contract)
     if errors:
         for e in errors:

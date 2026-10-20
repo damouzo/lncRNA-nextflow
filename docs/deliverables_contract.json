@@ -1,8 +1,13 @@
 {
   "contract": "lncrna-deliverables",
-  "version": "1.0",
-  "description": "Machine-readable contract for the published deliverables. Validated by bin/validate_deliverables.py (stdlib only). Required columns must be present; extra columns are allowed. Row counts are lower bounds.",
+  "version": "1.1",
+  "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group.",
   "files": [
+    {
+      "path": "README.md",
+      "kind": "file",
+      "description": "Generated from this contract by bin/build_deliverables_readme.py"
+    },
     {
       "path": "catalog/catalog_genes.tsv",
       "kind": "table",
@@ -31,6 +36,19 @@
       ]
     },
     {
+      "path": "catalog/candidates_all.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "transcript_id", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "length", "type": "int"},
+        {"name": "filter_status", "type": "string"},
+        {"name": "filter_reason", "type": "string"},
+        {"name": "frozen", "type": "bool"}
+      ]
+    },
+    {
       "path": "catalog/tier_final_by_class.tsv",
       "kind": "table",
       "min_rows": 1,
@@ -40,6 +58,26 @@
         {"name": "class_set", "type": "string"},
         {"name": "n", "type": "int"}
       ]
+    },
+    {
+      "path": "catalog/tier_final_sensitivity.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "changed", "type": "string"},
+        {"name": "percentile", "type": "string"},
+        {"name": "n_tier1_final_genes", "type": "int"}
+      ]
+    },
+    {
+      "path": "catalog/annotation/lncrna_catalog.gtf",
+      "kind": "gtf",
+      "description": "Frozen catalog GTF with LNC gene/transcript ids (BED12 intentionally not published)"
+    },
+    {
+      "path": "catalog/annotation/lncrna_catalog.fa",
+      "kind": "fasta",
+      "description": "Catalog transcript sequences (gffread -w), ids = catalog_tx.tsv"
     },
     {
       "path": "contrasts/<id>/de_full.tsv",
@@ -86,11 +124,78 @@
       ]
     },
     {
+      "path": "contrasts/<id>/cis_pairs.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "contrasts/<id>/enrichment_ora.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "contrasts/<id>/<id>_report.html",
+      "kind": "file",
+      "description": "Self-contained HTML report per contrast"
+    },
+    {
       "path": "expression/<group>_counts.tsv",
       "kind": "table",
       "min_rows": 1,
       "columns": [
         {"name": "gene_id", "type": "string"}
+      ]
+    },
+    {
+      "path": "expression/<group>_tpm.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "gene_id", "type": "string"}
+      ]
+    },
+    {
+      "path": "expression/sample_metadata.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "sample", "type": "string"},
+        {"name": "norm_group", "type": "string"}
+      ]
+    },
+    {
+      "path": "plots/figures_manifest.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "run_info/versions.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "component", "type": "string"},
+        {"name": "value", "type": "string"}
+      ]
+    },
+    {
+      "path": "run_info/sample_index.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "sample", "type": "string"},
+        {"name": "norm_group", "type": "string"}
+      ]
+    },
+    {
+      "path": "run_info/qa_report.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "metric", "type": "string"},
+        {"name": "value", "type": "string"}
       ]
     }
   ]

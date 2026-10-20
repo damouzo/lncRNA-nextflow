@@ -38,6 +38,12 @@
                     "type": "string",
                     "default": "results",
                     "description": "Output directory for all results"
+                },
+                "publish_level": {
+                    "type": "string",
+                    "default": "core_raw",
+                    "enum": ["core", "core_raw", "full"],
+                    "description": "How much of the run tree is published: core = deliverables/ only; core_raw = deliverables/ + raw/ + run_info/; full = also heavy audit outputs (bam_validation logs)"
                 }
             },
             "required": ["input", "genome", "gtf"]

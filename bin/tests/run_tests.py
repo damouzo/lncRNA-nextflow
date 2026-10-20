@@ -64,6 +64,7 @@ def check_bin_executables():
 
 def main():
     rc = check_bin_executables()
+    rc |= run([sys.executable, os.path.join(HERE, "check_wiring.py")])
     tests = sorted(f for f in os.listdir(HERE)
                    if f.startswith("test_") and f.endswith(".py"))
     if not tests:
