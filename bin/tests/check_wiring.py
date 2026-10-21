@@ -10,7 +10,10 @@ Checks, all offline:
   4. Every deliverables/** destination is covered by a path in
      docs/deliverables_contract.json.
   5. `audit_only_full` destinations are gated to publish_level == 'full'.
-  6. Script flags: every --flag a module passes to bin/<script>.py exists in that
+  6. Every process resolves a container (a missing `withName` runs on the host).
+  7. run_info/ publishers that emit versions.yml filter it out (audit set stays
+     the documented list of tables).
+  8. Script flags: every --flag a module passes to bin/<script>.py exists in that
      script's argparse (catches typos that only show up at run time).
 
 Run: python3 bin/tests/check_wiring.py
@@ -52,13 +55,19 @@ def parse_modules_config(text):
         block = text[start:end]
         entries = []
         # split the block into publishDir entries (each list of maps)
-        for pm in re.finditer(r"path:\s*\{\s*\"\$\{params\.outdir\}/([^\"}]*)\"\s*\}", block):
-            dest = pm.group(1)
-            # find an `enabled:` in the following ~250 chars
+        for pm in re.finditer(r"path:\s*\{\s*\"\$\{params\.outdir\}/([^\"]*)\"\s*\}", block):
+            # Strip any dynamic suffix (e.g. contrasts/${group}__${ct}) so the map
+            # and contract match on the static prefix.
+            dest = pm.group(1).split("${")[0].rstrip("/")
+            # find an `enabled:` in the following ~250 chars (brace or bare form)
             window = block[pm.end():pm.end() + 250]
-            em = re.search(r"enabled:\s*\{\s*([^}]*)\}", window)
-            enabled = em.group(1) if em else "true"
-            entries.append({"dest": dest, "enabled": enabled})
+            em = (re.search(r"enabled:\s*\{\s*([^}]*)\}", window) or
+                  re.search(r"enabled:\s*([^\n}]+)", window))
+            enabled = em.group(1).strip() if em else "true"
+            # A filter (pattern or saveAs) is what keeps the version probe out of
+            # the published tree; both are optional in the entry.
+            filtered = bool(re.search(r"(pattern|saveAs):", window))
+            entries.append({"dest": dest, "enabled": enabled, "filtered": filtered})
         if entries:
             out.setdefault(name, []).extend(entries)
     return out
@@ -145,6 +154,61 @@ def _py_flags(py_path):
     return flags
 
 
+def check_publish_dir_types(cfg_text):
+    """publishDir field types are not free. Nextflow casts `saveAs` to Closure
+    (a String crashes the task at finalisation) and builds `enabled` with
+    Boolean.parseBoolean(value.toString()) (a closure stringifies to "false", so
+    the entry never publishes). Neither failure is visible until a run reaches
+    that process."""
+    closures = re.findall(r"enabled:\s*\{", cfg_text)
+    check(not closures, "no closure `enabled:` in conf/modules.config (%d found)" % len(closures))
+    strings = re.findall(r"saveAs:\s*['\"]", cfg_text)
+    check(not strings, "no String `saveAs:` in conf/modules.config (%d found)" % len(strings))
+
+
+def check_containers():
+    """Every process must resolve a container. The cluster profiles are
+    apptainer-only, so a process missing from the `withName` container lists in
+    nextflow.config silently runs on the host — and versions.tsv then records
+    container "null" for a task that never saw the image."""
+    covered = set()
+    for m in re.finditer(r"withName:\s*'([^']+)'\s*\{\s*\n\s*container\s*=",
+                         read(os.path.join(ROOT, "nextflow.config"))):
+        covered |= set(m.group(1).split("|"))
+    procs = set()
+    for d in ("modules/local", "workflows"):
+        full = os.path.join(ROOT, d)
+        if not os.path.isdir(full):
+            continue
+        for f in sorted(os.listdir(full)):
+            if f.endswith(".nf"):
+                procs |= set(re.findall(r"^\s*process\s+([A-Z0-9_]+)\s*\{",
+                                        read(os.path.join(full, f)), re.M))
+    missing = sorted(procs - covered)
+    check(not missing, "every process resolves a container (missing: %s)" % missing)
+
+
+def check_audit_set(cfg):
+    """The audit set in run_info/ is an explicit list of tables. A process that
+    emits a version probe and publishes its whole work dir there drops a
+    versions.yml into the audit set — and when the process runs once per group,
+    every task overwrites the same file, so its content is whichever task
+    finished last."""
+    for name, entries in sorted(cfg.items()):
+        module = os.path.join(ROOT, "modules/local", name.lower() + ".nf")
+        if not os.path.isfile(module):
+            continue
+        # output declaration only: an emitter writes `path "versions.yml"` in `output:`
+        if not re.search(r'path\s*\(?\s*["\']versions\.yml["\']', read(module)):
+            continue
+        for e in entries:
+            if not e["dest"].startswith("run_info"):
+                continue
+            check(e["filtered"],
+                  "%s: publishes run_info/ unfiltered and emits versions.yml "
+                  "(add pattern or saveAs)" % name)
+
+
 def check_script_flags():
     nf_files = [os.path.join(ROOT, "main.nf")]
     for d in ("modules/local", "workflows"):
@@ -158,11 +222,15 @@ def check_script_flags():
         text = read(path)
         current = None
         by_script = {}
-        for m in re.finditer(r"([A-Za-z0-9_]+\.py)|(--[A-Za-z0-9][A-Za-z0-9_-]*)", text):
-            if m.group(1):
-                current = m.group(1)
-            elif m.group(2) and current:
-                by_script.setdefault(current, set()).add(m.group(2))
+        # Only a command at the start of a line counts as the current script, so a
+        # .py mentioned inside a comment is not mistaken for an invocation.
+        for line in text.split("\n"):
+            m = re.match(r"\s*([A-Za-z0-9_]+\.(py|sh|R))(\s|$)", line)
+            if m:
+                current = m.group(1) if m.group(2) == "py" else None
+            elif current:
+                for f in re.findall(r"(--[A-Za-z0-9][A-Za-z0-9_-]*)", line):
+                    by_script.setdefault(current, set()).add(f)
         for script, flags in sorted(by_script.items()):
             known = _py_flags(os.path.join(ROOT, "bin", script))
             if known is None:
@@ -174,7 +242,8 @@ def check_script_flags():
 
 
 def main():
-    cfg = parse_modules_config(read(MODULES_CONFIG))
+    cfg_text = read(MODULES_CONFIG)
+    cfg = parse_modules_config(cfg_text)
     pub = json.loads(read(PUBLICATION_MAP))
     contract = json.loads(read(CONTRACT))
     print("wiring: %d publishDir processes" % len(cfg))
@@ -182,6 +251,9 @@ def main():
     check_matches_map(pub, cfg)
     check_contract_coverage(cfg, contract)
     check_audit_levels(pub, cfg)
+    check_publish_dir_types(cfg_text)
+    check_containers()
+    check_audit_set(cfg)
     check_script_flags()
     print()
     if FAILS:

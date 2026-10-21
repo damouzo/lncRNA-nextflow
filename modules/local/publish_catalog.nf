@@ -13,17 +13,19 @@ process PUBLISH_CATALOG {
     path tier_final_genes       // COMPUTE_TIER_FINAL, gene level
     path tier_final_transcripts // COMPUTE_TIER_FINAL, transcript level
     path gffcmp_gtf             // GFFCOMPARE annotated GTF (candidate funnel)
+    path length_filtered_gtf    // TRANSCRIPT_LENGTH_FILTER kept GTF (parity check)
     path recurrence             // EXPRESSION_RECURRENCE recurrence_filtered.tsv
     path frozen_gtf             // ANNOTATION_FREEZE frozen_lncrna.gtf (frozen id set)
     path catalog_gtf            // ASSIGN_CATALOG_IDS frozen_lncrna.catalog.gtf (LNC ids)
     path genome_fa
 
     output:
-    path "catalog_genes.tsv"
+    path "catalog_genes.tsv", emit: catalog_genes
     path "catalog_tx.tsv"
     path "candidates_all.tsv"
     path "annotation/lncrna_catalog.gtf"
     path "annotation/lncrna_catalog.fa"
+    path "versions.yml", emit: versions
 
     script:
     """
@@ -32,6 +34,7 @@ process PUBLISH_CATALOG {
         --tier-final-genes "${tier_final_genes}" \\
         --tier-final-transcripts "${tier_final_transcripts}" \\
         --gffcmp-gtf "${gffcmp_gtf}" \\
+        --length-filtered-gtf "${length_filtered_gtf}" \\
         --recurrence "${recurrence}" \\
         --frozen-gtf "${frozen_gtf}" \\
         --min-length ${params.min_transcript_length} \\
@@ -40,5 +43,7 @@ process PUBLISH_CATALOG {
     mkdir -p annotation
     cp "${catalog_gtf}" annotation/lncrna_catalog.gtf
     gffread -w annotation/lncrna_catalog.fa -g "${genome_fa}" annotation/lncrna_catalog.gtf
+
+    emit_versions.sh "${task.process}" "${task.container}" gffread gffread --version
     """
 }

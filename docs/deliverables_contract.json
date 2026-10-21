@@ -1,6 +1,6 @@
 {
   "contract": "lncrna-deliverables",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group.",
   "files": [
     {
@@ -124,21 +124,39 @@
       ]
     },
     {
-      "path": "contrasts/<id>/cis_pairs.tsv",
-      "kind": "table",
-      "min_rows": 0,
-      "columns": []
-    },
-    {
-      "path": "contrasts/<id>/enrichment_ora.tsv",
-      "kind": "table",
-      "min_rows": 0,
-      "columns": []
-    },
-    {
       "path": "contrasts/<id>/<id>_report.html",
       "kind": "file",
       "description": "Self-contained HTML report per contrast"
+    },
+    {
+      "path": "groups/<group>/cis_pairs.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "groups/<group>/cis_pairs_significant.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "groups/<group>/cis_associations_summary.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "groups/<group>/enrichment_ora.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "groups/<group>/enrichment_gsea.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
     },
     {
       "path": "expression/<group>_counts.tsv",
@@ -154,6 +172,17 @@
       "min_rows": 1,
       "columns": [
         {"name": "gene_id", "type": "string"}
+      ]
+    },
+    {
+      "path": "expression/<group>_universe.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "keep", "type": "bool"},
+        {"name": "filter_status", "type": "string"},
+        {"name": "filter_reason", "type": "string"}
       ]
     },
     {
@@ -176,8 +205,10 @@
       "kind": "table",
       "min_rows": 1,
       "columns": [
-        {"name": "component", "type": "string"},
-        {"name": "value", "type": "string"}
+        {"name": "process", "type": "string"},
+        {"name": "tool", "type": "string"},
+        {"name": "version", "type": "string"},
+        {"name": "container", "type": "string"}
       ]
     },
     {

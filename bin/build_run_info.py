@@ -4,38 +4,31 @@
 Stdlib only. Writes (flat, into --outdir):
 
   params_used.tsv       key/value of the parameters that shape the run
-  versions.tsv          tool versions probed inside the container (best effort)
+  versions.tsv          process, tool, version, container — from the versions.yml each
+                        tool process emits (reflects the real container, not a probe)
   sample_index.tsv      sample, norm_group, condition, batch
   run_manifest.tsv      key/value provenance (date, pipeline, publish_level, outdir)
   qa_report.tsv         headline QC for reviewers
   external_catalogs.tsv one row per configured external catalog (present true/false)
 
-Version probing is best-effort: a tool that is absent records "not_available"
-rather than failing. The QA report never gates anything; it only summarises.
+Versions are best-effort: a tool without a working --version probe records
+"not_available". The QA report never gates anything; it only summarises.
 
 CLI:
   build_run_info.py --outdir . --samples samples.tsv --strandedness strandedness_summary.tsv \
-      --thresholds thresholds_used.tsv --gene-catalog gene_catalog.tsv \
+      --versions-yml a.yml b.yml --thresholds thresholds_used.tsv --gene-catalog gene_catalog.tsv \
       [--sensitivity tier_final_sensitivity.tsv] --pipeline-version 0.1.0 \
       --publish-level core_raw --outdir-param results [--catalog name=path ...]
 """
 
 import argparse
 import csv
+import glob
 import os
-import shutil
-import subprocess
+import re
 from datetime import datetime, timezone
 
 IS_NA = {"", "NA", "NaN", "nan", "None"}
-PROBES = [
-    ("python3", ["python3", "--version"]),
-    ("gffread", ["gffread", "--version"]),
-    ("samtools", ["samtools", "--version"]),
-    ("salmon", ["salmon", "--version"]),
-    ("R", ["R", "--version"]),
-    ("nextflow", ["nextflow", "-version"]),
-]
 
 
 def read_tsv(path):
@@ -54,19 +47,57 @@ def write_tsv(path, cols, rows):
         w.writerows(rows)
 
 
-def probe_versions():
+def parse_versions_yml(paths):
+    """Collect (process, tool, version, container) from emitted versions.yml files.
+
+    Format (written by bin/emit_versions.sh or the R modules):
+        "PROCESS":\n    tool: "x"\n    version: "y"\n    container: "z"
+
+    Every task of a process emits an identical block, so the same row arrives many
+    times (one file per task). Keep the first occurrence of each row, in file order,
+    so the table reads one row per process.
+    """
     rows = []
-    for name, cmd in PROBES:
-        if shutil.which(cmd[0]) is None:
-            rows.append((name, "not_available"))
-            continue
-        try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            text = (out.stdout or out.stderr).strip().splitlines()
-            rows.append((name, text[0] if text else "unknown"))
-        except Exception as exc:  # noqa: BLE001 - probe must never fail the run
-            rows.append((name, "error: %s" % exc))
-    return rows
+    seen_files = []
+    for pattern in paths:
+        seen_files.extend(sorted(glob.glob(pattern)))
+    for path in seen_files:
+        proc, block = None, {}
+        with open(path) as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if not line.strip():
+                    continue
+                if not line[0].isspace() and line.endswith(":"):
+                    if proc is not None:
+                        rows.append(_version_row(proc, block))
+                    proc, block = line[:-1].strip().strip('"'), {}
+                elif ":" in line:
+                    key, val = line.strip().split(":", 1)
+                    block[key.strip()] = val.strip().strip('"')
+        if proc is not None:
+            rows.append(_version_row(proc, block))
+
+    unique, seen = [], set()
+    for row in rows:
+        if row not in seen:
+            seen.add(row)
+            unique.append(row)
+    return unique
+
+
+def _version_row(proc, block):
+    return (proc, block.get("tool", ""), block.get("version", ""), block.get("container", ""))
+
+
+def read_novelty(path):
+    if not path or not os.path.exists(path):
+        return "not_evaluated"
+    _, rows = read_tsv(path)
+    for r in rows:
+        if r.get("metric") == "novelty_status":
+            return r.get("value") or "not_evaluated"
+    return "not_evaluated"
 
 
 def fidelity_range(strandedness_path):
@@ -111,6 +142,12 @@ def main():
     ap.add_argument("--thresholds", default=None)
     ap.add_argument("--gene-catalog", default=None)
     ap.add_argument("--sensitivity", default=None)
+    ap.add_argument("--versions-yml", nargs="+", action="append", default=[],
+                    help="versions.yml files emitted by the tool processes. Several "
+                         "files per flag and repeated flags both work (argparse would "
+                         "otherwise keep only the last flag)")
+    ap.add_argument("--novelty-status", default=None,
+                    help="CHECK_NOVELTY novelty_status.tsv")
     ap.add_argument("--pipeline-version", default="unknown")
     ap.add_argument("--publish-level", default="core_raw")
     ap.add_argument("--outdir-param", default="results")
@@ -142,9 +179,11 @@ def main():
     ]
     write_tsv(out("params_used.tsv"), ["param", "value"], params)
 
-    # versions.tsv
-    write_tsv(out("versions.tsv"), ["component", "value"],
-              [("pipeline", args.pipeline_version)] + probe_versions())
+    # versions.tsv — one row per emitting process, from the real container
+    vrows = parse_versions_yml([p for group in args.versions_yml for p in group])
+    if not vrows:
+        vrows = [("NA", "NA", "not_available", "none")]
+    write_tsv(out("versions.tsv"), ["process", "tool", "version", "container"], vrows)
 
     # sample_index.tsv
     header, rows = read_tsv(args.samples)
@@ -192,7 +231,7 @@ def main():
         ("strandedness_fidelity_min", "" if fid is None else "%.4f" % fid[0]),
         ("strandedness_fidelity_max", "" if fid is None else "%.4f" % fid[1]),
         ("thresholds_status", thresholds_status(args.thresholds)),
-        ("novelty_status", "not_evaluated"),
+        ("novelty_status", read_novelty(args.novelty_status)),
     ]
     write_tsv(out("qa_report.tsv"), ["metric", "value"], qa)
 

@@ -11,6 +11,8 @@ process PUBLISH_RUN_INFO {
     input:
     path samples              // sample,norm_group,condition,batch TSV
     path strandedness         // CHECK_STRANDEDNESS strandedness_summary.tsv
+    path versions_files       // collected versions.yml from every tool process
+    path novelty_status       // CHECK_NOVELTY novelty_status.tsv
     path thresholds           // DERIVE_THRESHOLDS thresholds_used.tsv
     path gene_catalog         // BUILD_GENE_CATALOG gene_catalog.tsv
     path sensitivity          // COMPUTE_TIER_FINAL tier_final_sensitivity.tsv
@@ -35,11 +37,14 @@ process PUBLISH_RUN_INFO {
         path ? "--catalog ${s.name}=\"${path}\"".toString() : null
     }.findAll { it != null }
     def cat_args = cats.join(' ')
+    def ver_args = versions_files.collect { "--versions-yml \"${it}\"" }.join(' ')
     """
     build_run_info.py \\
         --outdir . \\
         --samples "${samples}" \\
         --strandedness "${strandedness}" \\
+        ${ver_args} \\
+        --novelty-status "${novelty_status}" \\
         --thresholds "${thresholds}" \\
         --gene-catalog "${gene_catalog}" \\
         --sensitivity "${sensitivity}" \\
@@ -62,6 +67,8 @@ process PUBLISH_RUN_INFO {
         --deliverables-readme __deliverables_README.md \\
         --run-info-readme __run_info_README.md \\
         --qa-report qa_report.tsv \\
-        --publish-level "${params.publish_level}"
+        --publish-level "${params.publish_level}" \\
+        --fdr "${params.fdr_threshold}" \\
+        --lfc "${params.lfc_threshold}"
     """
 }

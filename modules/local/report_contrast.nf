@@ -16,15 +16,20 @@ process REPORT_CONTRAST {
     stageInMode 'copy'
 
     input:
-    tuple val(group), path(de_summary), path(cis_pairs),
+    // val(ct) is not used by the Rscript (the 1-row contrasts_tsv already pins the
+    // contrast) — it exists so publishDir can target contrasts/<group>__<ct>/.
+    tuple val(group), val(ct), path(de_summary), path(cis_pairs),
           path(cis_pairs_sig), path(ora), path(gsea),
           path(heterogeneity), path(heterogeneity_cv),
           path(coldata), path(contrasts_tsv), path(tpm_rds)
     path template         // report_template.qmd
     path gene_catalog     // gene_catalog.tsv (origin/class_code/biotype annotations)
+    path novelty_status   // CHECK_NOVELTY novelty_status.tsv (metric/value)
+    path strandedness     // CHECK_STRANDEDNESS strandedness_summary.tsv
 
     output:
     path "*.html", emit: reports
+    path "versions.yml", emit: versions
 
     script:
     """
@@ -33,6 +38,17 @@ process REPORT_CONTRAST {
     library(dplyr)
 
     de <- read_tsv("${de_summary}", show_col_types = FALSE)
+
+    # F5.2: novelty status comes from CHECK_NOVELTY (run-wide, single value)
+    novelty <- tryCatch({
+        ns <- read_tsv("${novelty_status}", show_col_types = FALSE)
+        as.character(ns[["value"]][ns[["metric"]] == "novelty_status"][1])
+    }, error = function(e) NA_character_)
+    ns_arg <- if (!is.na(novelty) && nzchar(novelty)) {
+        paste0("-P ", shQuote(paste0("novelty_status=", novelty)), " ")
+    } else {
+        ""
+    }
 
     # Condition levels present in this norm_group's coldata
     group_conditions <- tryCatch({
@@ -64,6 +80,7 @@ process REPORT_CONTRAST {
         if (file.exists(fname)) next
         cmd <- paste(
             "quarto render ${template}",
+            ns_arg,
             "-M", shQuote(paste0("title=lncRNA report - ", ct)),
             "-M", shQuote(paste0("subtitle=norm_group: ${group}")),
             "-P", shQuote(paste0("contrast=", ct)),
@@ -86,11 +103,20 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("synteny_configured=${(params.synteny_chain_file && params.synteny_target_gtf) ? true : false}")),
             "-P", shQuote(paste0("synteny_target_species=${params.synteny_target_species ?: ''}")),
             "-P", shQuote(paste0("tpm=${tpm_rds}")),
+            "-P", shQuote(paste0("strandedness_summary=${strandedness}")),
             "--output", shQuote(fname)
         )
         cat("Rendering contrast:", ct, "\n")
         status <- system(cmd)
         if (status != 0) stop(paste("quarto render failed for contrast:", ct))
     }
+
+    qver <- tryCatch(system("quarto --version", intern = TRUE)[1],
+                     error = function(e) NA, warning = function(w) NA)
+    writeLines(c(sprintf('"%s":', "${task.process}"),
+                 '    tool: "quarto/R"',
+                 sprintf('    version: "%s"', if (is.na(qver)) "unknown" else qver),
+                 sprintf('    container: "%s"', "${task.container}")),
+               "versions.yml")
     """
 }

@@ -35,7 +35,17 @@ def read_kv(path):
         return [row for row in rdr if row]
 
 
-def build_deliverables_readme(contract, qa_rows, publish_level):
+def _fmt(value):
+    if value is None or value == "":
+        return "NA"
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return ("%g" % f)
+
+
+def build_deliverables_readme(contract, qa_rows, publish_level, fdr=None, lfc=None):
     lines = []
     lines.append("# lncRNA discovery — deliverables")
     lines.append("")
@@ -43,6 +53,24 @@ def build_deliverables_readme(contract, qa_rows, publish_level):
                  "`docs/deliverables_contract.json`; do not edit by hand.")
     lines.append("")
     lines.append("Publish level: **%s**." % publish_level)
+    lines.append("")
+    lines.append("## Significance")
+    lines.append("")
+    lines.append("- `significant` = `padj < %s` **and** `|log2FoldChange| >= %s`."
+                 % (_fmt(fdr), _fmt(lfc)))
+    lines.append("- The cutoff is applied only to this flag, on the **shrunken** "
+                 "`log2FoldChange` from `lfcShrink`; it is not passed to DESeq2 "
+                 "`results()`, so `pvalue`/`padj` keep their standard meaning.")
+    lines.append("- Defaults live in `nextflow.config`/`nextflow_schema.json` "
+                 "(`fdr_threshold`, `lfc_threshold`) and are recorded in "
+                 "`run_info/params_used.tsv`.")
+    lines.append("")
+    lines.append("## Opening the TSVs in Excel")
+    lines.append("")
+    lines.append("Do **not** double-click the `.tsv` files. Use **Data → From Text/CSV** "
+                 "(or *Importar desde texto*) and set the columns holding gene symbols "
+                 "to **Text**: Excel silently turns `SEPT2` into a date and `MARCH1` into "
+                 "`1-Mar`. The same applies to ids that look numeric.")
     lines.append("")
     lines.append("## Honesty note")
     lines.append("")
@@ -117,6 +145,8 @@ def main():
     ap.add_argument("--run-info-readme", default="__run_info_README.md")
     ap.add_argument("--qa-report", default=None)
     ap.add_argument("--publish-level", default="core_raw")
+    ap.add_argument("--fdr", default=None)
+    ap.add_argument("--lfc", default=None)
     args = ap.parse_args()
 
     contract = load_contract(args.contract)
@@ -124,7 +154,8 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
 
     with open(os.path.join(args.outdir, args.deliverables_readme), "w") as fh:
-        fh.write(build_deliverables_readme(contract, qa_rows, args.publish_level))
+        fh.write(build_deliverables_readme(contract, qa_rows, args.publish_level,
+                                           fdr=args.fdr, lfc=args.lfc))
     with open(os.path.join(args.outdir, args.run_info_readme), "w") as fh:
         fh.write(build_run_info_readme(contract, qa_rows, args.publish_level))
     print("build_deliverables_readme: wrote %s and %s"

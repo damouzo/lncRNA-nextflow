@@ -42,11 +42,43 @@
                 "publish_level": {
                     "type": "string",
                     "default": "core_raw",
-                    "enum": ["core", "core_raw", "full"],
+                    "enum": [
+                        "core",
+                        "core_raw",
+                        "full"
+                    ],
                     "description": "How much of the run tree is published: core = deliverables/ only; core_raw = deliverables/ + raw/ + run_info/; full = also heavy audit outputs (bam_validation logs)"
+                },
+                "export_xlsx": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Also export optional xlsx copies of the per-contrast DE tables (non-blocking; the TSV remains the source of truth)"
+                },
+                "design_check": {
+                    "type": "string",
+                    "default": "fail",
+                    "enum": [
+                        "fail",
+                        "warn"
+                    ],
+                    "description": "Per-contrast design rank-check behaviour: fail aborts on a rank-deficient design, warn records it"
+                },
+                "cis_normalize": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Normalize cis associations (VST blind=FALSE + limma::removeBatchEffect keeping condition) before Spearman; false = previous log2(counts+1)"
+                },
+                "run_figures": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Write catalog figures to deliverables/plots (non-blocking)"
                 }
             },
-            "required": ["input", "genome", "gtf"]
+            "required": [
+                "input",
+                "genome",
+                "gtf"
+            ]
         },
         "experimental_design": {
             "title": "Experimental Design",
@@ -65,14 +97,19 @@
                 },
                 "covariates": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {
+                        "type": "string"
+                    },
                     "description": "Extra covariate columns from samplesheet to include in model"
                 }
             },
-            "required": ["contrasts", "design_formula"]
+            "required": [
+                "contrasts",
+                "design_formula"
+            ]
         },
         "phase_a_thresholds": {
-            "title": "Phase A — Discovery Thresholds",
+            "title": "Phase A \u2014 Discovery Thresholds",
             "type": "object",
             "properties": {
                 "min_transcript_length": {
@@ -87,20 +124,38 @@
                 },
                 "tier1_classes": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "default": ["u", "x", "i", "j", "o"],
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "u",
+                        "x",
+                        "i",
+                        "j",
+                        "o"
+                    ],
                     "description": "gffcompare class codes considered Tier 1 at the transcript level"
                 },
                 "tier1a_classes": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "default": ["u", "x", "i"],
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "u",
+                        "x",
+                        "i"
+                    ],
                     "description": "Subset of tier1_classes assigned novel_type 1a; other tier1 classes (j/o) are 1b only when the parent gene is not protein_coding"
                 },
                 "tier1_parent_biotypes": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "default": ["lncRNA"],
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "lncRNA"
+                    ],
                     "description": "Parent-gene biotype whitelist for j/o Tier 1b; other parents (pseudogenes, TEC, small-RNA hosts) go to Tier 2"
                 },
                 "tier1_allow_single_exon": {
@@ -110,14 +165,18 @@
                 },
                 "annotated_lncrna_biotypes": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "default": ["lncRNA"],
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "lncRNA"
+                    ],
                     "description": "gene_biotype values treated as annotated lncRNA in the gene catalog"
                 }
             }
         },
         "phase_b_thresholds": {
-            "title": "Phase B — Statistics Thresholds",
+            "title": "Phase B \u2014 Statistics Thresholds",
             "type": "object",
             "properties": {
                 "cis_window": {
@@ -132,18 +191,20 @@
                 },
                 "lfc_threshold": {
                     "type": "number",
-                    "default": 0.0,
-                    "description": "Minimum biological log2 fold-change (set >0 for threshold tests)"
+                    "default": 1.0,
+                    "description": "Post-hoc LFC cutoff (|log2FoldChange| >= value) applied only to the `significant` flag on the shrunken log2FC; it is NOT passed to DESeq2 results() (that would change the null hypothesis and padj). Default is set by the researcher."
                 },
                 "heterogeneity_analysis": {
                     "type": "object",
-                    "additionalProperties": {"type": "boolean"},
+                    "additionalProperties": {
+                        "type": "boolean"
+                    },
                     "default": {},
                     "description": "Per-norm_group opt-in map for the expression-heterogeneity diagnostic (Carrasco-Leon et al. 2021). Groups not listed default to disabled, e.g. {\"MNC\": true, \"NB4\": false}."
                 },
                 "heterogeneity_concordant_frac": {
                     "type": "number",
-                    "default": 0.50,
+                    "default": 0.5,
                     "description": "Minimum fraction of case samples agreeing on direction (vs control) to call a gene 'altered'"
                 },
                 "heterogeneity_discordant_frac": {
@@ -186,7 +247,11 @@
             "properties": {
                 "library_strandedness": {
                     "type": "string",
-                    "enum": ["reverse", "forward", "unstranded"],
+                    "enum": [
+                        "reverse",
+                        "forward",
+                        "unstranded"
+                    ],
                     "default": "reverse",
                     "description": "Single source of truth. reverse -> ISR/-s 2/--rf; forward -> ISF/-s 1/--fr; unstranded -> IU/-s 0/(no flag)."
                 },
@@ -197,7 +262,11 @@
                 },
                 "featurecounts_strandness": {
                     "type": "integer",
-                    "enum": [0, 1, 2],
+                    "enum": [
+                        0,
+                        1,
+                        2
+                    ],
                     "description": "OPTIONAL override of featureCounts -s. If set it must match the value derived from library_strandedness (0/1/2) or the pipeline fails."
                 },
                 "strandedness_min_fidelity": {
@@ -238,20 +307,74 @@
                     "default": false,
                     "description": "Run the exploratory F1.3 mono-exonic flank coverage check. Off by default: it failed its pre-specified control separation and does not gate tier_final."
                 },
-                "f1_flank_bp": {"type": "integer", "default": 2000, "description": "Flank window (+/- bp) around mono-exonic candidates"},
-                "f1_min_flank_len": {"type": "integer", "default": 200, "description": "Minimum unmasked flank length; shorter means the flank is NA"},
-                "f1_control_cap": {"type": "integer", "default": 2000, "description": "Maximum elements per control set"},
-                "f1_seed": {"type": "integer", "default": 42, "description": "Seed for deterministic control sampling"},
-                "f1_min_reads": {"type": "integer", "default": 10, "description": "Minimum same-strand reads for a sample to contribute a metric"},
-                "f1_min_controls": {"type": "integer", "default": 100, "description": "Minimum control-set size to trust a derived threshold"},
-                "f1_neg_reject_min": {"type": "number", "default": 0.9, "description": "Minimum neg_flank rejection rate at the derived flank threshold"},
-                "f1_flank_percentile": {"type": "number", "default": 10, "description": "Flank threshold percentile of pos_flank flank_ratio_median"},
-                "f1_antisense_percentile": {"type": "number", "default": 95, "description": "Antisense threshold percentile of null_antisense ratio_median"},
-                "flank_ratio_threshold": {"type": "number", "description": "Override for the derived flank threshold (takes priority when set)"},
-                "antisense_ratio_threshold": {"type": "number", "description": "Override for the derived antisense threshold (takes priority when set)"},
-                "flank_ratio_default": {"type": "number", "default": 2.0, "description": "Fallback flank threshold when controls are unreliable"},
-                "antisense_ratio_default": {"type": "number", "default": 0.15, "description": "Fallback antisense threshold when controls are unreliable"},
-                "f1_antisense_pos_flag_max": {"type": "number", "default": 0.3, "description": "Max fraction of pos_antisense flagged at the derived antisense threshold before it is reported as not specific (diagnostic only)"}
+                "f1_flank_bp": {
+                    "type": "integer",
+                    "default": 2000,
+                    "description": "Flank window (+/- bp) around mono-exonic candidates"
+                },
+                "f1_min_flank_len": {
+                    "type": "integer",
+                    "default": 200,
+                    "description": "Minimum unmasked flank length; shorter means the flank is NA"
+                },
+                "f1_control_cap": {
+                    "type": "integer",
+                    "default": 2000,
+                    "description": "Maximum elements per control set"
+                },
+                "f1_seed": {
+                    "type": "integer",
+                    "default": 42,
+                    "description": "Seed for deterministic control sampling"
+                },
+                "f1_min_reads": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Minimum same-strand reads for a sample to contribute a metric"
+                },
+                "f1_min_controls": {
+                    "type": "integer",
+                    "default": 100,
+                    "description": "Minimum control-set size to trust a derived threshold"
+                },
+                "f1_neg_reject_min": {
+                    "type": "number",
+                    "default": 0.9,
+                    "description": "Minimum neg_flank rejection rate at the derived flank threshold"
+                },
+                "f1_flank_percentile": {
+                    "type": "number",
+                    "default": 10,
+                    "description": "Flank threshold percentile of pos_flank flank_ratio_median"
+                },
+                "f1_antisense_percentile": {
+                    "type": "number",
+                    "default": 95,
+                    "description": "Antisense threshold percentile of null_antisense ratio_median"
+                },
+                "flank_ratio_threshold": {
+                    "type": "number",
+                    "description": "Override for the derived flank threshold (takes priority when set)"
+                },
+                "antisense_ratio_threshold": {
+                    "type": "number",
+                    "description": "Override for the derived antisense threshold (takes priority when set)"
+                },
+                "flank_ratio_default": {
+                    "type": "number",
+                    "default": 2.0,
+                    "description": "Fallback flank threshold when controls are unreliable"
+                },
+                "antisense_ratio_default": {
+                    "type": "number",
+                    "default": 0.15,
+                    "description": "Fallback antisense threshold when controls are unreliable"
+                },
+                "f1_antisense_pos_flag_max": {
+                    "type": "number",
+                    "default": 0.3,
+                    "description": "Max fraction of pos_antisense flagged at the derived antisense threshold before it is reported as not specific (diagnostic only)"
+                }
             }
         },
         "external_tools": {
@@ -318,14 +441,32 @@
         }
     },
     "allOf": [
-        {"$ref": "#/definitions/input_output"},
-        {"$ref": "#/definitions/experimental_design"},
-        {"$ref": "#/definitions/phase_a_thresholds"},
-        {"$ref": "#/definitions/phase_b_thresholds"},
-        {"$ref": "#/definitions/reference_catalogs"},
-        {"$ref": "#/definitions/catalog_identity"},
-        {"$ref": "#/definitions/strandedness"},
-        {"$ref": "#/definitions/f1_flags"},
-        {"$ref": "#/definitions/external_tools"}
+        {
+            "$ref": "#/definitions/input_output"
+        },
+        {
+            "$ref": "#/definitions/experimental_design"
+        },
+        {
+            "$ref": "#/definitions/phase_a_thresholds"
+        },
+        {
+            "$ref": "#/definitions/phase_b_thresholds"
+        },
+        {
+            "$ref": "#/definitions/reference_catalogs"
+        },
+        {
+            "$ref": "#/definitions/catalog_identity"
+        },
+        {
+            "$ref": "#/definitions/strandedness"
+        },
+        {
+            "$ref": "#/definitions/f1_flags"
+        },
+        {
+            "$ref": "#/definitions/external_tools"
+        }
     ]
 }

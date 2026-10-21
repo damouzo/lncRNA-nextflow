@@ -1,53 +1,336 @@
 {
   "contract": "lncrna-publication-map",
   "version": "1.0",
-  "description": "Machine-readable origin -> destination map for results/ (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated against conf/modules.config by bin/tests/check_wiring.py. Destinations are relative to params.outdir; the root must be one of `roots`.",
-  "roots": ["raw", "run_info", "deliverables"],
+  "description": "Machine-readable origin -> destination map for results/ (see 'Mapa de publicaci\u00f3n' in .kilo/plans/lncrna_plan_v3.md). Validated against conf/modules.config by bin/tests/check_wiring.py. Destinations are relative to params.outdir; the root must be one of `roots`.",
+  "roots": [
+    "raw",
+    "run_info",
+    "deliverables"
+  ],
   "publish_levels": {
     "core": "deliverables/ only",
     "core_raw": "deliverables/ + raw/ + run_info/",
     "full": "core_raw + heavy audit outputs"
   },
-  "audit_only_full": ["raw/bam_validation"],
-  "processes": [
-    {"module": "BAM_QUICKCHECK",             "dest": ["raw/bam_validation"],           "level": "full"},
-    {"module": "BUILD_INFER_BED",            "dest": ["raw/strandedness_bed"],         "level": "core_raw"},
-    {"module": "INFER_STRANDEDNESS",         "dest": ["raw/strandedness"],             "level": "core_raw"},
-    {"module": "CHECK_STRANDEDNESS",         "dest": ["run_info"],                     "level": "core_raw"},
-    {"module": "STRINGTIE2_PER_SAMPLE",      "dest": ["raw/stringtie"],                "level": "core_raw"},
-    {"module": "STRINGTIE2_MERGE",           "dest": ["raw/stringtie_merge"],          "level": "core_raw"},
-    {"module": "GFFCOMPARE",                 "dest": ["raw/gffcompare"],               "level": "core_raw"},
-    {"module": "TRANSCRIPT_LENGTH_FILTER",   "dest": ["raw/length_filter"],            "level": "core_raw"},
-    {"module": "CPAT_BUILD_MODEL",           "dest": ["raw/cpat_models"],              "level": "core_raw"},
-    {"module": "CPAT",                       "dest": ["raw/cpat"],                     "level": "core_raw"},
-    {"module": "CPC2",                       "dest": ["raw/cpc2"],                     "level": "core_raw"},
-    {"module": "CODING_CONSENSUS",           "dest": ["raw/coding_consensus"],         "level": "core_raw"},
-    {"module": "CATALOG_OVERLAP",            "dest": ["raw/catalog_overlap"],          "level": "core_raw"},
-    {"module": "FEATURECOUNTS_EXPRESSION",   "dest": ["raw/featurecounts"],            "level": "core_raw"},
-    {"module": "EXPRESSION_RECURRENCE",      "dest": ["raw/expression_recurrence"],    "level": "core_raw"},
-    {"module": "ANNOTATION_FREEZE",          "dest": ["raw/annotation_freeze"],        "level": "core_raw"},
-    {"module": "BUILD_GENE_CATALOG",         "dest": ["raw/gene_catalog"],             "level": "core_raw"},
-    {"module": "ASSIGN_CATALOG_IDS",         "dest": ["raw/catalog_ids"],              "level": "core_raw"},
-    {"module": "BUILD_CATALOG_MASTER",       "dest": ["raw/catalog_master"],           "level": "core_raw"},
-    {"module": "CHECK_REFERENCE_COMPATIBILITY", "dest": ["raw/reference_compatibility"], "level": "core_raw"},
-    {"module": "CONSERVATION_SCORE",         "dest": ["raw/conservation"],             "level": "core_raw"},
-    {"module": "SYNTENY_CHECK",              "dest": ["raw/synteny"],                  "level": "core_raw"},
-    {"module": "BUILD_F1_REGIONS",           "dest": ["raw/f1_regions"],               "level": "core_raw"},
-    {"module": "FLANK_COVERAGE_RATIO",       "dest": ["raw/flank_metrics"],            "level": "core_raw"},
-    {"module": "FLAG_ANTISENSE_LEAKAGE",     "dest": ["raw/antisense_metrics"],        "level": "core_raw"},
-    {"module": "DERIVE_THRESHOLDS",          "dest": ["run_info"],                     "level": "core_raw"},
-    {"module": "COMPUTE_TIER_FINAL",         "dest": ["raw/tier_final", "deliverables/catalog"], "level": "core_raw+core"},
-    {"module": "PUBLISH_CATALOG",            "dest": ["deliverables/catalog"],         "level": "core"},
-    {"module": "PUBLISH_RUN_INFO",           "dest": ["deliverables", "deliverables/run_info", "run_info"], "level": "core+core_raw"},
-    {"module": "SPLIT_BY_NORMGROUP",         "dest": ["raw/per_group_coldata"],        "level": "core_raw"},
-    {"module": "BUILD_DECOY_INDEX",          "dest": ["raw/decoy_index"],              "level": "core_raw"},
-    {"module": "SALMON_QUANTIFY",            "dest": ["raw/salmon_quant"],             "level": "core_raw"},
-    {"module": "TXIMPORT_AND_FILTER",        "dest": ["raw/tximport_filter"],          "level": "core_raw"},
-    {"module": "DESEQ2_DE",                  "dest": ["raw/deseq2"],                   "level": "core_raw"},
-    {"module": "CIS_ASSOCIATIONS",           "dest": ["raw/cis_associations"],         "level": "core_raw"},
-    {"module": "FUNCTIONAL_ENRICHMENT",      "dest": ["raw/enrichment"],               "level": "core_raw"},
-    {"module": "HETEROGENEITY_ANALYSIS",     "dest": ["raw/heterogeneity"],            "level": "core_raw"},
-    {"module": "REPORT_CONTRAST",            "dest": ["deliverables/contrasts"],       "level": "core"}
+  "audit_only_full": [
+    "raw/bam_validation"
   ],
-  "no_publish": ["CHECK_SALMON_LIBTYPE", "FLANK_COUNTS", "ANTISENSE_COUNTS"]
+  "processes": [
+    {
+      "module": "BAM_QUICKCHECK",
+      "dest": [
+        "raw/bam_validation"
+      ],
+      "level": "full"
+    },
+    {
+      "module": "BUILD_INFER_BED",
+      "dest": [
+        "raw/strandedness_bed"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "INFER_STRANDEDNESS",
+      "dest": [
+        "raw/strandedness"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CHECK_STRANDEDNESS",
+      "dest": [
+        "run_info"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CHECK_NOVELTY",
+      "dest": [
+        "run_info"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "STRINGTIE2_PER_SAMPLE",
+      "dest": [
+        "raw/stringtie"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "STRINGTIE2_MERGE",
+      "dest": [
+        "raw/stringtie_merge"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "GFFCOMPARE",
+      "dest": [
+        "raw/gffcompare"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "TRANSCRIPT_LENGTH_FILTER",
+      "dest": [
+        "raw/length_filter"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CPAT_BUILD_MODEL",
+      "dest": [
+        "raw/cpat_models"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CPAT",
+      "dest": [
+        "raw/cpat"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CPC2",
+      "dest": [
+        "raw/cpc2"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CODING_CONSENSUS",
+      "dest": [
+        "raw/coding_consensus"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CATALOG_OVERLAP",
+      "dest": [
+        "raw/catalog_overlap"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "FEATURECOUNTS_EXPRESSION",
+      "dest": [
+        "raw/featurecounts"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "EXPRESSION_RECURRENCE",
+      "dest": [
+        "raw/expression_recurrence"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "ANNOTATION_FREEZE",
+      "dest": [
+        "raw/annotation_freeze"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "BUILD_GENE_CATALOG",
+      "dest": [
+        "raw/gene_catalog"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "ASSIGN_CATALOG_IDS",
+      "dest": [
+        "raw/catalog_ids"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "BUILD_CATALOG_MASTER",
+      "dest": [
+        "raw/catalog_master"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CHECK_REFERENCE_COMPATIBILITY",
+      "dest": [
+        "raw/reference_compatibility"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CONSERVATION_SCORE",
+      "dest": [
+        "raw/conservation"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "SYNTENY_CHECK",
+      "dest": [
+        "raw/synteny"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "BUILD_F1_REGIONS",
+      "dest": [
+        "raw/f1_regions"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "FLANK_COVERAGE_RATIO",
+      "dest": [
+        "raw/flank_metrics"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "FLAG_ANTISENSE_LEAKAGE",
+      "dest": [
+        "raw/antisense_metrics"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "DERIVE_THRESHOLDS",
+      "dest": [
+        "run_info"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "COMPUTE_TIER_FINAL",
+      "dest": [
+        "raw/tier_final",
+        "deliverables/catalog"
+      ],
+      "level": "core_raw+core"
+    },
+    {
+      "module": "PUBLISH_CATALOG",
+      "dest": [
+        "deliverables/catalog"
+      ],
+      "level": "core"
+    },
+    {
+      "module": "PUBLISH_RUN_INFO",
+      "dest": [
+        "deliverables",
+        "deliverables/expression",
+        "deliverables/run_info",
+        "run_info"
+      ],
+      "level": "core+core_raw"
+    },
+    {
+      "module": "SPLIT_BY_NORMGROUP",
+      "dest": [
+        "raw/per_group_coldata"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "BUILD_DECOY_INDEX",
+      "dest": [
+        "raw/decoy_index"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "SALMON_QUANTIFY",
+      "dest": [
+        "raw/salmon_quant"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "TXIMPORT_AND_FILTER",
+      "dest": [
+        "raw/tximport_filter",
+        "deliverables/expression"
+      ],
+      "level": "core_raw+core"
+    },
+    {
+      "module": "DESEQ2_DE",
+      "dest": [
+        "raw/deseq2"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "CIS_ASSOCIATIONS",
+      "dest": [
+        "raw/cis_associations",
+        "deliverables/groups"
+      ],
+      "level": "core_raw+core"
+    },
+    {
+      "module": "FUNCTIONAL_ENRICHMENT",
+      "dest": [
+        "raw/enrichment",
+        "deliverables/groups"
+      ],
+      "level": "core_raw+core"
+    },
+    {
+      "module": "HETEROGENEITY_ANALYSIS",
+      "dest": [
+        "raw/heterogeneity"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "REPORT_CONTRAST",
+      "dest": [
+        "deliverables/contrasts"
+      ],
+      "level": "core"
+    },
+    {
+      "module": "MAKE_XLSX",
+      "dest": [
+        "deliverables/contrasts"
+      ],
+      "level": "core"
+    },
+    {
+      "module": "BUILD_CONTRAST_TABLES",
+      "dest": [
+        "deliverables/contrasts"
+      ],
+      "level": "core"
+    },
+    {
+      "module": "DESIGN_CHECK",
+      "dest": [
+        "run_info"
+      ],
+      "level": "core_raw"
+    },
+    {
+      "module": "FIGURES",
+      "dest": [
+        "deliverables/plots"
+      ],
+      "level": "core"
+    }
+  ],
+  "no_publish": [
+    "CHECK_SALMON_LIBTYPE",
+    "FLANK_COUNTS",
+    "ANTISENSE_COUNTS",
+    "VERSION_DISCOVERY",
+    "VERSION_CODING",
+    "SPLIT_CONTRASTS"
+  ]
 }

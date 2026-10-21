@@ -35,6 +35,8 @@ params:
   conservation_configured: false
   synteny_configured: false
   synteny_target_species: ""
+  novelty_status: ""
+  strandedness_summary: ""
 ---
 
 ```{r setup, include=FALSE}
@@ -63,21 +65,22 @@ ORIGIN_LABELS <- c(
   "reference_other"      = "Other reference genes (background)"
 )
 
+# gffcompare class codes (source: gffcompare manual). Only `x` is antisense.
 CLASS_CODE_LEGEND <- c(
-  "u" = "Intergenic (lincRNA-like)",
-  "x" = "Antisense",
-  "i" = "Intronic",
-  "j" = "Novel isoform (multi-exon, at least one splice site shared)",
-  "o" = "Overlap (same strand, other exonic overlap)",
-  "c" = "Contained (within reference intron)",
-  "k" = "Contained (within reference intron, opposite strand)",
-  "m" = "Retained intron (same strand)",
-  "n" = "Retained intron (opposite strand)",
-  "s" = "Intron overlap (opposite strand)",
-  "y" = "Contained within reference pseudogene",
-  "p" = "Polymerase run-on",
+  "c" = "Contained in a reference transcript",
+  "k" = "Contains a reference transcript",
+  "m" = "Retained introns, all matching",
+  "n" = "Retained introns, not all matching",
+  "j" = "At least one junction shared with the reference",
+  "e" = "Single exon overlapping an exon and >=10 bp of an intron (pre-mRNA fragment)",
+  "o" = "Other same-strand exonic overlap",
+  "s" = "Intron matching on the opposite strand (probable mapping error)",
+  "x" = "Exonic overlap on the opposite strand (antisense)",
+  "i" = "Entirely within an intron",
+  "y" = "Contains a reference transcript within its introns",
+  "p" = "Possible polymerase run-on",
   "r" = "Repeat",
-  "e" = "Exonic overlap (opposite strand, single exon)"
+  "u" = "Intergenic (lincRNA-like)"
 )
 
 format_class_code <- function(cc) {
@@ -920,6 +923,77 @@ report; the per-source coverage columns are informative only and never filter. S
 anchored to the candidate transcript.
 
 ## Session info
+
+## Tier and flags {.unnumbered}
+
+```{r tier-flags, echo=FALSE}
+tryCatch({
+  cat_tbl <- gene_catalog
+  n <- nrow(cat_tbl)
+  n_tier1 <- if ("tier_static" %in% colnames(cat_tbl)) sum(cat_tbl$tier_static %in% TRUE, na.rm = TRUE) else NA
+  cat(sprintf("Catalog genes: %d. Tier 1 (static): %s.\n", n,
+              if (is.na(n_tier1)) "NA" else as.character(n_tier1)))
+  flags <- intersect(c("single_exon_low_confidence", "antisense_status",
+                       "x_host_leak_suspect"), colnames(cat_tbl))
+  for (f in flags) {
+    cat(sprintf("- %s: %s\n", f,
+                paste(names(table(cat_tbl[[f]], useNA = "ifany")),
+                      table(cat_tbl[[f]], useNA = "ifany"), sep = "=", collapse = ", ")))
+  }
+  cat("\nTiers are labels, not filters: no gene is dropped by tier.\n")
+}, error = function(e) cat(sprintf("*TIER SECTION SKIPPED: %s*\n", conditionMessage(e))))
+```
+
+## Novelty status {.unnumbered}
+
+```{r novelty, echo=FALSE}
+tryCatch({
+  ns <- if (!is.null(params$novelty_status) && nzchar(params$novelty_status)) {
+    params$novelty_status
+  } else {
+    "not_provided"
+  }
+  cat(sprintf("novelty_status: **%s**.\n", ns))
+  if (identical(ns, "not_evaluated")) {
+    cat("No external catalog was configured, so novelty is *not evaluated* (never 'clean').\n")
+  } else if (identical(ns, "not_provided")) {
+    cat("Status not provided to this report; see `run_info/qa_report.tsv`.\n")
+  }
+}, error = function(e) cat(sprintf("*NOVELTY SECTION SKIPPED: %s*\n", conditionMessage(e))))
+```
+
+## Strandedness QC {.unnumbered}
+
+```{r strandedness, echo=FALSE}
+tryCatch({
+  ss <- if (!is.null(params$strandedness_summary)) params$strandedness_summary else ""
+  if (!nzchar(ss) || !file.exists(ss)) {
+    cat("Strandedness summary not provided to this report.\n")
+  } else {
+    sx <- readr::read_tsv(ss, show_col_types = FALSE)
+    if ("fidelity" %in% colnames(sx)) {
+      cat(sprintf("Strandedness fidelity: min %.4f, median %.4f, max %.4f over %d sample(s).\n",
+                  min(sx$fidelity, na.rm = TRUE), stats::median(sx$fidelity, na.rm = TRUE),
+                  max(sx$fidelity, na.rm = TRUE), nrow(sx)))
+    } else {
+      print(utils::head(sx))
+    }
+  }
+}, error = function(e) cat(sprintf("*STRANDEDNESS SECTION SKIPPED: %s*\n", conditionMessage(e))))
+```
+
+## Statistical power {.unnumbered}
+
+```{r power-note, echo=FALSE}
+tryCatch({
+  n_univ <- if (exists("de")) nrow(de) else NA
+  n_tested <- if (exists("de") && "baseMean" %in% colnames(de)) sum(!is.na(de$baseMean)) else NA
+  cat(sprintf("Universe in this table: %s genes; with baseMean (testable): %s.\n",
+              if (is.na(n_univ)) "NA" else as.character(n_univ),
+              if (is.na(n_tested)) "NA" else as.character(n_tested)))
+  cat("Absence of significance is not evidence of absence; the panel is small.\n")
+}, error = function(e) cat(sprintf("*POWER SECTION SKIPPED: %s*\n", conditionMessage(e))))
+```
 
 ```{r session, echo=FALSE, results='asis'}
 cat("<details><summary><b>Session info — click to expand</b></summary>\n")

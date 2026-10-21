@@ -14,7 +14,12 @@ a tested gene with `padj = NA` carries `padj_na_reason`.
 CLI:
   build_contrast_tables.py --universe genes.tsv --de DE.tsv --catalog catalog_genes.tsv \
       --contrast <id> --fdr 0.05 --lfc 0.0 --out contrasts/<id>/de_full.tsv \
+      --significant-out contrasts/<id>/de_significant.tsv \
       --summary-out contrasts/<id>/summary.tsv
+
+The LFC cutoff is applied only to the `significant` flag here (|log2FC| >= lfc);
+it must not enter DESeq2 results() as lfcThreshold, which would change the null
+hypothesis and the padj values.
 """
 
 import argparse
@@ -129,6 +134,7 @@ def main():
     ap.add_argument("--fdr", type=float, default=0.05)
     ap.add_argument("--lfc", type=float, default=0.0)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--significant-out")
     ap.add_argument("--summary-out")
     args = ap.parse_args()
 
@@ -148,6 +154,13 @@ def main():
 
     n_tested = sum(1 for r in rows if r["tested"] == "TRUE")
     n_sig = sum(1 for r in rows if r["significant"] == "TRUE")
+    if args.significant_out:
+        sig_rows = [r for r in rows if r["significant"] == "TRUE"]
+        os.makedirs(os.path.dirname(os.path.abspath(args.significant_out)), exist_ok=True)
+        with open(args.significant_out, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
+            w.writeheader()
+            w.writerows(sig_rows)
     if args.summary_out:
         os.makedirs(os.path.dirname(os.path.abspath(args.summary_out)), exist_ok=True)
         with open(args.summary_out, "w", newline="") as fh:

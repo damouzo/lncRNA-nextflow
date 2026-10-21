@@ -13,6 +13,7 @@ include { CPAT }                    from '../modules/local/cpat'
 include { CPC2 }                    from '../modules/local/cpc2'
 include { CODING_CONSENSUS }        from '../modules/local/coding_consensus'
 include { CATALOG_OVERLAP }         from '../modules/local/catalog_overlap'
+include { CHECK_NOVELTY }           from '../modules/local/check_novelty'
 include { FEATURECOUNTS_EXPRESSION } from '../modules/local/featurecounts_expression'
 include { EXPRESSION_RECURRENCE }   from '../modules/local/expression_recurrence'
 include { ANNOTATION_FREEZE }       from '../modules/local/annotation_freeze'
@@ -114,6 +115,22 @@ workflow DISCOVERY {
     CATALOG_OVERLAP(
         CODING_CONSENSUS.out.consensus_table,
         CODING_CONSENSUS.out.consensus_gtf
+    )
+
+    // F2.3 novelty guard. Cheap and always runs: with no catalogs it records
+    // novelty_status=not_evaluated; with catalogs it fails fast on an empty or
+    // chromosome-mismatched BED.
+    def cat_pairs = [["lncipedia", params.lncipedia_bed],
+                     ["noncode", params.noncode_bed],
+                     ["rnacentral", params.rnacentral_bed],
+                     ["fantomcat", params.fantomcat_bed]].findAll { it[1] }
+    ch_cat_names = channel.value(cat_pairs.collect { it[0] })
+    ch_cat_beds  = channel.value(cat_pairs.collect { _n, p -> file(p, checkIfExists: true) })
+    CHECK_NOVELTY(
+        CATALOG_OVERLAP.out.overlap_table,
+        TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf,
+        ch_cat_names,
+        ch_cat_beds
     )
 
     // FeatureCounts: quantify all candidate transcripts against validated BAMs
@@ -267,16 +284,22 @@ workflow DISCOVERY {
         COMPUTE_TIER_FINAL.out.tier_final_genes,
         COMPUTE_TIER_FINAL.out.tier_final_transcripts,
         GFFCOMPARE.out.annotated_gtf,
+        TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf,
         EXPRESSION_RECURRENCE.out.recurrence_table,
         ANNOTATION_FREEZE.out.frozen_gtf,
         ASSIGN_CATALOG_IDS.out.catalog_gtf,
         genome_fa
     )
 
+    // Heavy tool version probes run once in VERSION_DISCOVERY (main.nf) so the tool
+    // processes keep their script blocks untouched; only PUBLISH_CATALOG emits here.
     emit:
+    versions          = PUBLISH_CATALOG.out.versions.mix(CHECK_NOVELTY.out.versions)
+    novelty           = CHECK_NOVELTY.out.novelty
     frozen_gtf        = ANNOTATION_FREEZE.out.frozen_gtf
     tx2gene_detailed   = ANNOTATION_FREEZE.out.tx2gene_detailed
     gene_catalog       = BUILD_GENE_CATALOG.out.gene_catalog
+    catalog_genes      = PUBLISH_CATALOG.out.catalog_genes
     strand_consensus   = ch_strand_files
     catalog_ids        = ASSIGN_CATALOG_IDS.out.catalog_ids
     catalog_tx         = ASSIGN_CATALOG_IDS.out.catalog_tx
@@ -285,4 +308,5 @@ workflow DISCOVERY {
     catalog_transcripts= BUILD_CATALOG_MASTER.out.transcripts
     thresholds         = DERIVE_THRESHOLDS.out.thresholds
     tier_sensitivity   = COMPUTE_TIER_FINAL.out.sensitivity_table
+    tier_by_class      = COMPUTE_TIER_FINAL.out.by_class
 }

@@ -11,6 +11,9 @@ include { CHECK_STRANDEDNESS }      from './modules/local/check_strandedness'
 include { CHECK_SALMON_LIBTYPE }    from './modules/local/check_salmon_libtype'
 include { SPLIT_BY_NORMGROUP }      from './modules/local/split_normgroup'
 include { PUBLISH_RUN_INFO }        from './modules/local/publish_run_info'
+include { VERSION_DISCOVERY }       from './modules/local/version_tools'
+include { VERSION_CODING }          from './modules/local/version_tools'
+include { FIGURES }                 from './modules/local/figures'
 
 workflow {
 
@@ -101,7 +104,9 @@ workflow {
         DISCOVERY.out.tx2gene_detailed,
         validateInput.out.design_formula,
         DISCOVERY.out.gene_catalog,
-        params.outdir
+        DISCOVERY.out.catalog_genes,
+        DISCOVERY.out.novelty,
+        CHECK_STRANDEDNESS.out.summary
     )
 
     // ── F4.6 / F4.7: run metadata + generated READMEs ──────────────────────
@@ -114,9 +119,32 @@ workflow {
                      seed: 'sample\tnorm_group\tcondition\tbatch\n')
         .first()
 
+    // Version probes: one task per heavy image, once, so tool scripts stay cached.
+    VERSION_DISCOVERY()
+    VERSION_CODING()
+
+    // F5.1: catalog figures (non-blocking, off with --run_figures false).
+    if (params.run_figures) {
+        FIGURES(DISCOVERY.out.catalog_genes, DISCOVERY.out.tier_by_class)
+    }
+
+    // Every tool process writes a file named versions.yml, so the mixed channel
+    // holds N homonymous paths and Nextflow refuses to stage them into one task
+    // ("input file name collision"). Rename each file after its work-dir hash
+    // (stable under -resume, so the consumer task stays cacheable) and collect.
+    ch_versions = channel.empty()
+        .mix(VERSION_DISCOVERY.out.versions,
+             VERSION_CODING.out.versions,
+             DISCOVERY.out.versions,
+             QUANTIFICATION.out.versions)
+        .collectFile { f -> ["${f.getParent().baseName}.versions.yml", f.text] }
+        .collect()
+
     PUBLISH_RUN_INFO(
         ch_sample_index,
         CHECK_STRANDEDNESS.out.summary,
+        ch_versions,
+        DISCOVERY.out.novelty,
         DISCOVERY.out.thresholds,
         DISCOVERY.out.gene_catalog,
         DISCOVERY.out.tier_sensitivity,

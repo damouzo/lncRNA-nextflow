@@ -29,6 +29,13 @@ library_strandedness: reverse
 # keep mono-exonic transcripts in Tier 1.
 # tier1_allow_single_exon: false
 
+# ---- DE significance ----
+# fdr_threshold: alpha for DESeq2 results() (independent filtering targets this FDR).
+# lfc_threshold: post-hoc |log2FoldChange| cutoff applied ONLY to the `significant`
+# column, on the shrunken log2FC; it is NOT passed to DESeq2 results().
+fdr_threshold: 0.05
+lfc_threshold: 1.0
+
 # ---- F1.3 exploratory flank check (disabled by default) ----
 # F1.3 did not pass its pre-specified control separation and does not gate tier_final.
 # run_flank_check: false

@@ -30,6 +30,7 @@ process HETEROGENEITY_ANALYSIS {
     path "${group}_heterogeneity_results/*",                                              emit: all_results
     tuple val(group), path("${group}_heterogeneity_results/heterogeneity_summary.tsv"),    emit: heterogeneity_summary
     tuple val(group), path("${group}_heterogeneity_results/heterogeneity_cv_summary.tsv"), emit: heterogeneity_cv_summary
+    path "versions.yml", emit: versions
 
     script:
     """
@@ -229,5 +230,12 @@ process HETEROGENEITY_ANALYSIS {
 
     cat(sprintf("\\nDONE: %d contrast(s) with gene-level results, %d with CV summary\\n",
                 length(gene_results), length(cv_results)))
+
+    ver <- paste0("R ", paste(R.version\$major, R.version\$minor, sep = "."))
+    writeLines(c(sprintf('"%s":', "${task.process}"),
+                 '    tool: "R"',
+                 sprintf('    version: "%s"', ver),
+                 sprintf('    container: "%s"', "${task.container}")),
+               "versions.yml")
     """
 }

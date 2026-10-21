@@ -47,7 +47,7 @@ def check_bin_executables():
             continue
         with open(path) as fh:
             for line in fh:
-                m = re.match(r"\s*([A-Za-z0-9_]+\.py)(\s|$)", line)
+                m = re.match(r"\s*([A-Za-z0-9_]+\.(?:py|sh|R))(\s|$)", line)
                 if m:
                     invoked.add(m.group(1))
 

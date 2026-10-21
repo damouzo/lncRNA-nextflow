@@ -59,6 +59,16 @@ def make_fixture(d):
           "T4\tFALSE\tTRUE\n")
     write(os.path.join(d, "frozen.gtf"),
           'chr1\ts\ttranscript\t1\t100\t.\t+\t.\ttranscript_id "T1"; gene_id "G1";\n')
+    # Kept set of TRANSCRIPT_LENGTH_FILTER: class kept + length >= 200 -> T1, T2, T4
+    write(os.path.join(d, "length_filtered.gtf"),
+          'chr1\ts\ttranscript\t1\t300\t.\t+\t.\ttranscript_id "T1";\n'
+          'chr1\ts\texon\t1\t300\t.\t+\t.\ttranscript_id "T1";\n'
+          'chr1\ts\ttranscript\t1\t250\t.\t+\t.\ttranscript_id "T2";\n'
+          'chr1\ts\texon\t1\t250\t.\t+\t.\ttranscript_id "T2";\n'
+          'chr1\ts\ttranscript\t1\t500\t.\t+\t.\ttranscript_id "T4";\n'
+          'chr1\ts\texon\t1\t500\t.\t+\t.\ttranscript_id "T4";\n')
+    write(os.path.join(d, "length_filtered_short.gtf"),
+          'chr1\ts\ttranscript\t1\t300\t.\t+\t.\ttranscript_id "T1";\n')
 
 
 def test_build():
@@ -88,6 +98,22 @@ def test_build():
     check(by["T3"]["filter_reason"] == "artifact_class", "T3 artifact_class (p)")
     check(by["T4"]["filter_reason"] == "coding", "T4 coding")
     check(by["T3"]["length"] == 500, "length summed over exons")
+
+    # Parity vs TRANSCRIPT_LENGTH_FILTER's kept set
+    B.build_candidates_all(os.path.join(d, "gffcmp.annotated.gtf"),
+                           os.path.join(d, "recurrence_filtered.tsv"),
+                           os.path.join(d, "frozen.gtf"), 200, out,
+                           os.path.join(d, "length_filtered.gtf"))
+    check(True, "parity passes when replica kept set matches the length filter")
+
+    try:
+        B.build_candidates_all(os.path.join(d, "gffcmp.annotated.gtf"),
+                               os.path.join(d, "recurrence_filtered.tsv"),
+                               os.path.join(d, "frozen.gtf"), 200, out,
+                               os.path.join(d, "length_filtered_short.gtf"))
+        check(False, "parity mismatch must raise SystemExit")
+    except SystemExit:
+        check(True, "parity mismatch raises SystemExit")
 
 
 def test_cli():

@@ -18,7 +18,7 @@ decision from recurrence_filtered.tsv (keyed by transcript id). Nothing is dropp
 CLI:
   build_catalog_tables.py --gene-catalog gene_catalog.tsv \
       --tier-final-genes tier_final_genes.tsv --tier-final-transcripts tier_final_transcripts.tsv \
-      [--gffcmp-gtf gffcmp.annotated.gtf] \
+      [--gffcmp-gtf gffcmp.annotated.gtf] [--length-filtered-gtf transcripts_length_filtered.gtf] \
       [--recurrence recurrence_filtered.tsv] [--frozen-gtf frozen_lncrna.gtf] \
       --min-length 200 --outdir deliverables/catalog
 """
@@ -160,7 +160,24 @@ def parse_gtf_classes_lengths(path):
     return tx_class, tx_len
 
 
-def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir):
+def count_gtf_transcripts(path):
+    ids = set()
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 9 or parts[2] != "transcript":
+                continue
+            for item in parts[8].rstrip(";").split("; "):
+                if item.startswith("transcript_id "):
+                    ids.add(item.split(" ", 1)[1].strip('"').strip())
+                    break
+    return len(ids)
+
+
+def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir,
+                         length_filtered_gtf=None):
     tx_class, tx_len = parse_gtf_classes_lengths(gffcmp_gtf)
     rec = index_unique(recurrence, "ID") if recurrence else {}
     frozen = set()
@@ -202,6 +219,19 @@ def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir
             "frozen": "TRUE" if tid in frozen else "FALSE",
         })
     n = write_tsv(os.path.join(out_dir, "candidates_all.tsv"), CAND_COLS, rows)
+
+    # Parity with the real length filter: the transcripts this replica keeps
+    # (class kept + length >= min) must equal TRANSCRIPT_LENGTH_FILTER's kept set.
+    if length_filtered_gtf:
+        kept = count_gtf_transcripts(length_filtered_gtf)
+        mine = sum(1 for r in rows
+                   if r["filter_reason"] not in ("artifact_class", "short_transcript"))
+        if kept != mine:
+            raise SystemExit(
+                "candidates_all replica keeps %d transcripts but the length filter "
+                "kept %d (%s): class/length logic drifted from length_filter.nf"
+                % (mine, kept, length_filtered_gtf))
+        print("candidates_all parity: %d kept by replica = %d by length filter" % (mine, kept))
     return n, rows
 
 
@@ -211,6 +241,8 @@ def main():
     ap.add_argument("--tier-final-genes", required=True)
     ap.add_argument("--tier-final-transcripts", required=True)
     ap.add_argument("--gffcmp-gtf", default=None)
+    ap.add_argument("--length-filtered-gtf", default=None,
+                    help="TRANSCRIPT_LENGTH_FILTER kept GTF; enables parity check")
     ap.add_argument("--recurrence", default=None)
     ap.add_argument("--frozen-gtf", default=None)
     ap.add_argument("--min-length", type=int, default=200)
@@ -225,7 +257,8 @@ def main():
 
     if args.gffcmp_gtf and args.recurrence:
         n_cand, rows = build_candidates_all(args.gffcmp_gtf, args.recurrence,
-                                            args.frozen_gtf, args.min_length, args.outdir)
+                                            args.frozen_gtf, args.min_length, args.outdir,
+                                            args.length_filtered_gtf)
         by_status = {}
         by_reason = {}
         for r in rows:

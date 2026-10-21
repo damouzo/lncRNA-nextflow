@@ -14,6 +14,7 @@ process FUNCTIONAL_ENRICHMENT {
     tuple val(group), path("${group}_enrichment_ora.tsv"),  emit: ora_results
     tuple val(group), path("${group}_enrichment_gsea.tsv"), emit: gsea_results
     path "${group}_enrichment_plots/*", optional: true, emit: plots
+    path "versions.yml", emit: versions
 
     script:
     """
@@ -132,5 +133,16 @@ process FUNCTIONAL_ENRICHMENT {
 
     write_tsv(as.data.frame(ora_df), "${group}_enrichment_ora.tsv")
     write_tsv(as.data.frame(gsea_df), "${group}_enrichment_gsea.tsv")
+
+    ver <- paste0("R ", paste(R.version\$major, R.version\$minor, sep = "."))
+    for (pkg in c("clusterProfiler", "org.Hs.eg.db")) {
+        pv <- tryCatch(as.character(packageVersion(pkg)), error = function(e) NA)
+        if (!is.na(pv)) ver <- paste0(ver, "; ", pkg, " ", pv)
+    }
+    writeLines(c(sprintf('"%s":', "${task.process}"),
+                 '    tool: "clusterProfiler"',
+                 sprintf('    version: "%s"', ver),
+                 sprintf('    container: "%s"', "${task.container}")),
+               "versions.yml")
     """
 }
