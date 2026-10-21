@@ -1,6 +1,6 @@
 {
   "contract": "lncrna-deliverables",
-  "version": "1.2",
+  "version": "1.3",
   "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group.",
   "files": [
     {
@@ -20,7 +20,8 @@
         {"name": "tier_final", "type": "bool"},
         {"name": "n_tier1_transcripts", "type": "int"},
         {"name": "single_exon_low_confidence", "type": "bool"},
-        {"name": "antisense_status", "type": "string"}
+        {"name": "antisense_status", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"}
       ]
     },
     {
@@ -199,6 +200,27 @@
       "kind": "table",
       "min_rows": 0,
       "columns": []
+    },
+    {
+      "path": "validation/recovery_reference.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "metric", "type": "string"},
+        {"name": "value", "type": "string"}
+      ]
+    },
+    {
+      "path": "validation/tier1_vs_annotated.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "set", "type": "string"},
+        {"name": "n_genes", "type": "int"},
+        {"name": "n_expressed", "type": "int"},
+        {"name": "fraction_expressed", "type": "string"},
+        {"name": "mean_tpm", "type": "string"}
+      ]
     },
     {
       "path": "run_info/versions.tsv",

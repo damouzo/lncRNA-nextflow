@@ -407,6 +407,43 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
 
 Protein-coding genes were included in normalization and DE testing but are not shown here; see the standard bulk RNA-seq DEG report for protein-coding results.
 
+### MA plot
+
+Mean-difference plot for the same contrast: `log2FoldChange` against the mean
+normalized count (`log10(baseMean)`), colored by `origin`. Genes with `baseMean == 0`
+are dropped.
+
+```{r ma-plot, fig.width=8, fig.height=6}
+if (!is.null(de_ann) && nrow(de_ann) > 0 &&
+    all(c("baseMean", "log2FoldChange") %in% colnames(de_ann))) {
+  ma_df <- de_ann %>%
+    filter(!is.na(baseMean) & baseMean > 0) %>%
+    mutate(
+      origin = ifelse(is.na(origin), "reference_other", origin),
+      sig    = ifelse(!is.na(padj) & padj < 0.05, "FDR<0.05", "ns")
+    )
+  if (nrow(ma_df) > 0) {
+    p <- ggplot(ma_df, aes(log10(baseMean), log2FoldChange)) +
+      geom_point(aes(color = origin, size = sig), alpha = 0.6) +
+      scale_color_manual(
+        values = ORIGIN_COLORS[sort(unique(ma_df$origin))],
+        labels = ORIGIN_LABELS[sort(unique(ma_df$origin))],
+        na.value = "#7f7f7f"
+      ) +
+      scale_size_manual(values = c("FDR<0.05" = 3, "ns" = 0.8)) +
+      geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.4) +
+      labs(x = "log10(baseMean)", y = "log2FoldChange",
+           color = "Origin", size = "Significance") +
+      theme_minimal()
+    print(p)
+  } else {
+    cat("No genes with baseMean > 0 — MA plot skipped.\n")
+  }
+} else {
+  cat("No DE data for this contrast — MA plot skipped.\n")
+}
+```
+
 ### Tested lncRNAs by class
 
 Significant genes only, split by direction (red = up, blue = down) and shown

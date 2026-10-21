@@ -4,8 +4,8 @@
 Stdlib only (csv), no pandas. Inputs are native pipeline artifacts:
 
   catalog_genes.tsv        gene_catalog.tsv (full universe) LEFT JOIN tier_final_genes.tsv
-                           + antisense_status. One row per gene of the universe; tiers are
-                           labels, never a filter.
+                           + antisense_status + lnc_position_class (F5.4). One row per gene
+                           of the universe; tiers are labels, never a filter.
   catalog_tx.tsv           tier_final_transcripts.tsv (frozen catalog, transcript level).
   candidates_all.tsv       F4.3b: every merged candidate (class != '=') with
                            filter_status/filter_reason across the discovery funnel
@@ -26,6 +26,10 @@ CLI:
 import argparse
 import csv
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lnc_position_class as LP  # noqa: E402
 
 IS_NA = {"", "NA", "NaN", "nan", "None", "NA_character_"}
 
@@ -41,7 +45,7 @@ GENES_COLS = [
     "ref_gene_id", "ref_gene_name", "ref_gene_relation", "ref_gene_distance",
     "known_catalog_hit", "catalog_sources",
     "x_host_leak_suspect", "thresholds_status", "conservation_mean",
-]
+] + LP.POSITION_COLS
 TX_COLS = [
     "transcript_id", "gene_id", "class_code", "tier_static", "tier_final",
     "parent_biotype", "novel_type", "monoexonic", "single_exon_low_confidence",
@@ -115,6 +119,8 @@ def build_catalog_genes(gene_catalog, tier_final, out_dir):
         row["x_host_leak_suspect"] = (tf.get("x_host_leak_suspect") if tf else None) or "FALSE"
         row["thresholds_status"] = (tf.get("thresholds_status") if tf else "") or ""
         out.append(row)
+    # F5.4: lncRNA position class vs reference protein-coding genes (gene span).
+    LP.annotate_rows(out)
     n = write_tsv(os.path.join(out_dir, "catalog_genes.tsv"),
                   GENES_COLS + [c for c in header if c not in GENES_COLS], out)
     n_tier1_genes = sum(1 for r in out if _truthy(r["tier_final"]))

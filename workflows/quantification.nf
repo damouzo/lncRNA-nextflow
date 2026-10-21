@@ -215,6 +215,7 @@ workflow QUANTIFICATION {
 
     emit:
     versions         = ch_versions
+    expression_tpm   = TXIMPORT_AND_FILTER.out.tpm_tsv   // (group, <group>_tpm.tsv) for FIGURES
     deseq2_results   = DESEQ2_DE.out.all_results
     cis_results      = CIS_ASSOCIATIONS.out.cis_pairs_sig
     enrichment       = FUNCTIONAL_ENRICHMENT.out.ora_results

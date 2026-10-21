@@ -323,6 +323,13 @@
         "deliverables/plots"
       ],
       "level": "core"
+    },
+    {
+      "module": "RECOVERY_CHECK",
+      "dest": [
+        "deliverables/validation"
+      ],
+      "level": "core"
     }
   ],
   "no_publish": [

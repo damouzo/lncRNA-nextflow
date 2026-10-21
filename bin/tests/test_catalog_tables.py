@@ -116,6 +116,27 @@ def test_build():
         check(True, "parity mismatch raises SystemExit")
 
 
+def test_position_class_wired():
+    d = tempfile.mkdtemp()
+    write(os.path.join(d, "gene_catalog.tsv"),
+          "gene_id\tgene_name\tchromosome\tstart\tend\tstrand\tgene_biotype\torigin\tclass_code\t"
+          "n_tier1_transcripts\ttier_static\tsingle_exon_low_confidence\tnovel_type\n"
+          "CG1\tNA\t1\t1000\t2000\t+\tprotein_coding\treference_other\tNA\tNA\tNA\tNA\tNA\n"
+          "G1\tNA\t1\t1500\t1600\t-\tNA\tnovel\tx\t1\tTRUE\tFALSE\t1a\n")
+    write(os.path.join(d, "tier_final_genes.tsv"),
+          "gene_id\ttier_final\tantisense_status\n"
+          "G1\tTRUE\tevaluated\n")
+    out = os.path.join(d, "out")
+    tier_final = B.index_unique(os.path.join(d, "tier_final_genes.tsv"), "gene_id")
+    B.build_catalog_genes(os.path.join(d, "gene_catalog.tsv"), tier_final, out)
+    _, genes = B.read_tsv(os.path.join(out, "catalog_genes.tsv"))
+    by = {g["gene_id"]: g for g in genes}
+    check(by["G1"]["lnc_position_class"] == "antisense",
+          "build_catalog_genes adds lnc_position_class (antisense)")
+    check(by["G1"]["lnc_position_gene_id"] == "CG1", "position gene_id recorded")
+    check(by["CG1"]["lnc_position_class"] == "NA", "reference coding row gets NA")
+
+
 def test_cli():
     d = tempfile.mkdtemp()
     make_fixture(d)
@@ -140,7 +161,7 @@ def test_cli():
 
 
 def main():
-    for fn in (test_build, test_cli):
+    for fn in (test_build, test_position_class_wired, test_cli):
         fn()
     print()
     if FAILS:

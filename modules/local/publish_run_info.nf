@@ -21,7 +21,7 @@ process PUBLISH_RUN_INFO {
     output:
     path "params_used.tsv"
     path "versions.tsv"
-    path "sample_index.tsv"
+    path "sample_index.tsv", emit: sample_index
     path "run_manifest.tsv"
     path "external_catalogs.tsv"
     path "qa_report.tsv"

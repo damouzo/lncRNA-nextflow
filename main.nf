@@ -14,6 +14,7 @@ include { PUBLISH_RUN_INFO }        from './modules/local/publish_run_info'
 include { VERSION_DISCOVERY }       from './modules/local/version_tools'
 include { VERSION_CODING }          from './modules/local/version_tools'
 include { FIGURES }                 from './modules/local/figures'
+include { RECOVERY_CHECK }          from './modules/local/recovery_check'
 
 workflow {
 
@@ -123,10 +124,11 @@ workflow {
     VERSION_DISCOVERY()
     VERSION_CODING()
 
-    // F5.1: catalog figures (non-blocking, off with --run_figures false).
-    if (params.run_figures) {
-        FIGURES(DISCOVERY.out.catalog_genes, DISCOVERY.out.tier_by_class)
-    }
+    // F6.1/F6.2: reviewer validations (catalog + pooled expression). Cheap, once.
+    ch_rec_tpm = QUANTIFICATION.out.expression_tpm
+        .map { _group, f -> f }
+        .collect()
+    RECOVERY_CHECK(DISCOVERY.out.catalog_genes, ch_rec_tpm)
 
     // Every tool process writes a file named versions.yml, so the mixed channel
     // holds N homonymous paths and Nextflow refuses to stage them into one task
@@ -136,7 +138,8 @@ workflow {
         .mix(VERSION_DISCOVERY.out.versions,
              VERSION_CODING.out.versions,
              DISCOVERY.out.versions,
-             QUANTIFICATION.out.versions)
+             QUANTIFICATION.out.versions,
+             RECOVERY_CHECK.out.versions)
         .collectFile { f -> ["${f.getParent().baseName}.versions.yml", f.text] }
         .collect()
 
@@ -150,4 +153,15 @@ workflow {
         DISCOVERY.out.tier_sensitivity,
         channel.value(file("${projectDir}/docs/deliverables_contract.json"))
     )
+
+    // F5.1 / F5.4: catalog figures (non-blocking, off with --run_figures false).
+    // The expression-by-position panel reuses the per-group TPM tables plus the
+    // sample metadata (condition) produced by PUBLISH_RUN_INFO.
+    if (params.run_figures) {
+        ch_fig_tpm = QUANTIFICATION.out.expression_tpm
+            .map { _group, f -> f }
+            .collect()
+        FIGURES(DISCOVERY.out.catalog_genes, DISCOVERY.out.tier_by_class,
+                ch_fig_tpm, PUBLISH_RUN_INFO.out.sample_index)
+    }
 }

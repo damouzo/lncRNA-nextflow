@@ -16,7 +16,8 @@
 #   r repeat | u intergenic (lincRNA-like)
 #
 # usage:
-#   figures.R --catalog catalog_genes.tsv --by-class tier_final_by_class.tsv --outdir .
+#   figures.R --catalog catalog_genes.tsv --by-class tier_final_by_class.tsv \
+#             [--tpm <group>_tpm.tsv ...] [--sample-metadata sample_metadata.tsv] --outdir .
 
 suppressPackageStartupMessages({
   library(ggplot2)
@@ -28,8 +29,16 @@ get_arg <- function(flag, default = NULL) {
   i <- match(flag, args)
   if (is.na(i)) default else args[i + 1]
 }
+get_args_all <- function(flag) {
+  idx <- which(args == flag)
+  if (length(idx) == 0) return(character(0))
+  vapply(idx, function(i) if (i < length(args)) args[i + 1] else NA_character_,
+         character(1))
+}
 catalog_path <- get_arg("--catalog")
 by_class_path <- get_arg("--by-class")
+tpm_paths <- get_args_all("--tpm")
+sample_meta_path <- get_arg("--sample-metadata")
 outdir <- get_arg("--outdir", ".")
 dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 
@@ -71,6 +80,66 @@ if (is.null(catalog) || nrow(catalog) == 0) {
       ggplot(d, aes(x = n_tier1_transcripts)) +
         geom_histogram(binwidth = 1) + theme_minimal() +
         labs(title = "Tier 1 transcripts per gene", x = "n tier1 transcripts")
+    })
+  }
+
+  land("fig_catalog_chromosome", "genes per chromosome by origin", {
+    d <- as.data.frame(table(chromosome = catalog$chromosome, origin = catalog$origin))
+    ggplot(d, aes(x = chromosome, y = Freq, fill = origin)) +
+      geom_col() + theme_minimal() +
+      labs(title = "Catalog genes per chromosome", x = "chromosome", y = "genes")
+  })
+
+  # F5.4: lncRNAs vs reference protein-coding genes (gene span). Only lncRNAs
+  # carry a class; reference_other rows are NA and are dropped here.
+  if ("lnc_position_class" %in% colnames(catalog)) {
+    land("fig_lnc_position_class", "lncRNAs by position class", {
+      keep <- c("antisense", "intronic", "overlapping", "intergenic")
+      d <- catalog[catalog$lnc_position_class %in% keep, , drop = FALSE]
+      if (nrow(d) == 0) stop("no classified lncRNAs")
+      d <- as.data.frame(table(cls = d$lnc_position_class, origin = d$origin))
+      ggplot(d, aes(x = cls, y = Freq, fill = origin)) +
+        geom_col(position = "dodge") + theme_minimal() +
+        labs(title = "lncRNA position class", x = "lnc_position_class", y = "genes")
+    })
+
+    land("fig_lnc_position_expr", "expressed lncRNA fraction by position class", {
+      if (length(tpm_paths) == 0) stop("no TPM tables provided")
+      keep <- c("antisense", "intronic", "overlapping", "intergenic")
+      cls_rows <- catalog[catalog$lnc_position_class %in% keep, , drop = FALSE]
+      cmap <- setNames(cls_rows$lnc_position_class, cls_rows$gene_id)
+      meta <- if (!is.null(sample_meta_path) && file.exists(sample_meta_path))
+        read_tsv(sample_meta_path, show_col_types = FALSE) else NULL
+      acc <- list()
+      for (p in tpm_paths) {
+        tp <- tryCatch(read_tsv(p, show_col_types = FALSE), error = function(e) NULL)
+        if (is.null(tp) || !"gene_id" %in% colnames(tp)) next
+        tp <- tp[tp$gene_id %in% names(cmap), , drop = FALSE]
+        if (nrow(tp) == 0) next
+        tp$cls <- unname(cmap[tp$gene_id])
+        samples <- setdiff(colnames(tp), c("gene_id", "cls"))
+        for (s in samples) {
+          v <- suppressWarnings(as.numeric(tp[[s]]))
+          for (cl in unique(tp$cls)) {
+            idx <- tp$cls == cl
+            acc[[length(acc) + 1L]] <- data.frame(
+              sample = s, cls = cl,
+              frac = mean(v[idx] >= 1, na.rm = TRUE), stringsAsFactors = FALSE)
+          }
+        }
+      }
+      if (length(acc) == 0) stop("no lncRNAs of the catalog in the TPM tables")
+      d <- do.call(rbind, acc)
+      if (!is.null(meta) && all(c("sample", "condition") %in% colnames(meta))) {
+        d$condition <- meta$condition[match(d$sample, meta$sample)]
+      } else {
+        d$condition <- d$sample
+      }
+      d$condition[is.na(d$condition)] <- "NA"
+      ggplot(d, aes(x = cls, y = frac, fill = condition)) +
+        geom_boxplot() + theme_minimal() +
+        labs(title = "Expressed lncRNA fraction by position class",
+             x = "lnc_position_class", y = "fraction TPM >= 1")
     })
   }
 }
