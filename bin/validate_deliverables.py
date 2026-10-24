@@ -8,7 +8,23 @@ entry covers every contrast/group.
 
 CLI:
   validate_deliverables.py --dir deliverables [--contract docs/deliverables_contract.json] [--describe]
+  validate_deliverables.py --dir deliverables --expect-contrasts comparisons.csv
+  validate_deliverables.py --dir deliverables --expect-contrasts contrasts.tsv --contrast-coverage-only
+  validate_deliverables.py --expected-ids id1,id2 --found-contrasts id1,id2 --contrast-coverage-only
 Exits non-zero on any violation.
+
+`--expect-contrasts` cross-checks the number of `contrasts/<id>/` directories
+against the declared contrasts (data rows, header ignored). If the file lists
+full `<group>__<contrast>` ids, each one is required to have a directory.
+`--contrast-coverage-only` runs just that check, so a final in-run guard can
+assert contrast coverage without failing on optional figures or files published
+by a later process.
+
+`--expected-ids` / `--found-contrasts` supply the required and delivered
+`contrasts/<id>/` ids as comma-separated lists instead of a file and a glob. The
+in-run guard uses them because the ids are resolved from the workflow channels:
+publishDir copies are asynchronous (dispatched to a thread pool after outputs are
+bound), so the published tree cannot be read reliably within the same run.
 """
 
 import argparse
@@ -116,7 +132,8 @@ def validate(base_dir, contract):
     for spec in contract.get("files", []):
         matches = _resolve(base_dir, spec["path"])
         if not matches:
-            errors.append("no file matches contract path: %s" % spec["path"])
+            if not spec.get("optional"):
+                errors.append("no file matches contract path: %s" % spec["path"])
             continue
         kind = spec.get("kind", "table")
         if kind != "table":
@@ -127,6 +144,68 @@ def validate(base_dir, contract):
             continue
         for path in matches:
             errors.extend(validate_table(path, spec))
+    return errors
+
+
+def read_expected_contrasts(path):
+    """-> (n_rows, set of full `<group>__<contrast>` ids found in the file).
+
+    Accepts the global contrasts TSV (`name/num/den/batch`, no header in the
+    pipeline, header tolerated) or any file listing one contrast per row. A
+    declared-name file yields an empty id set (count-only check); a file with
+    full ids yields the exact set to require.
+    """
+    with open(path) as fh:
+        lines = [ln.rstrip("\n") for ln in fh if ln.strip()]
+    if not lines:
+        return 0, set()
+    sep = "\t" if "\t" in lines[0] else ","
+    first = [f.strip().lower() for f in lines[0].split(sep)]
+    data = lines[1:] if {"contrast_name", "contrast", "numerator"} & set(first) else lines
+    ids = set()
+    for ln in data:
+        # Full ids live in the first (contrast-name) column; derived condition
+        # names must never be mistaken for directory ids.
+        field = ln.split(sep)[0].strip()
+        if "__" in field:
+            ids.add(field)
+    return len(data), ids
+
+
+def validate_contrast_coverage(base_dir=None, expected_path=None, found_names=None,
+                               expected_ids=None):
+    """Compare the declared contrasts against the delivered `contrasts/` folders.
+
+    The declared set comes from `expected_ids` (full `<group>__<contrast>` ids
+    resolved by the caller) or, when omitted, from `expected_path` (a file with
+    one declared contrast per data row). The delivered set comes from
+    `found_names` (ids resolved by the caller) or, when omitted, from globbing
+    `<base_dir>/contrasts`. With full ids on both sides each declared id must be
+    delivered; with only a declared count, the counts must match.
+    """
+    errors = []
+    if expected_ids is not None:
+        expected_ids = set(expected_ids)
+        n_expected = len(expected_ids)
+    else:
+        n_expected, expected_ids = read_expected_contrasts(expected_path)
+    if found_names is not None:
+        found_ids = set(found_names)
+        n_found = len(found_names)
+    else:
+        cdir = os.path.join(base_dir, "contrasts")
+        found = sorted(d for d in glob.glob(os.path.join(cdir, "*"))
+                       if os.path.isdir(d)) if os.path.isdir(cdir) else []
+        found_ids = {os.path.basename(d) for d in found}
+        n_found = len(found)
+    if expected_ids:
+        missing = sorted(expected_ids - found_ids)
+        if missing:
+            errors.append("contrast coverage: missing directories for %s"
+                          % ", ".join(missing))
+    elif n_found != n_expected:
+        errors.append("contrast coverage: expected %d, found %d"
+                      % (n_expected, n_found))
     return errors
 
 
@@ -143,6 +222,16 @@ def main():
     ap.add_argument("--dir", help="deliverables directory")
     ap.add_argument("--contract", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                        "..", "docs", "deliverables_contract.json"))
+    ap.add_argument("--expect-contrasts",
+                    help="file with one data row per declared contrast (header ignored)")
+    ap.add_argument("--expected-ids",
+                    help="comma-separated <group>__<contrast> ids the run declares; "
+                         "each one must be delivered")
+    ap.add_argument("--found-contrasts",
+                    help="comma-separated ids of the delivered contrasts/ folders; "
+                         "used instead of globbing --dir when the caller resolves them")
+    ap.add_argument("--contrast-coverage-only", action="store_true",
+                    help="only check contrasts/* coverage, skip the full contract")
     ap.add_argument("--describe", action="store_true")
     args = ap.parse_args()
     contract = load_contract(args.contract)
@@ -151,7 +240,18 @@ def main():
         return
     if not args.dir:
         ap.error("--dir is required unless --describe is given")
-    errors = validate(args.dir, contract)
+    errors = []
+    if not args.contrast_coverage_only:
+        errors.extend(validate(args.dir, contract))
+    if args.expect_contrasts or args.expected_ids:
+        found = None
+        if args.found_contrasts is not None:
+            found = [s for s in args.found_contrasts.split(",") if s]
+        expected_ids = None
+        if args.expected_ids is not None:
+            expected_ids = [s for s in args.expected_ids.split(",") if s]
+        errors.extend(validate_contrast_coverage(
+            args.dir, args.expect_contrasts, found, expected_ids))
     if errors:
         for e in errors:
             print("ERROR: %s" % e, file=sys.stderr)

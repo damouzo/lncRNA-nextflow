@@ -1,6 +1,6 @@
 {
   "contract": "lncrna-deliverables",
-  "version": "1.3",
+  "version": "1.4",
   "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group.",
   "files": [
     {
@@ -47,6 +47,18 @@
         {"name": "filter_status", "type": "string"},
         {"name": "filter_reason", "type": "string"},
         {"name": "frozen", "type": "bool"}
+      ]
+    },
+    {
+      "path": "catalog/novel_lncrnas.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier_final", "type": "bool"},
+        {"name": "lnc_position_class", "type": "string"}
       ]
     },
     {
@@ -125,9 +137,75 @@
       ]
     },
     {
-      "path": "contrasts/<id>/<id>_report.html",
+      "path": "contrasts/<id>/<ct>_report.html",
       "kind": "file",
       "description": "Self-contained HTML report per contrast"
+    },
+    {
+      "path": "contrasts/contrasts_overview.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "contrast", "type": "string"},
+        {"name": "n_universe", "type": "int"},
+        {"name": "n_tested", "type": "int"},
+        {"name": "n_significant", "type": "int"},
+        {"name": "n_novel_tier1_significant", "type": "int"},
+        {"name": "report", "type": "string"}
+      ]
+    },
+    {
+      "path": "contrasts/<id>/enrichment_ora.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "contrasts/<id>/enrichment_gsea.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": []
+    },
+    {
+      "path": "contrasts/<id>/plots/volcano.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Volcano panel as a standalone PNG (absent when the contrast has no DE data)"
+    },
+    {
+      "path": "contrasts/<id>/plots/ma.png",
+      "kind": "file",
+      "optional": true,
+      "description": "MA panel as a standalone PNG (absent when the contrast has no DE data)"
+    },
+    {
+      "path": "groups/<group>/counts.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "gene_id", "type": "string"}
+      ]
+    },
+    {
+      "path": "groups/<group>/tpm.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "gene_id", "type": "string"}
+      ]
+    },
+    {
+      "path": "groups/<group>/sample_metadata.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "columns": [
+        {"name": "sample", "type": "string"},
+        {"name": "norm_group", "type": "string"}
+      ]
+    },
+    {
+      "path": "groups/<group>/sample_qc_pca.png",
+      "kind": "file"
     },
     {
       "path": "groups/<group>/cis_pairs.tsv",
@@ -148,61 +226,13 @@
       "columns": []
     },
     {
-      "path": "groups/<group>/enrichment_ora.tsv",
+      "path": "catalog/plots/figures_manifest.tsv",
       "kind": "table",
       "min_rows": 0,
       "columns": []
     },
     {
-      "path": "groups/<group>/enrichment_gsea.tsv",
-      "kind": "table",
-      "min_rows": 0,
-      "columns": []
-    },
-    {
-      "path": "expression/<group>_counts.tsv",
-      "kind": "table",
-      "min_rows": 1,
-      "columns": [
-        {"name": "gene_id", "type": "string"}
-      ]
-    },
-    {
-      "path": "expression/<group>_tpm.tsv",
-      "kind": "table",
-      "min_rows": 1,
-      "columns": [
-        {"name": "gene_id", "type": "string"}
-      ]
-    },
-    {
-      "path": "expression/<group>_universe.tsv",
-      "kind": "table",
-      "min_rows": 1,
-      "columns": [
-        {"name": "gene_id", "type": "string"},
-        {"name": "keep", "type": "bool"},
-        {"name": "filter_status", "type": "string"},
-        {"name": "filter_reason", "type": "string"}
-      ]
-    },
-    {
-      "path": "expression/sample_metadata.tsv",
-      "kind": "table",
-      "min_rows": 1,
-      "columns": [
-        {"name": "sample", "type": "string"},
-        {"name": "norm_group", "type": "string"}
-      ]
-    },
-    {
-      "path": "plots/figures_manifest.tsv",
-      "kind": "table",
-      "min_rows": 0,
-      "columns": []
-    },
-    {
-      "path": "validation/recovery_reference.tsv",
+      "path": "catalog/validation/recovery_reference.tsv",
       "kind": "table",
       "min_rows": 1,
       "columns": [
@@ -211,7 +241,7 @@
       ]
     },
     {
-      "path": "validation/tier1_vs_annotated.tsv",
+      "path": "catalog/validation/tier1_vs_annotated.tsv",
       "kind": "table",
       "min_rows": 1,
       "columns": [

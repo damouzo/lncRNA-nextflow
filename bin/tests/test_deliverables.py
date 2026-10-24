@@ -4,6 +4,7 @@
 Run: python3 bin/tests/test_deliverables.py
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -75,6 +76,118 @@ def test_validator():
     d5 = tempfile.mkdtemp()
     errs = V.validate(d5, CONTRACT)
     check(any("no file matches" in e for e in errs), "missing contract file reported")
+
+
+def test_contrast_coverage():
+    print("contrast coverage")
+    d = tempfile.mkdtemp()
+    write(os.path.join(d, "contrasts/c1/de_full.tsv"), "gene_id\nG1\n")
+    write(os.path.join(d, "contrasts/c2/de_full.tsv"), "gene_id\nG1\n")
+
+    # headerless declared file (the pipeline's global contrasts.tsv), one row/contrast
+    exp = os.path.join(d, "contrasts.tsv")
+    write(exp, "A_vs_B\tA\tB\t\nA_vs_C\tA\tC\t\n")
+    check(V.validate_contrast_coverage(d, exp) == [], "N=N contrast coverage passes")
+
+    # caller-resolved folder names (the in-run guard cannot read the output tree)
+    check(V.validate_contrast_coverage(None, exp, ["c1", "c2"]) == [],
+          "caller-resolved N=N coverage passes")
+    errs = V.validate_contrast_coverage(None, exp, ["c1"])
+    check(any("expected 2, found 1" in e for e in errs),
+          "caller-resolved N>M coverage fails")
+    errs = V.validate_contrast_coverage(None, exp, [])
+    check(any("expected 2, found 0" in e for e in errs),
+          "caller-resolved empty coverage fails")
+
+    # caller-resolved full ids: membership is required, not just a count
+    check(V.validate_contrast_coverage(None, None, ["g__c1", "g__c2"],
+                                       ["g__c1", "g__c2"]) == [],
+          "resolved ids: exact set passes")
+    errs = V.validate_contrast_coverage(None, None, ["g__c1"], ["g__c1", "g__c2"])
+    check(any("missing directories for g__c2" in e for e in errs),
+          "resolved ids: missing id reported")
+
+    # a declared contrast without a folder -> fail
+    write(exp, "A_vs_B\tA\tB\t\nA_vs_C\tA\tC\t\nA_vs_Z\tA\tZ\t\n")
+    errs = V.validate_contrast_coverage(d, exp)
+    check(any("expected 3, found 2" in e for e in errs), "N>M contrast coverage fails")
+
+    # header tolerated
+    write(exp, "contrast_name\tnumerator\tdenominator\tbatch\nA_vs_B\tA\tB\t\nA_vs_C\tA\tC\t\n")
+    check(V.validate_contrast_coverage(d, exp) == [], "header row is ignored")
+
+    # full ids -> each directory required
+    di = tempfile.mkdtemp()
+    write(os.path.join(di, "contrasts/g__c1/de_full.tsv"), "gene_id\nG1\n")
+    write(os.path.join(di, "contrasts/g__c2/de_full.tsv"), "gene_id\nG1\n")
+    idf = os.path.join(di, "overview_like.tsv")
+    write(idf, "g__c1\ng__c2\n")
+    check(V.validate_contrast_coverage(di, idf) == [], "full-id file requires each dir")
+    write(idf, "g__c1\ng__c3\n")
+    errs = V.validate_contrast_coverage(di, idf)
+    check(any("missing directories for g__c3" in e for e in errs),
+          "missing full id reported")
+
+    # optional contract file is skipped, required one is not
+    opt = {"contract": "t", "version": "1",
+           "files": [{"path": "contrasts/<id>/plots/volcano.png", "kind": "file",
+                      "optional": True}]}
+    check(V.validate(d, opt) == [], "optional missing file is skipped")
+    req = {"contract": "t", "version": "1",
+           "files": [{"path": "contrasts/<id>/plots/volcano.png", "kind": "file"}]}
+    check(any("no file matches" in e for e in V.validate(d, req)),
+          "non-optional missing file still fails")
+
+
+def test_validator_cli():
+    print("validator CLI")
+    d = tempfile.mkdtemp()
+    declared = os.path.join(d, "contrasts.tsv")
+    write(declared, "A_vs_B\tA\tB\t\nA_vs_C\tA\tC\t\n")
+    contract = os.path.join(d, "contract.json")
+    write(contract, json.dumps({"contract": "t", "version": "1", "files": []}))
+    base = ["validate_deliverables.py", "--dir", ".", "--contract", contract,
+            "--expect-contrasts", declared, "--contrast-coverage-only"]
+
+    old = sys.argv
+    try:
+        sys.argv = base + ["--found-contrasts", "g__A_vs_B,g__A_vs_C"]
+        ok = True
+        try:
+            V.main()
+        except SystemExit:
+            ok = False
+        check(ok, "CLI passes when the delivered folders match the declared contrasts")
+
+        sys.argv = base + ["--found-contrasts", "g__A_vs_B"]
+        failed = False
+        try:
+            V.main()
+        except SystemExit:
+            failed = True
+        check(failed, "CLI fails when a contrast folder is missing")
+
+        # in-run guard form: expected ids vs delivered ids, no file
+        guard = ["validate_deliverables.py", "--dir", ".", "--contract", contract,
+                 "--contrast-coverage-only",
+                 "--expected-ids", "g__A_vs_B,g__A_vs_C"]
+        sys.argv = guard + ["--found-contrasts", "g__A_vs_B,g__A_vs_C"]
+        ok = True
+        try:
+            V.main()
+        except SystemExit:
+            ok = False
+        check(ok, "CLI passes when the delivered ids match the expected ids")
+
+        sys.argv = guard + ["--found-contrasts", "g__A_vs_B"]
+        failed = False
+        try:
+            V.main()
+        except SystemExit:
+            failed = True
+        check(failed, "CLI fails when an expected id is not delivered")
+    finally:
+        sys.argv = old
 
 
 def test_status_helpers():
@@ -157,7 +270,8 @@ def test_cli_end_to_end():
 
 
 def main():
-    for fn in (test_validator, test_status_helpers, test_builder, test_cli_end_to_end):
+    for fn in (test_validator, test_contrast_coverage, test_validator_cli,
+               test_status_helpers, test_builder, test_cli_end_to_end):
         fn()
     print()
     if FAILS:

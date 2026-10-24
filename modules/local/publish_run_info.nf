@@ -27,6 +27,7 @@ process PUBLISH_RUN_INFO {
     path "qa_report.tsv"
     path "__deliverables_README.md"
     path "__run_info_README.md"
+    path "__raw_README.md"
 
     script:
     // Names come from docs/external_catalogs.json (single source); paths from params.
@@ -66,6 +67,7 @@ process PUBLISH_RUN_INFO {
         --outdir . \\
         --deliverables-readme __deliverables_README.md \\
         --run-info-readme __run_info_README.md \\
+        --raw-readme __raw_README.md \\
         --qa-report qa_report.tsv \\
         --publish-level "${params.publish_level}" \\
         --fdr "${params.fdr_threshold}" \\

@@ -400,6 +400,9 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
     labs(color = "Origin", size = "Significance") +
     theme_minimal()
   print(p)
+  # Also ship the plot as a PNG in contrasts/<id>/plots/ (published by the task).
+  dir.create("plots", showWarnings = FALSE)
+  ggsave(file.path("plots", "volcano.png"), p, width = 8, height = 6, dpi = 150)
 } else {
   cat("No DE data for this contrast — volcano plot skipped.\n")
 }
@@ -436,6 +439,9 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
            color = "Origin", size = "Significance") +
       theme_minimal()
     print(p)
+    # Ship the MA plot as a PNG alongside the volcano (contrasts/<id>/plots/).
+    dir.create("plots", showWarnings = FALSE)
+    ggsave(file.path("plots", "ma.png"), p, width = 8, height = 6, dpi = 150)
   } else {
     cat("No genes with baseMean > 0 — MA plot skipped.\n")
   }

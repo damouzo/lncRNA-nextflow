@@ -128,11 +128,24 @@ process FUNCTIONAL_ENRICHMENT {
         }
     }
 
-    ora_df <- if (length(ora_all) > 0) do.call(rbind, ora_all) else data.frame()
-    gsea_df <- if (length(gsea_all) > 0) do.call(rbind, gsea_all) else data.frame()
+    # write_tsv() on a 0-column data.frame writes a 0-byte file (no header), which
+    # is indistinguishable from a failure. Build a 0-row frame with the expected
+    # clusterProfiler columns instead, so an empty result is a valid table.
+    empty_frame <- function(cols) {
+        d <- data.frame()
+        for (col in cols) d[[col]] <- character(0)
+        d
+    }
+    ora_cols <- c("ID", "Description", "GeneRatio", "BgRatio", "pvalue", "p.adjust",
+                  "qvalue", "geneID", "Count", "contrast")
+    gsea_cols <- c("ID", "Description", "setSize", "enrichmentScore", "NES", "pvalue",
+                   "p.adjust", "qvalue", "rank", "leading_edge", "core_enrichment", "contrast")
 
-    write_tsv(as.data.frame(ora_df), "${group}_enrichment_ora.tsv")
-    write_tsv(as.data.frame(gsea_df), "${group}_enrichment_gsea.tsv")
+    ora_df <- if (length(ora_all) > 0) as.data.frame(do.call(rbind, ora_all)) else empty_frame(ora_cols)
+    gsea_df <- if (length(gsea_all) > 0) as.data.frame(do.call(rbind, gsea_all)) else empty_frame(gsea_cols)
+
+    write_tsv(ora_df, "${group}_enrichment_ora.tsv")
+    write_tsv(gsea_df, "${group}_enrichment_gsea.tsv")
 
     ver <- paste0("R ", paste(R.version\$major, R.version\$minor, sep = "."))
     for (pkg in c("clusterProfiler", "org.Hs.eg.db")) {

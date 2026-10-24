@@ -121,8 +121,12 @@ def build_catalog_genes(gene_catalog, tier_final, out_dir):
         out.append(row)
     # F5.4: lncRNA position class vs reference protein-coding genes (gene span).
     LP.annotate_rows(out)
-    n = write_tsv(os.path.join(out_dir, "catalog_genes.tsv"),
-                  GENES_COLS + [c for c in header if c not in GENES_COLS], out)
+    cols = GENES_COLS + [c for c in header if c not in GENES_COLS]
+    n = write_tsv(os.path.join(out_dir, "catalog_genes.tsv"), cols, out)
+    # F4.3: novel-only view. A filter of the full catalog, not a source of truth:
+    # no gene is dropped from catalog_genes.tsv, this is just the novel subset.
+    novel = [r for r in out if r.get("origin") == "novel"]
+    write_tsv(os.path.join(out_dir, "novel_lncrnas.tsv"), cols, novel)
     n_tier1_genes = sum(1 for r in out if _truthy(r["tier_final"]))
     return n, n_tier1_genes
 

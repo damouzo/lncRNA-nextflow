@@ -21,6 +21,14 @@ process SPLIT_BY_NORMGROUP {
     }
 
     groups <- sort(unique(coldata[["norm_group"]]))
+    # norm_group becomes a path component in publishDir targets and in the
+    # coldata_<group>.csv file names, so reject anything that could escape the
+    # output tree before writing a single file.
+    bad <- groups[!grepl("^[A-Za-z0-9_.-]+$", groups) | groups %in% c(".", "..")]
+    if (length(bad) > 0) {
+        stop(sprintf("norm_group must match [A-Za-z0-9_.-]+ and not be '.' or '..' (used in output paths): %s",
+                     paste(bad, collapse = ", ")))
+    }
     for (g in groups) {
         sub <- coldata[coldata[["norm_group"]] == g, , drop = FALSE]
         # Drop lane-level columns and deduplicate by sample

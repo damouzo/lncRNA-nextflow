@@ -45,6 +45,36 @@ def _fmt(value):
     return ("%g" % f)
 
 
+def _start_here():
+    """Question -> file guide (part a of the deliverables README)."""
+    lines = []
+    lines.append("## Start here")
+    lines.append("")
+    lines.append("| I want to… | Open |")
+    lines.append("|---|---|")
+    lines.append("| see the novel lncRNAs discovered | `catalog/novel_lncrnas.tsv` |")
+    lines.append("| see every gene / transcript in the catalog | `catalog/catalog_genes.tsv`, `catalog/catalog_tx.tsv` |")
+    lines.append("| see the candidates kept/filtered in discovery | `catalog/candidates_all.tsv` |")
+    lines.append("| compare DE counts across contrasts | `contrasts/contrasts_overview.tsv` |")
+    lines.append("| see what changed in one contrast | `contrasts/<group>__<contrast>/de_full.tsv` |")
+    lines.append("| see only the significant genes | `contrasts/<group>__<contrast>/de_significant.tsv` |")
+    lines.append("| read the narrative report of a contrast | `contrasts/<group>__<contrast>/<id>_report.html` |")
+    lines.append("| see functional enrichment for a contrast | `contrasts/<group>__<contrast>/enrichment_ora.tsv`, `enrichment_gsea.tsv` |")
+    lines.append("| check cis candidates of a group | `groups/<group>/cis_pairs_significant.tsv` |")
+    lines.append("| get the expression matrix of a group | `groups/<group>/counts.tsv`, `groups/<group>/tpm.tsv` |")
+    lines.append("| see run metadata and tool versions | `run_info/` |")
+    lines.append("")
+    lines.append("Each folder is computed at one level, so it never duplicates work:")
+    lines.append("")
+    lines.append("| Folder | Computed once per | Per contrast? |")
+    lines.append("|---|---|---|")
+    lines.append("| `catalog/` | project | no |")
+    lines.append("| `groups/<group>/` | group (shared matrix) | no |")
+    lines.append("| `contrasts/<id>/` | (group, contrast) | yes |")
+    lines.append("")
+    return lines
+
+
 def build_deliverables_readme(contract, qa_rows, publish_level, fdr=None, lfc=None):
     lines = []
     lines.append("# lncRNA discovery — deliverables")
@@ -53,6 +83,9 @@ def build_deliverables_readme(contract, qa_rows, publish_level, fdr=None, lfc=No
                  "`docs/deliverables_contract.json`; do not edit by hand.")
     lines.append("")
     lines.append("Publish level: **%s**." % publish_level)
+    lines.append("")
+    lines.extend(_start_here())
+    lines.append("## Column dictionary")
     lines.append("")
     lines.append("## Significance")
     lines.append("")
@@ -137,12 +170,34 @@ def build_run_info_readme(contract, qa_rows, publish_level):
     return "\n".join(lines)
 
 
+def build_raw_readme(publish_level):
+    lines = []
+    lines.append("# raw/ — native outputs (audit)")
+    lines.append("")
+    lines.append("Native, function-named outputs kept for reproducibility (publish level "
+                 "**%s**). Not the deliverable: use `../deliverables/` for the shippable "
+                 "contract and `../run_info/` for run metadata." % publish_level)
+    lines.append("")
+    lines.append("| Folder | Content |")
+    lines.append("|---|---|")
+    lines.append("| `deseq2/` | DESeq2 results per group (`*_DE.tsv`, `dds.rds`) |")
+    lines.append("| `tximport_filter/` | tximport counts/TPM, filter stats, pre-filter universe |")
+    lines.append("| `enrichment/` | group-level ORA/GSEA tables (repartitioned per contrast in deliverables) |")
+    lines.append("| `cis_associations/` | cis pair tables per group |")
+    lines.append("| `stringtie/`, `stringtie_merge/`, `gffcompare/` | assembly and merge |")
+    lines.append("| `salmon_quant/`, `decoy_index/` | quantification |")
+    lines.append("| `heterogeneity/` | opt-in heterogeneity diagnostic (also embedded in the reports) |")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--contract", required=True)
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--deliverables-readme", default="__deliverables_README.md")
     ap.add_argument("--run-info-readme", default="__run_info_README.md")
+    ap.add_argument("--raw-readme", default="__raw_README.md")
     ap.add_argument("--qa-report", default=None)
     ap.add_argument("--publish-level", default="core_raw")
     ap.add_argument("--fdr", default=None)
@@ -158,8 +213,10 @@ def main():
                                            fdr=args.fdr, lfc=args.lfc))
     with open(os.path.join(args.outdir, args.run_info_readme), "w") as fh:
         fh.write(build_run_info_readme(contract, qa_rows, args.publish_level))
-    print("build_deliverables_readme: wrote %s and %s"
-          % (args.deliverables_readme, args.run_info_readme))
+    with open(os.path.join(args.outdir, args.raw_readme), "w") as fh:
+        fh.write(build_raw_readme(args.publish_level))
+    print("build_deliverables_readme: wrote %s, %s and %s"
+          % (args.deliverables_readme, args.run_info_readme, args.raw_readme))
 
 
 if __name__ == "__main__":

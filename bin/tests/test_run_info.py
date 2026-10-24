@@ -164,6 +164,8 @@ def test_readme():
     text = D.build_deliverables_readme(contract, [["n_samples", "2"]], "core_raw",
                                        fdr=0.05, lfc=0.0)
     check("catalog/catalog_genes.tsv" in text, "README lists contract path")
+    check("Start here" in text and "Column dictionary" in text,
+          "README has the two parts (guide + dictionary)")
     check("labels, not filters" in text, "README carries honesty note")
     check("| n_samples | 2 |" in text, "README includes run summary")
     check("padj < 0.05" in text and "|log2FoldChange| >= 0" in text,
@@ -172,6 +174,9 @@ def test_readme():
           "README warns about Excel text import")
     rtext = D.build_run_info_readme(contract, [["n_samples", "2"]], "core_raw")
     check("versions.tsv" in rtext and "run_info/" in rtext, "run_info README points to audit set")
+    rawtext = D.build_raw_readme("core_raw")
+    check("native" in rawtext and "../deliverables/" in rawtext,
+          "raw README points at the deliverables tree")
 
     d = tempfile.mkdtemp()
     old = sys.argv

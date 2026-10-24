@@ -29,6 +29,10 @@ process REPORT_CONTRAST {
 
     output:
     path "*.html", emit: reports
+    // Static PNG copies of the volcano/MA panels (F5.3); optional so a contrast
+    // without DE data still renders its report. Published via publishDir, not
+    // consumed as a channel.
+    path "plots/*.png", optional: true
     path "versions.yml", emit: versions
 
     script:

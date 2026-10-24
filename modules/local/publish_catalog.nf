@@ -23,6 +23,7 @@ process PUBLISH_CATALOG {
     path "catalog_genes.tsv", emit: catalog_genes
     path "catalog_tx.tsv"
     path "candidates_all.tsv"
+    path "novel_lncrnas.tsv"
     path "annotation/lncrna_catalog.gtf"
     path "annotation/lncrna_catalog.fa"
     path "versions.yml", emit: versions

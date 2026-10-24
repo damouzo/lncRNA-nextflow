@@ -15,6 +15,9 @@ process BUILD_CONTRAST_TABLES {
     path "de_full.tsv"
     path "de_significant.tsv"
     path "summary.tsv"
+    // Keyed copy for the overview builder: the contrast id is not derivable from
+    // the work-dir filenames, and the downstream task collects several of these.
+    tuple val("${group}__${ct}"), path("summary.tsv"), path("de_significant.tsv"), emit: overview_input
     path "versions.yml", emit: versions
 
     script:

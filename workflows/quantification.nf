@@ -18,6 +18,9 @@ include { SPLIT_CONTRASTS }      from '../modules/local/split_contrasts'
 include { DESIGN_CHECK }         from '../modules/local/design_check'
 include { MAKE_XLSX }            from '../modules/local/make_xlsx'
 include { BUILD_CONTRAST_TABLES } from '../modules/local/build_contrast_tables'
+include { SPLIT_ENRICHMENT }     from '../modules/local/split_enrichment'
+include { BUILD_CONTRASTS_OVERVIEW } from '../modules/local/build_contrasts_overview'
+include { CHECK_DELIVERABLES }   from '../modules/local/check_deliverables'
 
 workflow QUANTIFICATION {
     take:
@@ -182,8 +185,13 @@ workflow QUANTIFICATION {
             tuple(g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm)
         }
 
+    // combine(by: 0), NOT join: ch_rpt_base is 1 item/group while ch_ct_keyed is
+    // N items/group. JoinOp emits a single pair per key and silently drops the rest
+    // under remainder=false; CombineOp with a pivot emits the full per-key product.
+    // Output field order is (key, left-rest, right-rest); re-map explicitly to be
+    // independent of which side emits first.
     ch_rpt = ch_rpt_base
-        .join(ch_ct_keyed)
+        .combine(ch_ct_keyed, by: 0)
         .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm, ct, ct_tsv ->
             tuple(g, ct, de, cisp, cissig, ora, gsea, het, hetcv, coldata, ct_tsv, tpm)
         }
@@ -197,11 +205,60 @@ workflow QUANTIFICATION {
     )
 
     // F4.2: per-contrast master tables — last node of the graph.
-    // Keyed joins only (group, contrast); the universe comes from TXIMPORT's
-    // pre-filter universe so nothing is lost.
+    // ch_de_ct is N items/group and the universe is 1/group, so this must be a
+    // per-key product (combine), not a join (which would keep only the first).
+    // The universe comes from TXIMPORT's pre-filter universe so nothing is lost.
     ch_bt_in = ch_de_ct
-        .join(TXIMPORT_AND_FILTER.out.universe_tsv.map { g, u -> tuple(g, u) })
+        .combine(TXIMPORT_AND_FILTER.out.universe_tsv.map { g, u -> tuple(g, u) }, by: 0)
+        .map { g, ct, de_tsv, universe_tsv ->
+            tuple(g, ct, de_tsv, universe_tsv)
+        }
     BUILD_CONTRAST_TABLES(ch_bt_in, catalog_genes.first())
+
+    // Split the group-level enrichment table (one file per group, rows keyed by the
+    // `contrast` column) into one file per (group, contrast) so it is delivered next
+    // to the DE tables it belongs to. Purely a repartition: no rows are duplicated
+    // or dropped, and a header is always written.
+    ch_split_enrich_in = FUNCTIONAL_ENRICHMENT.out.ora_results
+        .join(FUNCTIONAL_ENRICHMENT.out.gsea_results)
+        .combine(ch_ct_keyed.map { g, ct, _tsv -> tuple(g, ct) }, by: 0)
+        .map { g, ora, gsea, ct ->
+            tuple(g, ct, ora, gsea)
+        }
+    SPLIT_ENRICHMENT(ch_split_enrich_in)
+
+    // One row per contrast: concatenation of every summary.tsv plus the count of
+    // novel Tier-1 significant genes (join of de_significant with the catalog).
+    // collectFile renames each file after its contrast id so the single downstream
+    // task can stage them without the homonymous-name collision.
+    ch_overview_summaries = BUILD_CONTRAST_TABLES.out.overview_input
+        .collectFile { id, summary, _sig -> ["${id}__summary.tsv", summary.text] }
+        .collect()
+    ch_overview_significant = BUILD_CONTRAST_TABLES.out.overview_input
+        .collectFile { id, _summary, sig -> ["${id}__significant.tsv", sig.text] }
+        .collect()
+    BUILD_CONTRASTS_OVERVIEW(ch_overview_summaries, ch_overview_significant,
+                             catalog_genes.first())
+
+    // Final guard: fail the run if the per-contrast stage did not receive every
+    // (group, contrast) that SPLIT_CONTRASTS declared for a group. The ids are
+    // compared on the channel values, not on the published tree: publishDir copies
+    // are asynchronous (FilePublisher submits them to a thread pool after outputs
+    // are bound), so the delivered tree cannot be read reliably within the run.
+    ch_expected_contrast_ids = ch_ct_keyed
+        .map { g, ct, _tsv -> "${g}__${ct}" }
+        .collect()
+    ch_delivered_contrast_ids = ch_rpt
+        .map { g, ct, _de, _cisp, _cissig, _ora, _gsea, _het, _hetcv, _coldata, _ct_tsv, _tpm ->
+            "${g}__${ct}"
+        }
+        .collect()
+    CHECK_DELIVERABLES(
+        ch_expected_contrast_ids,
+        ch_delivered_contrast_ids,
+        BUILD_CONTRASTS_OVERVIEW.out.overview,
+        channel.value(file("${projectDir}/docs/deliverables_contract.json"))
+    )
 
     ch_versions = channel.empty()
         .mix(TXIMPORT_AND_FILTER.out.versions,
@@ -212,6 +269,9 @@ workflow QUANTIFICATION {
              REPORT_CONTRAST.out.versions)
         .mix(BUILD_CONTRAST_TABLES.out.versions)
         .mix(DESIGN_CHECK.out.versions)
+        .mix(SPLIT_ENRICHMENT.out.versions)
+        .mix(BUILD_CONTRASTS_OVERVIEW.out.versions)
+        .mix(CHECK_DELIVERABLES.out.versions)
 
     emit:
     versions         = ch_versions

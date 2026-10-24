@@ -84,6 +84,10 @@ def test_build():
           "reference gene defaults tier_final FALSE / n_tier1 0")
     check(g2["antisense_status"] == "not_evaluated", "reference gene antisense not_evaluated")
 
+    _, novel = B.read_tsv(os.path.join(out, "novel_lncrnas.tsv"))
+    check([r["gene_id"] for r in novel] == ["G1"],
+          "novel_lncrnas.tsv is the origin==novel view of catalog_genes")
+
     n_tx = B.build_catalog_tx(os.path.join(d, "tier_final_transcripts.tsv"), out)
     check(n_tx == 1, "catalog_tx: 1 transcript")
 
@@ -156,7 +160,7 @@ def test_cli():
     finally:
         sys.argv = old
     check(ok, "CLI runs")
-    for f in ("catalog_genes.tsv", "catalog_tx.tsv", "candidates_all.tsv"):
+    for f in ("catalog_genes.tsv", "catalog_tx.tsv", "candidates_all.tsv", "novel_lncrnas.tsv"):
         check(os.path.exists(os.path.join(out, f)), "CLI wrote %s" % f)
 
 
