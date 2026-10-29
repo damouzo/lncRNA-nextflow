@@ -261,7 +261,8 @@ def write_tsv(rows, path, header):
     with open(path, "w") as fh:
         fh.write("\t".join(header) + "\n")
         for r in rows:
-            fh.write("\t".join(str(x) for x in r) + "\n")
+            # 1.5: a missing value is always NA, never the literal "None".
+            fh.write("\t".join("NA" if x is None else str(x) for x in r) + "\n")
 
 
 def read_tsv(path):

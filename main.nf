@@ -151,17 +151,24 @@ workflow {
         DISCOVERY.out.thresholds,
         DISCOVERY.out.gene_catalog,
         DISCOVERY.out.tier_sensitivity,
+        QUANTIFICATION.out.qc_controls,
+        QUANTIFICATION.out.universe,
+        DISCOVERY.out.coding_consensus,
+        DISCOVERY.out.recurrence,
+        QUANTIFICATION.out.length_offset,
         channel.value(file("${projectDir}/docs/deliverables_contract.json"))
     )
 
     // F5.1 / F5.4: catalog figures (non-blocking, off with --run_figures false).
     // The expression-by-position panel reuses the per-group TPM tables plus the
-    // sample metadata (condition) produced by PUBLISH_RUN_INFO.
+    // sample index (condition + norm_group) from PUBLISH_RUN_INFO and the run's
+    // comparisons CSV, whose denominators define the control conditions.
     if (params.run_figures) {
         ch_fig_tpm = QUANTIFICATION.out.expression_tpm
             .map { _group, f -> f }
             .collect()
         FIGURES(DISCOVERY.out.catalog_genes, DISCOVERY.out.tier_by_class,
-                ch_fig_tpm, PUBLISH_RUN_INFO.out.sample_index)
+                ch_fig_tpm, PUBLISH_RUN_INFO.out.sample_index,
+                validateInput.out.contrasts_csv)
     }
 }

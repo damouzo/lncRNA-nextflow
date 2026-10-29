@@ -44,9 +44,15 @@ process HETEROGENEITY_ANALYSIS {
     counts <- readRDS("${counts_rds}")
     tpm    <- readRDS("${tpm_rds}")
     coldata <- read.csv("${coldata_csv}", stringsAsFactors = FALSE)
-    # Same convention as DESEQ2_DE: coldata rows are assumed pre-ordered to match the
-    # expression matrix columns (both derive from the same tximport_filter.nf sample order).
-    rownames(coldata) <- colnames(counts)
+    # H0: align by sample name, never positionally. colnames(counts) is the
+    # quant-dir listing order (alphabetical), which need not match the coldata order.
+    if (!("sample" %in% colnames(coldata))) {
+        stop("coldata must have a 'sample' column to align it against the counts matrix")
+    }
+    coldata <- coldata[match(colnames(counts), coldata\$sample), , drop = FALSE]
+    stopifnot(!anyNA(coldata\$sample),
+              identical(as.character(coldata\$sample), colnames(counts)))
+    rownames(coldata) <- coldata\$sample
 
     # Restrict TPM to the DESeq2-tested gene universe (rows of counts_rds), same sample columns
     shared_genes <- intersect(rownames(counts), rownames(tpm))

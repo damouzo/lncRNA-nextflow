@@ -68,6 +68,16 @@
                     "default": true,
                     "description": "Normalize cis associations (VST blind=FALSE + limma::removeBatchEffect keeping condition) before Spearman; false = previous log2(counts+1)"
                 },
+                "cis_min_samples": {
+                    "type": "integer",
+                    "default": 4,
+                    "description": "Minimum samples (2.4) required to run a cis correlation test"
+                },
+                "cis_min_abs_rho": {
+                    "type": "number",
+                    "default": 0,
+                    "description": "Optional |Spearman rho| floor for cis pairs (2.4); 0 keeps every tested pair"
+                },
                 "run_figures": {
                     "type": "boolean",
                     "default": true,
@@ -116,6 +126,11 @@
                     "type": "integer",
                     "default": 200,
                     "description": "Minimum summed exon length (nt)"
+                },
+                "allow_no_offset": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "2.1: allow DESeq2 to run on the counts matrix when the tximport object is unavailable (accepts the length-bias caveat; length_offset_used is logged). Off by default."
                 },
                 "expression_recurrence_min_reps": {
                     "type": "integer",
@@ -193,6 +208,11 @@
                     "type": "number",
                     "default": 1.0,
                     "description": "Post-hoc LFC cutoff (|log2FoldChange| >= value) applied only to the `significant` flag on the shrunken log2FC; it is NOT passed to DESeq2 results() (that would change the null hypothesis and padj). Default is set by the researcher."
+                },
+                "extreme_basemean": {
+                    "type": "number",
+                    "default": 100000,
+                    "description": "baseMean at or above which a gene is flagged `baseMean_extreme` in the DE tables (a locus on a non-canonical contig with an outsized mean is a repeat/rRNA suspect)."
                 },
                 "heterogeneity_analysis": {
                     "type": "object",

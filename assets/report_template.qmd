@@ -31,6 +31,8 @@ params:
   tpm: null
   species: ""
   genome_build: ""
+  fdr: 0.05
+  lfc: 1.0
   conservation_metric: "phastCons"
   conservation_configured: false
   synteny_configured: false
@@ -160,10 +162,37 @@ if (!is.null(catalog) && nrow(catalog) > 0 && "gene_id" %in% colnames(de_ct)) {
   de_ann <- de_ct %>%
     left_join(select(catalog, any_of(c("gene_id", "gene_name", "gene_biotype", "origin", "class_code",
                                        "catalog_id", "locus", "ref_gene_name", "known_catalog_hit",
-                                       "catalog_sources",
+                                       "catalog_sources", "chromosome", "start", "end", "strand",
                                        "conservation_mean", "conservation_pct", "syntenic_locus",
-                                       "syntenic_target_gene_id"))),
+                                       "syntenic_target_gene_id", "lnc_position_class"))),
               by = "gene_id")
+}
+
+# 4a.3/4b.1/4b.4: the report's own view of significance and grouping. The DE
+# summary it reads does not carry the deliverable's flags, so they are recomputed
+# here from the same thresholds. `significant_padj_lfc1` (strict) is what the
+# volcano, MA plot and tables use; `significant_padj` is shown for reference.
+ORIGIN_TO_GROUP <- c(
+  "novel"            = "novel_lncRNA",
+  "annotated_lncrna" = "annotated_lncRNA"
+)
+if (!is.null(de_ann) && nrow(de_ann) > 0) {
+  # Guard: without a catalog the join adds no origin/gene_biotype, and case_when
+  # on a missing column errors — the whole report would fail, not just a section.
+  if (!("origin" %in% colnames(de_ann)))      de_ann$origin <- NA_character_
+  if (!("gene_biotype" %in% colnames(de_ann))) de_ann$gene_biotype <- NA_character_
+  if (!("catalog_id" %in% colnames(de_ann)))   de_ann$catalog_id <- NA_character_
+  de_ann <- de_ann %>%
+    mutate(
+      gene_id_stable        = dplyr::coalesce(catalog_id, gene_id),
+      significant_padj      = !is.na(padj) & padj < params$fdr,
+      significant_padj_lfc1 = !is.na(padj) & padj < params$fdr & abs(log2FoldChange) >= params$lfc,
+      gene_group = dplyr::case_when(
+        origin %in% names(ORIGIN_TO_GROUP) ~ unname(ORIGIN_TO_GROUP[origin]),
+        !is.na(gene_biotype) & gene_biotype == "protein_coding" ~ "protein_coding",
+        TRUE ~ "other"
+      )
+    )
 }
 
 # Conservation/synteny gating: a section is only shown when the configured
@@ -256,20 +285,20 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
     group_by(origin) %>%
     summarise(
       n_tested = n(),
-      n_sig    = sum(!is.na(padj) & padj < 0.05),
+      n_sig    = sum(significant_padj_lfc1, na.rm = TRUE),
       .groups  = "drop"
     ) %>%
     mutate(origin_label = ORIGIN_LABELS[origin]) %>%
     select(origin_label, n_tested, n_sig) %>%
     arrange(origin_label)
 kable(cat_sum, format = "html",
-        col.names = c("Origin", "Genes tested", "Significant (padj<0.05)"))
+        col.names = c("Origin", "Genes tested", "Significant (padj<FDR & |LFC|>=LFC)"))
 } else {
   cat("No gene catalog available for this report.")
 }
 ```
 
-*"Other reference genes (background)" includes protein-coding and other non-lncRNA reference genes. This category exists only so that DESeq2 normalizes over the full transcriptomeand enrichment analyses have a proper background — it is not a biologically interesting category for lncRNA-focused interpretation.*
+*"Other reference genes (background)" includes protein-coding and other non-lncRNA reference genes. They are tested and reported in full (see `de_full.tsv`, `gene_group = protein_coding` / `other`) and provide the background for the enrichment analyses. The tables and figures in this report focus on lncRNAs; the protein-coding DE is summarised in the "Coding genes — summary" section.*
 
 *Annotated lncRNAs (reference) are the lncRNAs coming from the reference annotation GTF used to build the catalog — genome build `r params$genome_build`, species `r params$species`.*
 
@@ -288,7 +317,7 @@ if (nrow(novel_de) > 0) {
     group_by(class_code = cc_simple) %>%
     summarise(
       n_tested = n_distinct(gene_id),
-      n_sig    = n_distinct(gene_id[!is.na(padj) & padj < 0.05]),
+      n_sig    = n_distinct(gene_id[significant_padj_lfc1]),
       .groups  = "drop"
     ) %>%
     mutate(interpretation = ifelse(
@@ -302,13 +331,13 @@ if (nrow(novel_de) > 0) {
     class_code     = "Total (unique genes)",
     interpretation = "All classes combined",
     n_tested       = n_distinct(novel_de$gene_id),
-    n_sig          = n_distinct(novel_de$gene_id[!is.na(novel_de$padj) & novel_de$padj < 0.05])
+    n_sig          = n_distinct(novel_de$gene_id[novel_de$significant_padj_lfc1])
   ))
   cat(sprintf("Novel lncRNAs tested: %d  |  Significant: %d\n\n",
               nrow(novel_de),
-              sum(novel_de$padj < 0.05, na.rm = TRUE)))
+              sum(novel_de$significant_padj_lfc1, na.rm = TRUE)))
   kable(cc_sum, format = "html",
-        col.names = c("class_code", "Interpretation", "Tested", "Significant (padj<0.05)"))
+        col.names = c("class_code", "Interpretation", "Tested", "Significant (padj<FDR & |LFC|>=LFC)"))
 } else {
   cat("No novel lncRNAs tested for this contrast.\n")
 }
@@ -349,12 +378,12 @@ if (!is.null(lncrna_per_sample) && nrow(lncrna_per_sample) > 0) {
 
 ```{r de-summary}
 if (!is.null(de_ann) && nrow(de_ann) > 0) {
-  n_sig <- sum(de_ann$padj < 0.05, na.rm = TRUE)
-  n_up  <- sum(de_ann$padj < 0.05 & de_ann$log2FoldChange > 0, na.rm = TRUE)
-  n_dn  <- sum(de_ann$padj < 0.05 & de_ann$log2FoldChange < 0, na.rm = TRUE)
+  n_sig <- sum(de_ann$significant_padj_lfc1, na.rm = TRUE)
+  n_up  <- sum(de_ann$significant_padj_lfc1 & de_ann$log2FoldChange > 0, na.rm = TRUE)
+  n_dn  <- sum(de_ann$significant_padj_lfc1 & de_ann$log2FoldChange < 0, na.rm = TRUE)
   kable(data.frame(
     genes_tested = nrow(de_ann),
-    significant_padj_0.05 = n_sig,
+    significant_padj_lfc1 = n_sig,
     up = n_up, down = n_dn
   ), format = "html")
 } else {
@@ -368,9 +397,10 @@ if (!is.null(de_ann) && nrow(de_ann) > 0) {
 ### Volcano plot
 
 Colored by `origin` (green: annotated lncRNAs, fuchsia: novel lncRNAs).
-Point size marks significance)(large = padj<0.05, small = not significant); significant
-genes are labeled — novel lncRNAs with their stable `catalog_id` when available, falling
-back to the assembly `gene_id`.
+Point size marks significance: **`significant_padj_lfc1`** (`padj < r params$fdr` **and**
+`|log2FoldChange| >= r params$lfc`, on the shrunken LFC — the same flag as `de_significant.tsv`).
+Significant genes are labeled with the gene symbol when it exists, else the stable `catalog_id`,
+else the assembly `gene_id`.
 
 ```{r volcano, fig.width=8, fig.height=6}
 if (!is.null(de_ann) && nrow(de_ann) > 0 &&
@@ -378,7 +408,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
   volcano_df <- de_ann %>%
     filter(origin %in% c("novel", "annotated_lncrna")) %>%
     mutate(
-      sig    = ifelse(!is.na(padj) & padj < 0.05, "FDR<0.05", "ns"),
+      sig    = ifelse(significant_padj_lfc1, "sig", "ns"),
       origin = ifelse(is.na(origin), "reference_other", origin),
       logp   = -log10(pvalue),
       label  = coalesce(gene_name, catalog_id, gene_id)
@@ -386,7 +416,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
   p <- ggplot(volcano_df, aes(log2FoldChange, logp)) +
     geom_point(aes(color = origin, size = sig), alpha = 0.6) +
     geom_text_repel(
-      data = filter(volcano_df, sig == "FDR<0.05") %>%
+      data = filter(volcano_df, sig == "sig") %>%
                arrange(pvalue) %>% slice_head(n = 20),
       aes(label = label), size = 3, max.overlaps = Inf, min.segment.length = 0.2
     ) +
@@ -395,8 +425,9 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
       labels = ORIGIN_LABELS[sort(unique(volcano_df$origin))],
       na.value = "#7f7f7f"
     ) +
-    scale_size_manual(values = c("FDR<0.05" = 3, "ns" = 0.8)) +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", alpha = 0.4) +
+    scale_size_manual(values = c("sig" = 3, "ns" = 0.8)) +
+    geom_hline(yintercept = -log10(params$fdr), linetype = "dashed", alpha = 0.4) +
+    geom_vline(xintercept = c(-params$lfc, params$lfc), linetype = "dotted", alpha = 0.4) +
     labs(color = "Origin", size = "Significance") +
     theme_minimal()
   print(p)
@@ -408,7 +439,10 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
 }
 ```
 
-Protein-coding genes were included in normalization and DE testing but are not shown here; see the standard bulk RNA-seq DEG report for protein-coding results.
+Protein-coding genes (and other non-lncRNA reference genes) are tested and reported in the
+**`de_full.tsv`** deliverable, under `gene_group = protein_coding` / `other`; this panel only draws
+lncRNAs. See the *Coding genes — summary* section below for the headline counts and a pointer to the
+full table.
 
 ### MA plot
 
@@ -423,7 +457,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
     filter(!is.na(baseMean) & baseMean > 0) %>%
     mutate(
       origin = ifelse(is.na(origin), "reference_other", origin),
-      sig    = ifelse(!is.na(padj) & padj < 0.05, "FDR<0.05", "ns")
+      sig    = ifelse(significant_padj_lfc1, "sig", "ns")
     )
   if (nrow(ma_df) > 0) {
     p <- ggplot(ma_df, aes(log10(baseMean), log2FoldChange)) +
@@ -433,7 +467,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
         labels = ORIGIN_LABELS[sort(unique(ma_df$origin))],
         na.value = "#7f7f7f"
       ) +
-      scale_size_manual(values = c("FDR<0.05" = 3, "ns" = 0.8)) +
+      scale_size_manual(values = c("sig" = 3, "ns" = 0.8)) +
       geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.4) +
       labs(x = "log10(baseMean)", y = "log2FoldChange",
            color = "Origin", size = "Significance") +
@@ -467,9 +501,9 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
                       coalesce(gene_biotype, "lncRNA")),
       origin_label = ORIGIN_LABELS[origin],
       status = case_when(
-        padj < 0.05 & log2FoldChange > 0  ~ "significant (up)",
-        padj < 0.05                        ~ "significant (down)",
-        TRUE                               ~ "not significant"
+        significant_padj_lfc1 & log2FoldChange > 0  ~ "significant (up)",
+        significant_padj_lfc1                        ~ "significant (down)",
+        TRUE                                         ~ "not significant"
       )
     ) %>%
     count(origin_label, label, status) %>%
@@ -521,8 +555,8 @@ if (!is.null(catalog) && nrow(catalog) > 0 &&
     group_by(origin, label) %>%
     summarise(
       tested          = n(),
-      sig_up          = sum(!is.na(padj) & padj < 0.05 & log2FoldChange > 0, na.rm = TRUE),
-      sig_down        = sum(!is.na(padj) & padj < 0.05 & log2FoldChange < 0, na.rm = TRUE),
+      sig_up          = sum(significant_padj_lfc1 & log2FoldChange > 0, na.rm = TRUE),
+      sig_down        = sum(significant_padj_lfc1 & log2FoldChange < 0, na.rm = TRUE),
       median_baseMean = median(baseMean, na.rm = TRUE),
       .groups         = "drop"
     )
@@ -549,6 +583,35 @@ if (!is.null(catalog) && nrow(catalog) > 0 &&
 
 ### DE tables
 
+Significance here is **`significant_padj_lfc1`** (`padj < r params$fdr` and `|log2FoldChange| >= r params$lfc`),
+matching `de_significant.tsv`. The `significant_padj` column (`padj` only) is shown too, so the two
+definitions are never silently mixed. The embedded tables are capped at 500 rows; the complete
+unfiltered tables are in the deliverables (`de_significant.tsv`, `de_lncrna_full.tsv`, `de_full.tsv`).
+
+```{r de-table-cap}
+DE_TABLE_CAP <- 500
+# Positions come from the gene catalog (chr/start/end/strand); gene_group marks
+# lncRNA vs coding. Both are inside the row, not a separate lookup.
+DE_VIEW_COLS <- c("gene_id", "gene_id_stable", "catalog_id", "gene_name", "gene_group", "origin", "gene_biotype",
+                  "chromosome", "start", "end", "strand", "locus", "class_code", "class_code_label",
+                  "lnc_position_class",
+                  "ref_gene_name", "known_catalog_hit",
+                  "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj",
+                  "significant_padj", "significant_padj_lfc1")
+
+render_de_table <- function(df, cap = DE_TABLE_CAP) {
+  if (is.null(df) || nrow(df) == 0) return("No rows.")
+  truncated <- nrow(df) > cap
+  shown <- utils::head(df, cap)
+  if (truncated) {
+    cat(sprintf("\n*Showing the %d lowest-padj of %d rows; the complete table is in the deliverables.*\n\n",
+                cap, nrow(df)))
+  }
+  # Returned (not printed inside the function) so the calling chunk auto-prints it.
+  datatable(round_numeric_cols(shown), filter = "top", options = list(pageLength = 20))
+}
+```
+
 ::: {.panel-tabset}
 
 #### Overview — significant genes
@@ -556,17 +619,12 @@ if (!is.null(catalog) && nrow(catalog) > 0 &&
 ```{r de-table-all}
 if (!is.null(de_ann) && nrow(de_ann) > 0) {
   tab <- de_ann %>%
-    filter(!is.na(padj) & padj < 0.05) %>%
-    mutate(
-      origin = recode(origin, !!!ORIGIN_LABELS),
-      class_code_label = sapply(coalesce(class_code, ""), format_class_code)
-    ) %>%
-    select(any_of(c("gene_id", "catalog_id", "locus", "gene_name", "origin", "gene_biotype", "class_code",
-                    "class_code_label",
-                    "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
+    filter(significant_padj_lfc1) %>%
+    mutate(class_code_label = sapply(coalesce(class_code, ""), format_class_code)) %>%
+    select(any_of(c(DE_VIEW_COLS, "locus"))) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
-    datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
+    render_de_table(tab)
   } else {
     "No significant DE genes in this contrast."
   }
@@ -578,47 +636,71 @@ if (!is.null(de_ann) && nrow(de_ann) > 0) {
 #### Annotated lncRNAs (reference)
 
 ```{r de-annotated}
-if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
+if (!is.null(de_ann) && nrow(de_ann) > 0 && "gene_group" %in% colnames(de_ann)) {
   tab <- de_ann %>%
-    filter(origin == "annotated_lncrna", !is.na(padj), padj < 0.05) %>%
-    mutate(origin = recode(origin, !!!ORIGIN_LABELS)) %>%
-    select(any_of(c("gene_id", "gene_name", "origin", "gene_biotype",
-                    "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
+    filter(gene_group == "annotated_lncRNA", significant_padj_lfc1) %>%
+    mutate(class_code_label = sapply(coalesce(class_code, ""), format_class_code)) %>%
+    select(any_of(DE_VIEW_COLS)) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
-    datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
+    render_de_table(tab)
   } else {
     "No significant annotated lncRNA genes in this contrast."
   }
-} else { "Catalog origin not available." }
+} else { "Catalog gene_group not available." }
 ```
 
 #### Novel lncRNAs
 
 ```{r de-novel}
-if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
+if (!is.null(de_ann) && nrow(de_ann) > 0 && "gene_group" %in% colnames(de_ann)) {
   tab <- de_ann %>%
-    filter(origin == "novel", !is.na(padj), padj < 0.05) %>%
-    mutate(
-      origin = recode(origin, !!!ORIGIN_LABELS),
-      class_code_label = sapply(coalesce(class_code, ""), format_class_code)
-    ) %>%
-    select(any_of(c("gene_id", "catalog_id", "locus", "ref_gene_name",
-                    "known_catalog_hit", "catalog_sources",
-                    "class_code", "class_code_label",
-                    "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
+    filter(gene_group == "novel_lncRNA", significant_padj_lfc1) %>%
+    mutate(class_code_label = sapply(coalesce(class_code, ""), format_class_code)) %>%
+    select(any_of(c(DE_VIEW_COLS, "locus", "catalog_sources"))) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
-    datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
+    render_de_table(tab)
   } else {
     "No significant novel lncRNA genes in this contrast."
   }
 } else {
-  cat("Catalog origin not available.")
+  cat("Catalog gene_group not available.")
 }
 ```
 
 :::
+
+#### Coding genes — summary {.unnumbered}
+
+This is a lncRNA report: the DE of protein-coding (and other non-lncRNA reference) genes is tested
+and shipped in full, but is not the focus here. This is the headline count and the top 20; the full
+table is `de_full.tsv` (filter `gene_group == "protein_coding"`).
+
+```{r coding-summary}
+if (!is.null(de_ann) && nrow(de_ann) > 0 && "gene_group" %in% colnames(de_ann)) {
+  cod <- de_ann %>% filter(gene_group == "protein_coding")
+  n_cod_sig <- sum(cod$significant_padj_lfc1, na.rm = TRUE)
+  cat(sprintf("Protein-coding genes tested: %d  |  significant (`padj < %g` and `|LFC| >= %g`): %d.\n\n",
+              nrow(cod), params$fdr, params$lfc, n_cod_sig))
+  cod_top <- cod %>%
+    filter(significant_padj_lfc1) %>%
+    select(any_of(c("gene_id", "gene_name", "chromosome", "start", "end", "strand",
+                    "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"))) %>%
+    arrange(padj)
+  if (nrow(cod_top) > 0) {
+    render_de_table(cod_top, cap = 20)
+  } else {
+    cat("No significant protein-coding genes in this contrast.\n")
+  }
+} else {
+  cat("No gene_group column available for the coding summary.")
+}
+```
+
+```{r de-tables-cleanup, include=FALSE}
+rm(render_de_table)
+```
 
 ## Cis-regulatory associations
 
@@ -628,15 +710,25 @@ tests Spearman correlation between its expression and every protein-coding gene 
 across all samples in this norm_group. Pairs below the FDR threshold are candidate
 cis-regulatory targets (`target_gene_id`/`target_gene_name`) — a starting point for
 follow-up, not proof of causality. `spearman_rho` gives the direction/strength of the
-correlation and `padj` the BH-corrected significance.
+correlation and `padj` the BH-corrected significance. With ~10 samples the test is
+low-powered, and a correlation can be driven by a single influential sample or by rank
+ties in a low-expression vector. `loo_sign_stable` (does the sign survive dropping any
+one sample?) and `loo_min_abs_rho` (weakest `|rho|` across those drops) flag that:
+prefer candidates with `loo_sign_stable == TRUE` and a `loo_min_abs_rho` well away from 0.
+The lncRNA side is described by `lncrna_origin` (novel/annotated), `lncrna_class_code`
+(GFFCOMPARE code, novel only) and `lncrna_position_class`
+(antisense/intronic/overlapping/no_coding_overlap, defined for every lncRNA).
 
 ```{r cis}
 if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
   cat("Significant cis pairs:\n")
   cis_tab <- round_numeric_cols(cis_sig) %>%
     select(any_of(c(
-      "lncrna_id", "lncrna_catalog_id", "target_gene_id", "target_gene_name",
-      "spearman_rho", "spearman_pvalue", "padj", "n_samples",
+      "lncrna_id", "lncrna_catalog_id", "lncrna_origin",
+      "lncrna_class_code", "lncrna_position_class",
+      "target_gene_id", "target_gene_name",
+      "spearman_rho", "spearman_pvalue", "padj", "p_method", "df_effective", "n_samples",
+      "loo_min_abs_rho", "loo_sign_stable", "loo_max_delta",
       "lncrna_DE_log2FC", "lncrna_DE_padj")))
   datatable(cis_tab, options = list(pageLength = 20))
 } else {
@@ -766,13 +858,14 @@ if (!is.null(het_cv_ct) && nrow(het_cv_ct) > 0) {
 Genes called "altered" by sample-level concordance (concordant in
 &ge;`r round(100 * params$heterogeneity_concordant_frac)`% of case samples,
 discordant in <`r round(100 * params$heterogeneity_discordant_frac)`%) that
-were **not** already significant (padj < 0.05) in the main DESeq2 contrast — the actual
+were **not** already significant (`padj < r params$fdr` and `|log2FoldChange| >= r params$lfc`) in the main
+DESeq2 contrast — the actual
 value-add of this diagnostic.
 
 ```{r heterogeneity-table}
 if (show_heterogeneity) {
-  de_sig_ids <- if (!is.null(de_ct) && "gene_id" %in% colnames(de_ct)) {
-    de_ct$gene_id[!is.na(de_ct$padj) & de_ct$padj < 0.05]
+  de_sig_ids <- if (!is.null(de_ct) && all(c("gene_id", "padj", "log2FoldChange") %in% colnames(de_ct))) {
+    de_ct$gene_id[!is.na(de_ct$padj) & de_ct$padj < params$fdr & abs(de_ct$log2FoldChange) >= params$lfc]
   } else character()
 
   tab <- het_ct %>%
@@ -828,7 +921,8 @@ lower among the ones that actually changed?
 if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in% colnames(cons_data)) {
   cons_by_sig <- cons_data %>%
     filter(!is.na(padj)) %>%
-    mutate(sig = ifelse(padj < 0.05, "significant (padj<0.05)", "not significant")) %>%
+    mutate(sig = ifelse(!is.na(padj) & padj < params$fdr & abs(log2FoldChange) >= params$lfc,
+                        "significant", "not significant")) %>%
     group_by(origin, sig) %>%
     summarise(
       n             = n(),
@@ -846,7 +940,8 @@ if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in
 if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in% colnames(cons_data)) {
   plot_df <- cons_data %>%
     filter(!is.na(padj)) %>%
-    mutate(sig = ifelse(padj < 0.05, "significant", "not significant"))
+    mutate(sig = ifelse(!is.na(padj) & padj < params$fdr & abs(log2FoldChange) >= params$lfc,
+                        "significant", "not significant"))
   if (nrow(plot_df) > 0) {
     p <- ggplot(plot_df, aes(sig, conservation_mean, fill = sig)) +
       geom_violin(alpha = 0.6) +
@@ -865,7 +960,8 @@ if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in
 ```{r conservation-top-table}
 if (has_conservation && exists("cons_data")) {
   top_cons <- cons_data %>%
-    filter(origin == "novel", !is.na(padj), padj < 0.05) %>%
+    filter(origin == "novel", !is.na(padj), padj < params$fdr,
+           abs(log2FoldChange) >= params$lfc) %>%
     select(any_of(c("gene_id", "catalog_id", "gene_name", "class_code",
                     "conservation_mean", "conservation_pct",
                     "log2FoldChange", "padj"))) %>%
@@ -915,7 +1011,8 @@ if (has_synteny) {
 if (has_synteny && exists("syn_data") && nrow(syn_data) > 0 && "padj" %in% colnames(syn_data)) {
   syn_by_sig <- syn_data %>%
     filter(!is.na(padj)) %>%
-    mutate(sig = ifelse(padj < 0.05, "significant (padj<0.05)", "not significant")) %>%
+    mutate(sig = ifelse(!is.na(padj) & padj < params$fdr & abs(log2FoldChange) >= params$lfc,
+                        "significant", "not significant")) %>%
     group_by(origin, sig) %>%
     summarise(
       n             = n(),
@@ -937,7 +1034,8 @@ cross-species follow-up, not proof of conserved function.
 ```{r synteny-top-table}
 if (has_synteny && exists("syn_data")) {
   top_syn <- syn_data %>%
-    filter(origin == "novel", syntenic_locus == TRUE, !is.na(padj), padj < 0.05) %>%
+    filter(origin == "novel", syntenic_locus == TRUE, !is.na(padj), padj < params$fdr,
+           abs(log2FoldChange) >= params$lfc) %>%
     select(any_of(c("gene_id", "catalog_id", "gene_name", "class_code",
                     "syntenic_target_gene_id",
                     "log2FoldChange", "padj")))
@@ -952,14 +1050,14 @@ if (has_synteny && exists("syn_data")) {
 ## Supplementary material (stable catalog identity)
 
 The novel lncRNAs in this run carry stable hierarchical catalog IDs (gene + transcript)
-assigned by a persistent two-level registry. Catalog tables are exported under
-`results/discovery/`:
+assigned by a persistent two-level registry. The catalog tables are part of the
+deliverables, under `deliverables/catalog/`:
 
-- `catalog_ids/catalog_ids.tsv` — gene-level mapping (`catalog_id`, `mstrg_gene_id`, `locus`, coordinates, class_codes).
-- `catalog_ids/catalog_tx.tsv` — transcript-level mapping (`catalog_tx_id`, `parent_catalog_id`, structural signature).
-- `catalog_ids/frozen_lncrna.catalog.gtf` — frozen novel transcripts renamed with catalog IDs.
-- `catalog_master/novel_catalog_master.tsv` — gene-level master with external-catalog hits, coverage, conservation and synteny.
-- `catalog_master/novel_transcripts.tsv` — transcript-level master with exon structure.
+- `catalog_genes.tsv` — gene-level catalog with `catalog_id`, coordinates (`chromosome`, `start`, `end`, `strand`), `gene_group`, class codes and tiers.
+- `novel_lncrnas.tsv` — novel-only subset of the catalog (same columns).
+- `catalog_tx.tsv` — transcript-level mapping (`transcript_id`, `parent` gene `catalog_id`, structural signature).
+- `annotation/lncrna_catalog.gtf` — frozen novel transcripts renamed with catalog IDs.
+- `annotation/lncrna_catalog.fa` — catalog transcript sequences.
 
 Only the **strict** external-catalog call (`known_catalog_hit`) feeds the novel figures in this
 report; the per-source coverage columns are informative only and never filter. Strand is always
@@ -971,7 +1069,13 @@ anchored to the candidate transcript.
 
 ```{r tier-flags, echo=FALSE}
 tryCatch({
-  cat_tbl <- gene_catalog
+  # 4b.2: the catalog object is `catalog` (loaded above from params$gene_catalog);
+  # an earlier version referenced a non-existent `gene_catalog` and silently
+  # skipped this whole section.
+  if (is.null(catalog) || nrow(catalog) == 0) {
+    stop("gene catalog not loaded (params$gene_catalog missing or unreadable)")
+  }
+  cat_tbl <- catalog
   n <- nrow(cat_tbl)
   n_tier1 <- if ("tier_static" %in% colnames(cat_tbl)) sum(cat_tbl$tier_static %in% TRUE, na.rm = TRUE) else NA
   cat(sprintf("Catalog genes: %d. Tier 1 (static): %s.\n", n,

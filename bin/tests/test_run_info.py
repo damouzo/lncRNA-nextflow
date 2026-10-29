@@ -47,6 +47,8 @@ def make_fixture(d):
           "changed\tpercentile\tn_tier1_final_genes\nbaseline\tderived\t2507\n")
     write(os.path.join(d, "novelty_status.tsv"),
           "metric\tvalue\nnovelty_status\tevaluated\nn_catalogs\t2\n")
+    write(os.path.join(d, "NB4_length_offset.txt"),
+          "group\tlength_offset_used\nNB4\tTRUE\n")
     write(os.path.join(d, "versions_a.yml"),
           '"STRINGTIE2_MERGE":\n'
           '    tool: "stringtie"\n'
@@ -73,6 +75,11 @@ def test_run_info():
                 "--novelty-status", os.path.join(d, "novelty_status.tsv"),
                 "--pipeline-version", "0.1.0", "--publish-level", "core_raw",
                 "--outdir-param", "results",
+                "--param", "cpat_coding_threshold=0.364",
+                "--param", "shrink_type=apeglm(ashr-fallback)",
+                "--manifest-entry", "git_sha=deadbeef",
+                "--manifest-entry", "nextflow_version=24.10.0",
+                "--length-offset", os.path.join(d, "NB4_length_offset.txt"),
                 "--catalog", "lncipedia=/does/not/exist.bed"]
     try:
         R.main()
@@ -107,6 +114,23 @@ def test_run_info():
     _, cats = R.read_tsv(os.path.join(out, "external_catalogs.tsv"))
     check(cats[0]["name"] == "lncipedia" and cats[0]["present"] == "FALSE",
           "external catalog absent -> present FALSE")
+
+    _, params = R.read_tsv(os.path.join(out, "params_used.tsv"))
+    p = {r["param"]: r["value"] for r in params}
+    check(p.get("cpat_coding_threshold") == "0.364",
+          "extra --param rows reach params_used.tsv")
+    check(p.get("shrink_type") == "apeglm(ashr-fallback)",
+          "parens survive the key=value split")
+    _, man = R.read_tsv(os.path.join(out, "run_manifest.tsv"))
+    m = {r["key"]: r["value"] for r in man}
+    check(m.get("git_sha") == "deadbeef" and m.get("nextflow_version") == "24.10.0",
+          "extra --manifest-entry rows reach run_manifest.tsv")
+    check(os.path.exists(os.path.join(out, "qc_controls.tsv")) is False,
+          "no qc_controls.tsv when the flag is absent")
+
+    _, off = R.read_tsv(os.path.join(out, "length_offset_used.tsv"))
+    check(off and off[0]["group"] == "NB4" and off[0]["length_offset_used"] == "TRUE",
+          "2.1: length_offset_used.tsv records the per-group offset flag")
 
 
 def test_versions_dedup():
@@ -166,6 +190,8 @@ def test_readme():
     check("catalog/catalog_genes.tsv" in text, "README lists contract path")
     check("Start here" in text and "Column dictionary" in text,
           "README has the two parts (guide + dictionary)")
+    check("Stable gene id" in text and "| `gene_id` |" in text,
+          "README column dictionary carries meanings from the contract columns")
     check("labels, not filters" in text, "README carries honesty note")
     check("| n_samples | 2 |" in text, "README includes run summary")
     check("padj < 0.05" in text and "|log2FoldChange| >= 0" in text,
@@ -219,9 +245,55 @@ def test_validator_kinds():
     check(any("empty" in e for e in errs), "validator reports empty fasta")
 
 
+def test_version_packages():
+    """H22/0.8: the R packages and featureCounts must reach versions.tsv.
+
+    Static check of the module wiring plus parse_versions_yml on the shape the
+    package probe emits (one block per package, same process name)."""
+    root = os.path.dirname(os.path.dirname(HERE))
+    mods = {f: open(os.path.join(root, "modules", "local", f)).read()
+            for f in ("deseq2_de.nf", "tximport_filter.nf", "cis_associations.nf",
+                      "version_tools.nf")}
+    calls = "\n".join(mods.values())
+    for pkg in ("DESeq2", "tximport", "apeglm", "limma", "ashr"):
+        check(pkg in calls and "emit_r_versions.sh" in calls,
+              "emit_r_versions.sh covers %s" % pkg)
+    check("featureCounts -v 2>&1 | grep" in mods["version_tools.nf"],
+          "featureCounts version filters the leading blank line")
+
+    d = tempfile.mkdtemp()
+    blocks = "".join(
+        '"DESEQ2_DE":\n    tool: "%s"\n    version: "1.0"\n    container: "img"\n' % p
+        for p in ("DESeq2", "apeglm", "ashr"))
+    write(os.path.join(d, "v.yml"), blocks)
+    rows = R.parse_versions_yml([os.path.join(d, "v.yml")])
+    check([r[1] for r in rows] == ["DESeq2", "apeglm", "ashr"],
+          "one row per R package under the same process")
+
+
+def test_sample_metadata_tsv():
+    """0.7: sample_metadata.tsv must be a real TSV, not a CSV with a .tsv name."""
+    contract = {"contract": "t", "version": "1", "files": [
+        {"path": "groups/<group>/sample_metadata.tsv", "kind": "table", "min_rows": 1,
+         "columns": [{"name": "sample", "type": "string"},
+                     {"name": "norm_group", "type": "string"}]}]}
+    d = tempfile.mkdtemp()
+    write(os.path.join(d, "groups", "MNC", "sample_metadata.tsv"),
+          "sample\tcondition\tbatch\tnorm_group\nS1\tDDX41\tb1\tMNC\n")
+    check(V.validate(d, contract) == [], "real TSV sample_metadata passes the contract")
+
+    d2 = tempfile.mkdtemp()
+    write(os.path.join(d2, "groups", "MNC", "sample_metadata.tsv"),
+          "sample,condition,batch,norm_group\nS1,DDX41,b1,MNC\n")
+    errs = V.validate(d2, contract)
+    check(any("missing columns" in e for e in errs),
+          "a CSV renamed to .tsv fails the contract")
+
+
 def main():
     for fn in (test_run_info, test_versions_dedup, test_versions_yml_cli,
-               test_readme, test_validator_kinds):
+               test_version_packages, test_sample_metadata_tsv, test_readme,
+               test_validator_kinds):
         fn()
     print()
     if FAILS:

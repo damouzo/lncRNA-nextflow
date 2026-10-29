@@ -1,0 +1,19 @@
+sanity_check	cpat_stock_human_ensembl115
+date_utc	2026-10-25
+annotation	Homo_sapiens.GRCh38.115.gtf
+genome	GRCh38 cellranger_index/fasta/genome.fa
+cpat_hexamer_sha256	e1f6f715d26804ba1ada63c55803a60129ca81d485c04ff97b6caf96600cc104
+cpat_logit_sha256	0266569c911d4e480896e48188875c7bbc4f8831547a7196ebcba21ec3114b29
+threshold	0.364
+n_coding	300
+n_lncrna	300
+TP	272
+FN	28
+FP	52
+TN	248
+sensitivity	0.9067
+specificity	0.8267
+accuracy	0.8667
+# 300 protein_coding + 300 lncRNA transcripts sampled from the first GTF entries
+# of each class, scored with CPAT (--antisense) and the committed stock model.
+# Threshold unchanged (0.364); consult before changing it.

@@ -28,9 +28,43 @@ import os
 import sys
 
 IS_NA = {"", "NA", "NaN", "nan", "None", "NA_character_"}
-ANNOT_COLS = ["origin", "class_code", "tier_static", "tier_final",
-              "single_exon_low_confidence", "antisense_status"]
-DE_COLS = ["baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj"]
+ANNOT_COLS = ["origin", "class_code", "tier", "tier_static", "tier_final",
+              "single_exon_low_confidence", "antisense_status",
+              "gene_name", "gene_biotype", "catalog_id", "locus", "lnc_position_class"]
+# 4b.1: genomic position (from the catalog) and derived grouping/QC columns.
+POS_COLS = ["chr", "start", "end", "strand"]
+DERIVED_COLS = ["gene_id_stable", "gene_group", "contig_type", "baseMean_extreme", "genome_build"]
+DE_COLS = ["baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj",
+           "stat", "lfc_unshrunken", "shrink_type"]
+
+# Canonical GRCh38 chromosomes; anything else (patches, scaffolds, alt contigs
+# like KI270733.1) is non-canonical and flagged so wet lab does not chase a
+# locus that may be a repeat/rRNA artefact.
+CANONICAL_CONTIGS = set([str(i) for i in range(1, 23)]) | {"X", "Y", "MT", "M"}
+
+
+def _is_na(v):
+    return v is None or str(v) in IS_NA
+
+
+def gene_group(ann):
+    """4b.4: coarse group derived from biotype, not just origin (which lumps
+    protein-coding, pseudogenes, TEC and TR genes under 'reference_other')."""
+    origin = ann.get("origin", "")
+    if origin == "novel":
+        return "novel_lncRNA"
+    if origin == "annotated_lncrna":
+        return "annotated_lncRNA"
+    if (ann.get("gene_biotype") or "").strip() == "protein_coding":
+        return "protein_coding"
+    return "other"
+
+
+def contig_type(chrom):
+    if _is_na(chrom):
+        return "NA"
+    return "canonical" if str(chrom).strip() in CANONICAL_CONTIGS else "noncanonical"
+
 
 
 def read_tsv(path):
@@ -84,7 +118,14 @@ def is_significant(padj, log2fc, fdr, lfc_threshold):
     return p < fdr and abs(f) >= lfc_threshold
 
 
-def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_threshold):
+def is_significant_padj(padj, fdr):
+    """4a.3: padj-only significance (the definition the report figures used)."""
+    p = _num(padj)
+    return p is not None and p < fdr
+
+
+def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_threshold,
+                   extreme_basemean, genome_build):
     rows = []
     for gid in universe_ids:
         ann = catalog_by_id.get(gid, {})
@@ -93,23 +134,48 @@ def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_thr
         if tested and len(d) >= 0:
             baseMean, lfc, lfcse = d.get("baseMean", ""), d.get("log2FoldChange", ""), d.get("lfcSE", "")
             pval, padj = d.get("pvalue", ""), d.get("padj", "")
+            stat = d.get("stat", "")
+            lfc_unshrunken = d.get("lfc_unshrunken", "")
+            shrink_type = d.get("shrink_type", "")
             na_reason = padj_na_reason(baseMean, pval, padj)
             sig = is_significant(padj, lfc, fdr, lfc_threshold)
+            sig_padj = is_significant_padj(padj, fdr)
             reason = ""
         else:
             baseMean = lfc = lfcse = pval = padj = ""
+            stat = lfc_unshrunken = shrink_type = ""
             na_reason = ""
             sig = False
+            sig_padj = False
             reason = "filtered_low_expression"
-        rows.append({
+        bm = _num(baseMean)
+        row = {
             "gene_id": gid, "contrast": contrast,
             "baseMean": baseMean, "log2FoldChange": lfc, "lfcSE": lfcse,
             "pvalue": pval, "padj": padj,
+            "stat": stat, "lfc_unshrunken": lfc_unshrunken, "shrink_type": shrink_type,
             "significant": "TRUE" if sig else "FALSE",
+            "significant_padj": "TRUE" if sig_padj else "FALSE",
+            "significant_padj_lfc1": "TRUE" if sig else "FALSE",
             "tested": "TRUE" if tested else "FALSE",
             "not_tested_reason": reason, "padj_na_reason": na_reason,
             **{c: ann.get(c, "") for c in ANNOT_COLS},
-        })
+        }
+        # 4b.1 / 4a.4: positions from the catalog + derived grouping and QC flags.
+        row["chr"] = ann.get("chromosome", "")
+        row["start"] = ann.get("start", "")
+        row["end"] = ann.get("end", "")
+        row["strand"] = ann.get("strand", "")
+        # 4b.1 (decision b): one stable id column for every gene — the catalog id
+        # for novel genes, the reference gene_id otherwise.
+        cid = ann.get("catalog_id")
+        row["gene_id_stable"] = cid if not _is_na(cid) else gid
+        row["gene_group"] = gene_group(ann)
+        row["contig_type"] = contig_type(ann.get("chromosome"))
+        row["baseMean_extreme"] = (
+            "TRUE" if (bm is not None and extreme_basemean and bm >= extreme_basemean) else "FALSE")
+        row["genome_build"] = genome_build
+        rows.append(row)
     assert_nrow(len(rows), len(universe_ids), "universe x catalog x DE join")
     return rows
 
@@ -133,8 +199,14 @@ def main():
     ap.add_argument("--contrast", required=True)
     ap.add_argument("--fdr", type=float, default=0.05)
     ap.add_argument("--lfc", type=float, default=0.0)
+    ap.add_argument("--extreme-basemean", type=float, default=100000.0,
+                    help="4a.4: baseMean at/above which baseMean_extreme is TRUE")
+    ap.add_argument("--genome-build", default="",
+                    help="4b.1: genome build recorded on every row (e.g. GRCh38)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--significant-out")
+    ap.add_argument("--lncrna-out",
+                    help="4b.4: unfiltered lncRNA-only table (annotated + novel)")
     ap.add_argument("--summary-out")
     args = ap.parse_args()
 
@@ -142,10 +214,14 @@ def main():
     catalog = _index_unique(args.catalog, "gene_id")
     de = _index_unique(args.de, "gene_id")
 
-    rows = build_contrast(universe, catalog, de, args.contrast, args.fdr, args.lfc)
+    rows = build_contrast(universe, catalog, de, args.contrast, args.fdr, args.lfc,
+                          args.extreme_basemean, args.genome_build)
 
     cols = (["gene_id", "contrast", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj",
-             "significant", "tested", "not_tested_reason", "padj_na_reason"] + ANNOT_COLS)
+             "stat", "lfc_unshrunken", "shrink_type",
+             "significant", "significant_padj", "significant_padj_lfc1",
+             "tested", "not_tested_reason", "padj_na_reason"] + ANNOT_COLS
+            + POS_COLS + DERIVED_COLS)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
@@ -161,6 +237,15 @@ def main():
             w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
             w.writeheader()
             w.writerows(sig_rows)
+    if args.lncrna_out:
+        # 4b.4: every lncRNA (annotated + novel), significant or not, so the wet
+        # lab gets a complete table to open in Excel without the coding "background".
+        lnc_rows = [r for r in rows if r["gene_group"] in ("annotated_lncRNA", "novel_lncRNA")]
+        os.makedirs(os.path.dirname(os.path.abspath(args.lncrna_out)), exist_ok=True)
+        with open(args.lncrna_out, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
+            w.writeheader()
+            w.writerows(lnc_rows)
     if args.summary_out:
         os.makedirs(os.path.dirname(os.path.abspath(args.summary_out)), exist_ok=True)
         with open(args.summary_out, "w", newline="") as fh:

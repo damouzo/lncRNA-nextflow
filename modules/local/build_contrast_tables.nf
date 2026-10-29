@@ -14,6 +14,7 @@ process BUILD_CONTRAST_TABLES {
     output:
     path "de_full.tsv"
     path "de_significant.tsv"
+    path "de_lncrna_full.tsv"
     path "summary.tsv"
     // Keyed copy for the overview builder: the contrast id is not derivable from
     // the work-dir filenames, and the downstream task collects several of these.
@@ -29,8 +30,11 @@ process BUILD_CONTRAST_TABLES {
         --contrast "${group}__${ct}" \\
         --fdr ${params.fdr_threshold} \\
         --lfc ${params.lfc_threshold} \\
+        --extreme-basemean ${params.extreme_basemean} \\
+        --genome-build "${params.genome_build ?: ''}" \\
         --out de_full.tsv \\
         --significant-out de_significant.tsv \\
+        --lncrna-out de_lncrna_full.tsv \\
         --summary-out summary.tsv
 
     emit_versions.sh "${task.process}" "${task.container}" python3 python3 --version

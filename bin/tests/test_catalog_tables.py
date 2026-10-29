@@ -84,12 +84,26 @@ def test_build():
           "reference gene defaults tier_final FALSE / n_tier1 0")
     check(g2["antisense_status"] == "not_evaluated", "reference gene antisense not_evaluated")
 
+    # 1.5: categorical tier {1a,1b,2} for novel genes, NA for reference rows.
+    g1 = [g for g in genes if g["gene_id"] == "G1"][0]
+    check(g1["tier"] in {"1a", "1b", "2"} and g1["tier"] == "1a",
+          "novel gene carries the categorical tier from novel_type")
+    check(g2["tier"] == "NA", "reference gene tier is NA (not the literal None)")
+    check(all(g["tier"] in {"1a", "1b", "2", "NA"} for g in genes),
+          "tier only takes 1a/1b/2/NA")
+
     _, novel = B.read_tsv(os.path.join(out, "novel_lncrnas.tsv"))
     check([r["gene_id"] for r in novel] == ["G1"],
           "novel_lncrnas.tsv is the origin==novel view of catalog_genes")
 
     n_tx = B.build_catalog_tx(os.path.join(d, "tier_final_transcripts.tsv"), out)
     check(n_tx == 1, "catalog_tx: 1 transcript")
+    _, tx = B.read_tsv(os.path.join(out, "catalog_tx.tsv"))
+    check(all(c in tx[0] for c in ("catalog_id", "catalog_transcript_id",
+                                   "mstrg_transcript_id", "closest_reference_transcript")),
+          "catalog_tx carries the stable-id columns")
+    check(tx[0]["catalog_id"] == "NA",
+          "catalog_tx stable ids are NA without a catalog GTF")
 
     n_cand, rows = B.build_candidates_all(os.path.join(d, "gffcmp.annotated.gtf"),
                                           os.path.join(d, "recurrence_filtered.tsv"),
@@ -120,6 +134,28 @@ def test_build():
         check(True, "parity mismatch raises SystemExit")
 
 
+def test_catalog_tx_ids():
+    # catalog_tx.tsv resolves the LNC ids + cmp_ref from the ASSIGN_CATALOG_IDS GTF.
+    d = tempfile.mkdtemp()
+    write(os.path.join(d, "tier_final_transcripts.tsv"),
+          "transcript_id\tgene_id\tclass_code\tnovel_type\ttier_static\ttier_final\n"
+          "MSTRG.351__ENST00000584329\tMSTRG.351\tk\t2\tFALSE\tFALSE\n")
+    write(os.path.join(d, "catalog.gtf"),
+          'chr1\ts\ttranscript\t1\t500\t.\t+\t.\ttranscript_id "LNC000007.1"; gene_id "LNC000007"; '
+          'cmp_ref "ENST00000584329"; class_code "k"; mstrg_gene_id "MSTRG.351"; '
+          'mstrg_transcript_id "MSTRG.351__ENST00000584329"; catalog_id "LNC000007";\n')
+    out = os.path.join(d, "out")
+    cat_map = B.parse_catalog_gtf_ids(os.path.join(d, "catalog.gtf"))
+    B.build_catalog_tx(os.path.join(d, "tier_final_transcripts.tsv"), out, cat_map)
+    _, tx = B.read_tsv(os.path.join(out, "catalog_tx.tsv"))
+    r = tx[0]
+    check(r["catalog_id"] == "LNC000007", "catalog_tx resolves gene catalog_id")
+    check(r["catalog_transcript_id"] == "LNC000007.1", "catalog_tx resolves transcript catalog id")
+    check(r["mstrg_transcript_id"] == "MSTRG.351__ENST00000584329", "catalog_tx keeps the mstrg id")
+    check(r["closest_reference_transcript"] == "ENST00000584329",
+          "catalog_tx carries the closest reference transcript (cmp_ref)")
+
+
 def test_position_class_wired():
     d = tempfile.mkdtemp()
     write(os.path.join(d, "gene_catalog.tsv"),
@@ -139,6 +175,31 @@ def test_position_class_wired():
           "build_catalog_genes adds lnc_position_class (antisense)")
     check(by["G1"]["lnc_position_gene_id"] == "CG1", "position gene_id recorded")
     check(by["CG1"]["lnc_position_class"] == "NA", "reference coding row gets NA")
+    # 4b.2b: gene_group + a built locus for every row.
+    check(by["G1"]["gene_group"] == "novel_lncRNA", "novel row gene_group")
+    check(by["CG1"]["gene_group"] == "protein_coding", "coding row gene_group")
+    check(by["CG1"]["locus"] == "1:1000-2000(+)", "reference row gets a locus built from coords")
+    check(by["G1"]["locus"] == "1:1500-1600(-)", "novel row locus built from coords")
+    check(all(g["gene_group"] in ("novel_lncRNA", "annotated_lncRNA", "protein_coding", "other")
+              for g in genes), "gene_group only takes the four allowed values")
+
+
+def test_tier_consistency_abort():
+    # H26 / 1.7: BUILD_GENE_CATALOG (R) vs COMPUTE_TIER_FINAL (Python) drift -> abort.
+    d = tempfile.mkdtemp()
+    write(os.path.join(d, "gene_catalog.tsv"),
+          "gene_id\torigin\tclass_code\tn_tier1_transcripts\ttier_static\tnovel_type\n"
+          "G1\tnovel\tu\t2\tTRUE\t1a\n")
+    write(os.path.join(d, "tier_final_genes.tsv"),
+          "gene_id\ttier_static\tn_tier1_transcripts\tantisense_status\ttier_final\n"
+          "G1\tFALSE\t2\tevaluated\tFALSE\n")
+    out = os.path.join(d, "out")
+    tier_final = B.index_unique(os.path.join(d, "tier_final_genes.tsv"), "gene_id")
+    try:
+        B.build_catalog_genes(os.path.join(d, "gene_catalog.tsv"), tier_final, out)
+        check(False, "tier_static mismatch must raise SystemExit")
+    except SystemExit:
+        check(True, "tier_static mismatch raises SystemExit (H26 abort)")
 
 
 def test_cli():
@@ -165,7 +226,8 @@ def test_cli():
 
 
 def main():
-    for fn in (test_build, test_position_class_wired, test_cli):
+    for fn in (test_build, test_catalog_tx_ids, test_position_class_wired,
+               test_tier_consistency_abort, test_cli):
         fn()
     print()
     if FAILS:

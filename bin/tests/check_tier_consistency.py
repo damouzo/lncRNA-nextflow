@@ -48,6 +48,13 @@ def main():
         if t.get("tier_static") != t.get("tier_final"):
             mismatches.append((gid, "D1 broken: tier_final %s != tier_static %s"
                                % (t.get("tier_final"), t.get("tier_static"))))
+        # 1.5: the tier is categorical, 1a/1b/2 (novel_type carries the category).
+        if g.get("novel_type") != t.get("novel_type"):
+            mismatches.append((gid, "novel_type %s != %s"
+                               % (g.get("novel_type"), t.get("novel_type"))))
+        if t.get("novel_type") not in ("1a", "1b", "2"):
+            mismatches.append((gid, "tier category '%s' not in {1a,1b,2}"
+                               % t.get("novel_type")))
 
     print("novel genes: gene_catalog=%d, tier_final=%d, mismatches=%d"
           % (len(gc), len(tf), len(mismatches)))

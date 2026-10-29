@@ -220,7 +220,8 @@ def test_builder():
     check(universe == ["A", "B", "C", "D"], "universe order preserved")
     catalog = B._index_unique(os.path.join(d, "catalog_genes.tsv"), "gene_id")
     de = B._index_unique(os.path.join(d, "de.tsv"), "gene_id")
-    rows = B.build_contrast(universe, catalog, de, "c1", 0.05, 0.0)
+    rows = B.build_contrast(universe, catalog, de, "c1", 0.05, 0.0,
+                            extreme_basemean=0.0, genome_build="")
     by = {r["gene_id"]: r for r in rows}
     check(len(rows) == 4, "de_full has one row per universe gene")
     check(by["A"]["significant"] == "TRUE" and by["A"]["tested"] == "TRUE", "A tested+significant")

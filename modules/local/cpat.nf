@@ -10,6 +10,8 @@ process CPAT {
 
     output:
     path "cpat_results.tsv", emit: cpat_output
+    // 3.2: full CPAT ORF-probability table (raw evidence), published to raw/cpat.
+    path "cpat.ORF_prob.best.tsv", emit: cpat_orf_best
 
     script:
     """

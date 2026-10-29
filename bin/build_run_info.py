@@ -142,6 +142,10 @@ def main():
     ap.add_argument("--thresholds", default=None)
     ap.add_argument("--gene-catalog", default=None)
     ap.add_argument("--sensitivity", default=None)
+    ap.add_argument("--qc-controls", default=None,
+                    help="QC_CONTROLS qc_controls.tsv (positive-control report)")
+    ap.add_argument("--length-offset", action="append", default=[],
+                    help="2.1: per-group <group>_length_offset.txt (repeatable)")
     ap.add_argument("--versions-yml", nargs="+", action="append", default=[],
                     help="versions.yml files emitted by the tool processes. Several "
                          "files per flag and repeated flags both work (argparse would "
@@ -161,6 +165,10 @@ def main():
     ap.add_argument("--lfc", default="")
     ap.add_argument("--catalog", action="append", default=[],
                     help="name=path of a configured external catalog (repeatable)")
+    ap.add_argument("--param", action="append", default=[],
+                    help="extra key=value row for params_used.tsv (repeatable)")
+    ap.add_argument("--manifest-entry", action="append", default=[],
+                    help="extra key=value row for run_manifest.tsv (repeatable)")
     args = ap.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
@@ -177,6 +185,9 @@ def main():
         ("fdr_threshold", args.fdr), ("lfc_threshold", args.lfc),
         ("publish_level", args.publish_level),
     ]
+    for item in args.param:
+        if "=" in item:
+            params.append(tuple(item.split("=", 1)))
     write_tsv(out("params_used.tsv"), ["param", "value"], params)
 
     # versions.tsv — one row per emitting process, from the real container
@@ -194,13 +205,42 @@ def main():
 
     # run_manifest.tsv
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    write_tsv(out("run_manifest.tsv"), ["key", "value"], [
+    manifest = [
         ("run_date_utc", now),
         ("pipeline_version", args.pipeline_version),
         ("publish_level", args.publish_level),
         ("outdir", args.outdir_param),
         ("n_samples", str(len(rows))),
-    ])
+    ]
+    for item in args.manifest_entry:
+        if "=" in item:
+            manifest.append(tuple(item.split("=", 1)))
+    write_tsv(out("run_manifest.tsv"), ["key", "value"], manifest)
+
+    # qc_controls.tsv - positive-control report, produced by QC_CONTROLS. Copied
+    # verbatim so the run_info tree carries it next to the other audit tables.
+    # Written under a "__" prefix because the input is staged in this task dir as
+    # `qc_controls.tsv`: writing the same basename would open (and truncate) the
+    # staged symlink target, i.e. corrupt QC_CONTROLS's cached output.
+    if args.qc_controls and os.path.exists(args.qc_controls):
+        with open(args.qc_controls) as src, open(out("__qc_controls.tsv"), "w") as dst:
+            dst.write(src.read())
+
+    # length_offset_used.tsv - 2.1: one row per norm_group (TRUE = DE ran on the
+    # tximport object with the transcript-length offset; FALSE = --allow-no-offset).
+    if args.length_offset:
+        rows_off = []
+        for path in args.length_offset:
+            if not os.path.exists(path):
+                continue
+            with open(path) as fh:
+                for i, line in enumerate(fh):
+                    parts = line.rstrip("\n").split("\t")
+                    if i == 0 and parts and parts[0] == "group":
+                        continue  # header
+                    if len(parts) >= 2 and parts[0]:
+                        rows_off.append((parts[0], parts[1]))
+        write_tsv(out("length_offset_used.tsv"), ["group", "length_offset_used"], rows_off)
 
     # external_catalogs.tsv
     cat_rows = []

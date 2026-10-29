@@ -23,7 +23,7 @@ process CODING_CONSENSUS {
                        stringsAsFactors = FALSE, comment.char = "")
 
     colnames(cpc2)[1] <- "ID"
-    cpc2_noncode <- subset(cpc2, coding_probability < 0.5)
+    cpc2_noncode <- subset(cpc2, coding_probability < ${params.cpc2_coding_threshold})
 
     merged <- merge(
         cpat[, c("ID", "mRNA")],

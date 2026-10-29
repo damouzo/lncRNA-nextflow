@@ -9,6 +9,7 @@ process SPLIT_BY_NORMGROUP {
 
     output:
     path "coldata_*.csv", emit: per_group
+    path "sample_metadata_*.tsv", emit: per_group_metadata
 
     script:
     """
@@ -24,7 +25,7 @@ process SPLIT_BY_NORMGROUP {
     # norm_group becomes a path component in publishDir targets and in the
     # coldata_<group>.csv file names, so reject anything that could escape the
     # output tree before writing a single file.
-    bad <- groups[!grepl("^[A-Za-z0-9_.-]+$", groups) | groups %in% c(".", "..")]
+    bad <- groups[!grepl("^[A-Za-z0-9_.-]+\$", groups) | groups %in% c(".", "..")]
     if (length(bad) > 0) {
         stop(sprintf("norm_group must match [A-Za-z0-9_.-]+ and not be '.' or '..' (used in output paths): %s",
                      paste(bad, collapse = ", ")))
@@ -38,6 +39,9 @@ process SPLIT_BY_NORMGROUP {
                    drop = FALSE]
         outfile <- paste0("coldata_", g, ".csv")
         write.csv(sub, outfile, row.names = FALSE, quote = FALSE)
+        # Real TSV deliverable (the .csv above is internal to TXIMPORT_AND_FILTER).
+        write.table(sub, paste0("sample_metadata_", g, ".tsv"),
+                    sep = "\\t", row.names = FALSE, quote = FALSE)
         cat(sprintf("Wrote %s (%d samples)\\n", outfile, nrow(sub)))
     }
     """

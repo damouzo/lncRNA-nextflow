@@ -9,7 +9,7 @@
 process DESEQ2_DE {
 
     input:
-    tuple val(group), path(counts_rds), path(coldata_csv), path(contrasts_tsv)
+    tuple val(group), path(counts_rds), path(tximport_dds), path(coldata_csv), path(contrasts_tsv)
     val design_formula
 
     output:
@@ -19,6 +19,9 @@ process DESEQ2_DE {
     tuple val(group), path("${group}_deseq2_results/padj_na_summary.tsv"), emit: padj_na_summary
     tuple val(group), path("${group}_deseq2_results/contrasts_summary.tsv"), emit: contrasts_summary
     tuple val(group), path("${group}_deseq2_results/*_DE.tsv"), emit: de_per_contrast
+    // 2.1: per-group flag saying whether the tximport length offset was used.
+    // Group-prefixed by the script so the collected basenames stay unique.
+    tuple val(group), path("${group}_deseq2_results/${group}_length_offset.txt"), emit: length_offset
     path "versions.yml", emit: versions
 
     script:
@@ -26,12 +29,15 @@ process DESEQ2_DE {
     deseq2_contrasts.R \\
         --group "${group}" \\
         --counts "${counts_rds}" \\
+        --dds "${tximport_dds}" \\
         --coldata "${coldata_csv}" \\
         --contrasts "${contrasts_tsv}" \\
         --design-formula "${design_formula}" \\
         --fdr ${params.fdr_threshold} \\
+        --allow-no-offset ${params.allow_no_offset} \\
         --outdir .
 
     emit_versions.sh "${task.process}" "${task.container}" R R --version
+    emit_r_versions.sh "${task.process}" "${task.container}" DESeq2 apeglm ashr
     """
 }

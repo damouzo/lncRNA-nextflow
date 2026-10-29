@@ -24,6 +24,9 @@ import f1_common as C  # noqa: E402
 
 SETS = ("novel_tier1", "novel_tier2", "annotated_lncrna")
 
+# TPM tables may carry annotation columns next to gene_id; never count them as samples.
+EXPR_ANNOT_COLS = {"gene_id", "gene_group", "catalog_id", "class_code", "origin"}
+
 
 def _write(outdir, name, header, rows):
     os.makedirs(outdir, exist_ok=True)
@@ -46,7 +49,7 @@ def load_expression(paths):
     expr = {}
     for p in paths:
         header, rows = C.read_tsv(p)
-        cols = [c for c in header if c != "gene_id"]
+        cols = [c for c in header if c not in EXPR_ANNOT_COLS]
         for r in rows:
             vals = [v for v in (_num(r.get(c)) for c in cols) if v is not None]
             expr.setdefault(r["gene_id"], []).extend(vals)

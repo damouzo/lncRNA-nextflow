@@ -25,8 +25,11 @@ process CIS_ASSOCIATIONS {
         --cis-window ${params.cis_window} \\
         --fdr ${params.fdr_threshold} \\
         --normalize ${params.cis_normalize} \\
+        --min-samples ${params.cis_min_samples} \\
+        --min-abs-rho ${params.cis_min_abs_rho} \\
         --outdir .
 
     emit_versions.sh "${task.process}" "${task.container}" R R --version
+    emit_r_versions.sh "${task.process}" "${task.container}" DESeq2 limma ashr
     """
 }

@@ -36,6 +36,8 @@ group <- get_arg("--group")
 counts_rds <- get_arg("--counts")
 coldata_csv <- get_arg("--coldata")
 contrasts_tsv <- get_arg("--contrasts")
+dds_rds <- get_arg("--dds", NULL)
+allow_no_offset <- tolower(get_arg("--allow-no-offset", "false")) %in% c("true", "t", "1", "yes")
 formula <- get_arg("--design-formula", "~ condition")
 fdr <- as.numeric(get_arg("--fdr", "0.05"))
 outdir <- get_arg("--outdir", ".")
@@ -47,7 +49,40 @@ dir.create(res_dir, showWarnings = FALSE, recursive = TRUE)
 
 counts <- readRDS(counts_rds)
 coldata <- read.csv(coldata_csv, stringsAsFactors = FALSE)
-rownames(coldata) <- colnames(counts)
+# H0: align by sample name, never positionally. colnames(counts) follows the
+# quant-dir listing order (alphabetical), which need not match the coldata order.
+if (!("sample" %in% colnames(coldata))) {
+  stop("coldata must have a 'sample' column to align it against the counts matrix")
+}
+rownames(coldata) <- coldata$sample
+coldata <- coldata[match(colnames(counts), coldata$sample), , drop = FALSE]
+stopifnot(!anyNA(coldata$sample),
+          identical(as.character(coldata$sample), colnames(counts)))
+
+# 2.1: the tximport object (carrying the transcript-length offset) is optional.
+# When present the DE runs on it, so differences in effective transcript length
+# are accounted for; otherwise the raw counts matrix is used (fallback for older
+# runs and the offline tests).
+dds_all <- NULL
+if (!is.null(dds_rds) && file.exists(dds_rds)) {
+  dds_all <- readRDS(dds_rds)
+  if (!all(colnames(counts) %in% colnames(dds_all))) {
+    stop("dds rds does not contain every sample of the counts matrix")
+  }
+  dds_all <- dds_all[, colnames(counts), drop = FALSE]
+}
+
+# 2.1: never fall back to the raw counts matrix silently. Without the tximport
+# object the transcript-length offset is lost and DE is length-biased; require an
+# explicit --allow-no-offset to accept that.
+if (is.null(dds_all) && !allow_no_offset) {
+  stop(paste("no tximport object (--dds) was provided and --allow-no-offset is false:",
+             "refusing to run DESeq2 on the counts matrix without the average",
+             "transcript-length offset (task 2.1). Pass --dds, or set",
+             "--allow-no-offset true to accept the length-bias caveat."))
+}
+length_offset_used <- !is.null(dds_all)
+cat(sprintf("length_offset_used: %s\n", length_offset_used))
 
 # Collapse ~ batch + condition to ~ condition when batch has a single level.
 formula_used <- formula
@@ -115,6 +150,14 @@ for (i in seq_len(nrow(contrasts))) {
     design <- as.formula(formula_used)
   }
 
+  # DESeq2 rejects character variables in the design formula. The aligned coldata
+  # is read with stringsAsFactors = FALSE and the reused tximport dds keeps those
+  # columns as character, so coerce every non-sample column to factor here.
+  for (col in setdiff(colnames(sub_coldata), "sample")) {
+    if (is.character(sub_coldata[[col]])) {
+      sub_coldata[[col]] <- factor(sub_coldata[[col]])
+    }
+  }
   sub_coldata$condition <- factor(sub_coldata$condition, levels = unique(sub_coldata$condition))
   if (!(num %in% levels(sub_coldata$condition))) {
     cat(sprintf("  SKIP: numerator '%s' not in condition levels\n", num)); next
@@ -126,8 +169,17 @@ for (i in seq_len(nrow(contrasts))) {
 
   # F3.5: no lfcThreshold here — alpha only.
   res <- tryCatch({
-    dds <- DESeqDataSetFromMatrix(countData = sub_counts, colData = sub_coldata, design = design)
-    dds$condition <- droplevels(dds$condition)
+    if (!is.null(dds_all)) {
+      # 2.1: reuse the tximport object so the offsets (avgTxLength) are kept.
+      dds <- dds_all[, colnames(sub_counts), drop = FALSE]
+      colData(dds)$condition <- sub_coldata$condition
+      if ("batch" %in% colnames(sub_coldata)) colData(dds)$batch <- sub_coldata$batch
+      design(dds) <- design
+      dds$condition <- droplevels(dds$condition)
+    } else {
+      dds <- DESeqDataSetFromMatrix(countData = sub_counts, colData = sub_coldata, design = design)
+      dds$condition <- droplevels(dds$condition)
+    }
     dds <- DESeq(dds)
     results(dds, contrast = c("condition", num, den), alpha = fdr)
   }, error = function(e) {
@@ -137,18 +189,23 @@ for (i in seq_len(nrow(contrasts))) {
 
   # lfcShrink(res = res) keeps res' pvalue/padj and gives the shrunken LFC that
   # build_contrast_tables.py reads via the log2FoldChange column.
+  coef_used <- resultsNames(dds)[grep(paste0("condition_", make.names(num)), resultsNames(dds))]
+  shrink_type_used <- "apeglm"
   res_shrunk <- tryCatch({
-    lfcShrink(dds, res = res, coef = resultsNames(dds)[grep(
-      paste0("condition_", make.names(num)), resultsNames(dds))],
-      type = "apeglm", quiet = TRUE)
+    lfcShrink(dds, res = res, coef = coef_used, type = "apeglm", quiet = TRUE)
   }, error = function(e) {
     cat(sprintf("  WARNING: apeglm failed (%s), using ashr\n", e$message))
-    lfcShrink(dds, res = res, coef = resultsNames(dds)[grep(
-      paste0("condition_", make.names(num)), resultsNames(dds))],
-      type = "ashr", quiet = TRUE)
+    shrink_type_used <<- "ashr"
+    lfcShrink(dds, res = res, coef = coef_used, type = "ashr", quiet = TRUE)
   })
 
   res_df <- as.data.frame(res_shrunk)
+  # H4 / 1.2: keep the unshrunken test statistics next to the shrunken LFC.
+  # log2FoldChange (shrunken) drives the `significant` flag; lfc_unshrunken and
+  # stat are the raw Wald estimates and never enter the cutoff.
+  res_df$lfc_unshrunken <- res$log2FoldChange
+  res_df$stat <- res$stat
+  res_df$shrink_type <- shrink_type_used
   res_df$contrast <- ct_name
   res_df$gene_id <- rownames(res_df)
   res_df$batch_subset <- if (is.null(ct_batch)) "all" else ct_batch
@@ -174,6 +231,7 @@ for (i in seq_len(nrow(contrasts))) {
     independent_filtering = isTRUE(metadata(res)$independentFiltering),
     filter_threshold = if (is.null(ft)) NA_real_ else as.numeric(ft),
     alpha = fdr,
+    length_offset_used = length_offset_used,
     stringsAsFactors = FALSE
   )
 
@@ -193,5 +251,12 @@ if (length(na_summary) > 0) {
 }
 
 if (exists("saved_dds")) saveRDS(saved_dds, file.path(res_dir, "dds.rds"))
+
+# 2.1: per-group flag, folded into run_info by PUBLISH_RUN_INFO.
+# Group-prefixed basename: PUBLISH_RUN_INFO stages all groups' files flat, so a
+# shared name would collide ("input file name collision").
+writeLines(c("group\tlength_offset_used",
+             sprintf("%s\t%s", group, if (length_offset_used) "TRUE" else "FALSE")),
+           file.path(res_dir, paste0(group, "_length_offset.txt")))
 
 cat("DONE\n")

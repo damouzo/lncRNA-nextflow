@@ -21,6 +21,7 @@ include { BUILD_CONTRAST_TABLES } from '../modules/local/build_contrast_tables'
 include { SPLIT_ENRICHMENT }     from '../modules/local/split_enrichment'
 include { BUILD_CONTRASTS_OVERVIEW } from '../modules/local/build_contrasts_overview'
 include { CHECK_DELIVERABLES }   from '../modules/local/check_deliverables'
+include { QC_CONTROLS }          from '../modules/local/qc_controls'
 
 workflow QUANTIFICATION {
     take:
@@ -39,6 +40,9 @@ workflow QUANTIFICATION {
     // instead of zipping positionally and silently limiting execution to one group.
     ch_tx2gene      = tx2gene_detailed.first()
     ch_gene_catalog = gene_catalog.first()
+    // catalog_genes.tsv is the annotated superset of gene_catalog.tsv (adds
+    // lnc_position_class + gene_group); used by tximport TSVs, cis and the report.
+    ch_catalog_genes = catalog_genes.first()
     ch_novelty      = novelty_status.first()
     ch_strandedness = strandedness.first()
 
@@ -54,18 +58,21 @@ workflow QUANTIFICATION {
     ch_txi_in = ch_per_group.map { group, coldata, quants, _ct_tsv ->
         tuple(group, quants, coldata)
     }
-    TXIMPORT_AND_FILTER(ch_txi_in, ch_tx2gene)
+    TXIMPORT_AND_FILTER(ch_txi_in, ch_tx2gene, ch_catalog_genes)
 
     // B4: DESeq2 differential expression
-    // Join the finished counts with each group's coldata + contrasts by key;
-    // never positionally — completion order != submission order.
-    ch_deseq_key = ch_per_group.map { group, coldata, _quants, ct_tsv ->
-        tuple(group, coldata, ct_tsv)
+    // Join the finished counts with the ALIGNED coldata (counts column order) plus
+    // contrasts by key. H0: never use SPLIT_BY_NORMGROUP's coldata here — its rows
+    // follow the samplesheet, not the quant-dir order of the counts matrix.
+    ch_deseq_key = ch_per_group.map { group, _coldata, _quants, ct_tsv ->
+        tuple(group, ct_tsv)
     }
     ch_deseq = TXIMPORT_AND_FILTER.out.counts_rds
+        .join(TXIMPORT_AND_FILTER.out.dds_rds)
+        .join(TXIMPORT_AND_FILTER.out.aligned_coldata)
         .join(ch_deseq_key)
-        .map { group, counts, coldata, ct_tsv ->
-            tuple(group, counts, coldata, ct_tsv)
+        .map { group, counts, dds, coldata, ct_tsv ->
+            tuple(group, counts, dds, coldata, ct_tsv)
         }
 
     DESEQ2_DE(ch_deseq, design_formula)
@@ -78,6 +85,19 @@ workflow QUANTIFICATION {
                 tuple(group, f.name.replaceFirst(/_DE\.tsv$/, ''), f)
             }
         }
+
+    // DDX41/DHX34 positive-control report over all DE tables (diagnostic only,
+    // never fails the run). The manifest carries the
+    // (group, contrast) of each table because a staged `path` list is flattened.
+    // The process is launched at the very end (after BUILD_CONTRASTS_OVERVIEW) so
+    // the guard runs after the deliverables are computed and published.
+    ch_contrasts_ref = ch_per_group.map { _g, _c, _quants, ct_tsv -> ct_tsv }.first()
+    ch_qc_de = ch_de_ct.map { _g, _ct, de_tsv -> de_tsv }.collect()
+    ch_qc_manifest = ch_de_ct
+        .map { g, ct, de_tsv -> "${g}\t${ct}\t${de_tsv.name}" }
+        .collectFile(name: 'qc_de_manifest.tsv', newLine: true,
+                     seed: 'group\tcontrast\tfile\n')
+
     if (params.export_xlsx) {
         MAKE_XLSX(ch_de_ct)
     }
@@ -86,14 +106,15 @@ workflow QUANTIFICATION {
     ch_deseq_summary = DESEQ2_DE.out.contrasts_summary
 
     // B5: Cis-regulatory candidate associations (novel + annotated lncRNAs)
+    // H0: use the counts-aligned coldata, not SPLIT_BY_NORMGROUP's.
     ch_cis = TXIMPORT_AND_FILTER.out.counts_rds
         .join(ch_deseq_summary)
-        .join(ch_per_group.map { group, coldata, _quants, _ct_tsv -> tuple(group, coldata) })
+        .join(TXIMPORT_AND_FILTER.out.aligned_coldata)
         .map { group, counts, summary, coldata ->
             tuple(group, counts, summary, coldata)
         }
 
-    CIS_ASSOCIATIONS(ch_cis, ch_gene_catalog)
+    CIS_ASSOCIATIONS(ch_cis, ch_catalog_genes)
 
     // B6: Functional enrichment (ORA + GSEA on protein-coding cis targets)
     ch_enrich = CIS_ASSOCIATIONS.out.cis_pairs_sig
@@ -114,11 +135,12 @@ workflow QUANTIFICATION {
         .filter { group -> (params.heterogeneity_analysis?.get(group) ?: false) as boolean }
         .map { group -> tuple(group, true) }
 
-    ch_het_key = ch_per_group.map { group, coldata, _quants, ct_tsv ->
-        tuple(group, coldata, ct_tsv)
+    ch_het_key = ch_per_group.map { group, _coldata, _quants, ct_tsv ->
+        tuple(group, ct_tsv)
     }
     ch_het_in = TXIMPORT_AND_FILTER.out.counts_rds
         .join(TXIMPORT_AND_FILTER.out.tpm_rds)
+        .join(TXIMPORT_AND_FILTER.out.aligned_coldata)
         .join(ch_het_key)
         .join(ch_het_enabled_groups)
         .map { group, counts, tpm, coldata, ct_tsv, _flag ->
@@ -178,8 +200,7 @@ workflow QUANTIFICATION {
         .join(FUNCTIONAL_ENRICHMENT.out.gsea_results)
         .join(ch_het_summary_all)
         .join(ch_het_cv_summary_all)
-        .join(ch_per_group.map { group, coldata, _quants, _ct_tsv ->
-            tuple(group, coldata) })
+        .join(TXIMPORT_AND_FILTER.out.aligned_coldata)
         .join(TXIMPORT_AND_FILTER.out.tpm_rds)
         .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm ->
             tuple(g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm)
@@ -199,7 +220,7 @@ workflow QUANTIFICATION {
     REPORT_CONTRAST(
         ch_rpt,
         channel.value(file("${params.report_template ?: projectDir + '/assets/report_template.qmd'}")),
-        ch_gene_catalog,
+        ch_catalog_genes,
         ch_novelty,
         ch_strandedness
     )
@@ -240,6 +261,12 @@ workflow QUANTIFICATION {
     BUILD_CONTRASTS_OVERVIEW(ch_overview_summaries, ch_overview_significant,
                              catalog_genes.first())
 
+    // Positive-control report, launched last: it depends on the overview so it
+    // runs after every deliverables file (counts, DE tables, reports, overview)
+    // has been computed and published. Diagnostic only.
+    QC_CONTROLS(ch_qc_de, ch_qc_manifest, ch_contrasts_ref,
+                BUILD_CONTRASTS_OVERVIEW.out.overview)
+
     // Final guard: fail the run if the per-contrast stage did not receive every
     // (group, contrast) that SPLIT_CONTRASTS declared for a group. The ids are
     // compared on the channel values, not on the published tree: publishDir copies
@@ -256,6 +283,7 @@ workflow QUANTIFICATION {
     CHECK_DELIVERABLES(
         ch_expected_contrast_ids,
         ch_delivered_contrast_ids,
+        ch_contrasts_ref,
         BUILD_CONTRASTS_OVERVIEW.out.overview,
         channel.value(file("${projectDir}/docs/deliverables_contract.json"))
     )
@@ -272,6 +300,7 @@ workflow QUANTIFICATION {
         .mix(SPLIT_ENRICHMENT.out.versions)
         .mix(BUILD_CONTRASTS_OVERVIEW.out.versions)
         .mix(CHECK_DELIVERABLES.out.versions)
+        .mix(QC_CONTROLS.out.versions)
 
     emit:
     versions         = ch_versions
@@ -281,4 +310,7 @@ workflow QUANTIFICATION {
     enrichment       = FUNCTIONAL_ENRICHMENT.out.ora_results
     heterogeneity    = HETEROGENEITY_ANALYSIS.out.heterogeneity_summary
     reports          = REPORT_CONTRAST.out.reports
+    qc_controls      = QC_CONTROLS.out.qc_controls
+    universe         = TXIMPORT_AND_FILTER.out.universe_tsv.map { _g, f -> f }.collect()
+    length_offset    = DESEQ2_DE.out.length_offset.map { _g, f -> f }.collect()
 }

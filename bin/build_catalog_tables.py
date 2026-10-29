@@ -6,7 +6,10 @@ Stdlib only (csv), no pandas. Inputs are native pipeline artifacts:
   catalog_genes.tsv        gene_catalog.tsv (full universe) LEFT JOIN tier_final_genes.tsv
                            + antisense_status + lnc_position_class (F5.4). One row per gene
                            of the universe; tiers are labels, never a filter.
-  catalog_tx.tsv           tier_final_transcripts.tsv (frozen catalog, transcript level).
+  catalog_tx.tsv           tier_final_transcripts.tsv (frozen catalog, transcript level)
+                           with stable ids resolved from the ASSIGN_CATALOG_IDS GTF
+                           (catalog_id, catalog_transcript_id, mstrg_transcript_id and
+                           closest_reference_transcript = gffcompare cmp_ref).
   candidates_all.tsv       F4.3b: every merged candidate (class != '=') with
                            filter_status/filter_reason across the discovery funnel
                            (artifact class -> length -> coding -> recurrence -> frozen).
@@ -18,6 +21,7 @@ decision from recurrence_filtered.tsv (keyed by transcript id). Nothing is dropp
 CLI:
   build_catalog_tables.py --gene-catalog gene_catalog.tsv \
       --tier-final-genes tier_final_genes.tsv --tier-final-transcripts tier_final_transcripts.tsv \
+      [--catalog-gtf frozen_lncrna.catalog.gtf] \
       [--gffcmp-gtf gffcmp.annotated.gtf] [--length-filtered-gtf transcripts_length_filtered.gtf] \
       [--recurrence recurrence_filtered.tsv] [--frozen-gtf frozen_lncrna.gtf] \
       --min-length 200 --outdir deliverables/catalog
@@ -38,19 +42,21 @@ KEEP_CLASSES = {"u", "i", "x", "j", "o", "c", "k", "m", "n"}
 EXCLUDE_CLASSES = {"e", "p", "s", "r"}
 
 GENES_COLS = [
-    "gene_id", "origin", "class_code", "tier_static", "tier_final",
+    "gene_id", "origin", "class_code", "tier", "tier_static", "tier_final",
     "n_tier1_transcripts", "single_exon_low_confidence", "antisense_status",
     "gene_name", "chromosome", "start", "end", "strand", "gene_biotype",
-    "parent_biotype", "novel_type", "catalog_id", "locus",
+    "parent_biotype", "novel_type", "catalog_id", "locus", "gene_group",
     "ref_gene_id", "ref_gene_name", "ref_gene_relation", "ref_gene_distance",
     "known_catalog_hit", "catalog_sources",
     "x_host_leak_suspect", "thresholds_status", "conservation_mean",
 ] + LP.POSITION_COLS
 TX_COLS = [
-    "transcript_id", "gene_id", "class_code", "tier_static", "tier_final",
+    "transcript_id", "gene_id", "class_code", "tier", "tier_static", "tier_final",
     "parent_biotype", "novel_type", "monoexonic", "single_exon_low_confidence",
     "antisense_status", "x_host_leak_suspect", "n_groups_evaluated",
     "thresholds_status",
+    "catalog_id", "catalog_transcript_id", "mstrg_transcript_id",
+    "closest_reference_transcript",
 ]
 CAND_COLS = [
     "transcript_id", "class_code", "length", "filter_status", "filter_reason",
@@ -97,6 +103,30 @@ def _na(v):
     return v is None or str(v) in IS_NA
 
 
+def gene_group(row):
+    """Coarse group from biotype (mirrors build_contrast_tables.gene_group): origin
+    alone lumps protein-coding with pseudogenes/TEC/TR under 'reference_other'."""
+    origin = row.get("origin", "")
+    if origin == "novel":
+        return "novel_lncRNA"
+    if origin == "annotated_lncrna":
+        return "annotated_lncRNA"
+    if (row.get("gene_biotype") or "").strip() == "protein_coding":
+        return "protein_coding"
+    return "other"
+
+
+def _fill_locus(row):
+    """All genes get a locus string; reference rows do not carry one from the
+    registry, so it is built from the coordinates already in the catalog."""
+    if not _na(row.get("locus")):
+        return
+    ch, s, e, st = row.get("chromosome"), row.get("start"), row.get("end"), row.get("strand")
+    if any(_na(x) for x in (ch, s, e, st)):
+        return
+    row["locus"] = "%s:%s-%s(%s)" % (ch, s, e, st)
+
+
 def build_catalog_genes(gene_catalog, tier_final, out_dir):
     header, rows = read_tsv(gene_catalog)
     seen = set()
@@ -107,9 +137,26 @@ def build_catalog_genes(gene_catalog, tier_final, out_dir):
             raise SystemExit("duplicate gene_id '%s' in %s" % (gid, gene_catalog))
         seen.add(gid)
         tf = tier_final.get(gid, {})
+        # H26 / 1.7: BUILD_GENE_CATALOG (R) and COMPUTE_TIER_FINAL (Python) compute
+        # the same tier rule; assert they agree in-run so a drift aborts the run
+        # instead of publishing an inconsistent catalog.
+        if g.get("origin") == "novel":
+            if not tf:
+                raise SystemExit("tier consistency: novel gene %s missing from tier_final_genes.tsv" % gid)
+            if "tier_static" in tf and str(g.get("tier_static")) != str(tf.get("tier_static")):
+                raise SystemExit("tier consistency: %s tier_static %s (R) != %s (Python)"
+                                 % (gid, g.get("tier_static"), tf.get("tier_static")))
+            if ("n_tier1_transcripts" in tf and
+                    str(g.get("n_tier1_transcripts")) != str(tf.get("n_tier1_transcripts"))):
+                raise SystemExit("tier consistency: %s n_tier1_transcripts %s (R) != %s (Python)"
+                                 % (gid, g.get("n_tier1_transcripts"), tf.get("n_tier1_transcripts")))
         n_tier1 = g.get("n_tier1_transcripts")
         row = dict(g)
         row["tier_final"] = (tf.get("tier_final") if tf else None) or "FALSE"
+        # 1.5: categorical tier {1a,1b,2} for novel genes; NA for reference rows.
+        # novel_type already carries the category from BUILD_GENE_CATALOG.
+        nt = g.get("novel_type")
+        row["tier"] = nt if (g.get("origin") == "novel" and not _na(nt)) else "NA"
         row["n_tier1_transcripts"] = "0" if _na(n_tier1) else n_tier1
         row["tier_static"] = g.get("tier_static") if not _na(g.get("tier_static")) else "FALSE"
         row["single_exon_low_confidence"] = (
@@ -121,6 +168,11 @@ def build_catalog_genes(gene_catalog, tier_final, out_dir):
         out.append(row)
     # F5.4: lncRNA position class vs reference protein-coding genes (gene span).
     LP.annotate_rows(out)
+    # 4b.2b: gene_group + a locus string for every row (the registry only fills
+    # the novel ones), so the catalog reads the same way as the DE tables.
+    for r in out:
+        _fill_locus(r)
+        r["gene_group"] = gene_group(r)
     cols = GENES_COLS + [c for c in header if c not in GENES_COLS]
     n = write_tsv(os.path.join(out_dir, "catalog_genes.tsv"), cols, out)
     # F4.3: novel-only view. A filter of the full catalog, not a source of truth:
@@ -131,11 +183,54 @@ def build_catalog_genes(gene_catalog, tier_final, out_dir):
     return n, n_tier1_genes
 
 
-def build_catalog_tx(tier_final_tx, out_dir):
+def parse_catalog_gtf_ids(path):
+    """mstrg_transcript_id -> stable ids from the catalog GTF (ASSIGN_CATALOG_IDS).
+
+    The frozen GTF is keyed by the MSTRG (or disambiguated `MSTRG.x__ENST...`)
+    transcript id, which is what catalog_tx.tsv carries. The catalog GTF adds the
+    LNC gene/transcript ids and keeps gffcompare's `cmp_ref` (closest reference
+    transcript), so one pass resolves every stable id without extra joins.
+    """
+    out = {}
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 9 or parts[2] != "transcript":
+                continue
+            attrs = {}
+            for item in parts[8].rstrip(";").split("; "):
+                if " " in item:
+                    key, val = item.split(" ", 1)
+                    attrs[key] = val.strip().strip('"')
+            mstrg = attrs.get("mstrg_transcript_id")
+            if not mstrg:
+                continue
+            out[mstrg] = {
+                "catalog_id": attrs.get("catalog_id") or "NA",
+                "catalog_transcript_id": attrs.get("transcript_id") or "NA",
+                "mstrg_transcript_id": mstrg,
+                "closest_reference_transcript": attrs.get("cmp_ref") or "NA",
+            }
+    return out
+
+
+def build_catalog_tx(tier_final_tx, out_dir, cat_map=None):
     header, rows = read_tsv(tier_final_tx)
     for k in ("transcript_id", "gene_id"):
         if k not in header:
             raise SystemExit("%s: missing '%s' column" % (tier_final_tx, k))
+    cat_map = cat_map or {}
+    for r in rows:
+        # 1.5: transcript-level categorical tier (the frozen catalog is novel only).
+        nt = r.get("novel_type")
+        r["tier"] = nt if not _na(nt) else "NA"
+        # Stable ids from the catalog GTF; all-NA when it is not provided (tests).
+        info = cat_map.get(r.get("transcript_id", "")) or {}
+        for col in ("catalog_id", "catalog_transcript_id", "mstrg_transcript_id",
+                    "closest_reference_transcript"):
+            r[col] = info.get(col, "NA")
     n = write_tsv(os.path.join(out_dir, "catalog_tx.tsv"),
                   TX_COLS + [c for c in header if c not in TX_COLS], rows)
     return n
@@ -251,6 +346,8 @@ def main():
     ap.add_argument("--tier-final-genes", required=True)
     ap.add_argument("--tier-final-transcripts", required=True)
     ap.add_argument("--gffcmp-gtf", default=None)
+    ap.add_argument("--catalog-gtf", default=None,
+                    help="ASSIGN_CATALOG_IDS GTF; adds stable LNC ids to catalog_tx.tsv")
     ap.add_argument("--length-filtered-gtf", default=None,
                     help="TRANSCRIPT_LENGTH_FILTER kept GTF; enables parity check")
     ap.add_argument("--recurrence", default=None)
@@ -261,7 +358,8 @@ def main():
 
     tf = index_unique(args.tier_final_genes, "gene_id")
     n_genes, n_tier1 = build_catalog_genes(args.gene_catalog, tf, args.outdir)
-    n_tx = build_catalog_tx(args.tier_final_transcripts, args.outdir)
+    cat_map = parse_catalog_gtf_ids(args.catalog_gtf) if args.catalog_gtf else {}
+    n_tx = build_catalog_tx(args.tier_final_transcripts, args.outdir, cat_map)
     print("catalog_genes.tsv: %d genes (%d tier_final)" % (n_genes, n_tier1))
     print("catalog_tx.tsv:    %d transcripts" % n_tx)
 

@@ -46,16 +46,16 @@ def test_basic_classes():
         lnc("A", "chr1", 1500, 1600, "-"),   # opposite strand -> antisense
         lnc("I", "chr1", 1200, 1300, "+"),   # contained, same strand -> intronic
         lnc("O", "chr1", 1900, 2500, "+"),   # partial, same strand -> overlapping
-        lnc("G", "chr1", 9000, 9100, "+"),   # no overlap -> intergenic
+        lnc("G", "chr1", 9000, 9100, "+"),   # no overlap -> no_coding_overlap
     ]
     check(classify(rows, "A")["lnc_position_class"] == "antisense", "opposite strand -> antisense")
     check(classify(rows, "I")["lnc_position_class"] == "intronic", "contained same strand -> intronic")
     check(classify(rows, "O")["lnc_position_class"] == "overlapping", "partial same strand -> overlapping")
     g = classify(rows, "G")
-    check(g["lnc_position_class"] == "intergenic", "no overlap -> intergenic")
+    check(g["lnc_position_class"] == "no_coding_overlap", "no overlap -> no_coding_overlap")
     check(g["lnc_position_gene_id"] == "NA" and g["lnc_position_overlap_bp"] == "0"
           and g["lnc_position_n_genes"] == "0" and g["lnc_position_genes"] == "",
-          "intergenic carries NA/0/empty audit fields")
+          "no_coding_overlap carries NA/0/empty audit fields")
 
 
 def test_priority_and_tiebreak():
@@ -156,10 +156,25 @@ def test_cli():
         check(any("antisense" in l for l in lines[1:]), "CLI classifies the lncRNA")
 
 
+def test_overlap_with_non_coding_annotated_is_not_intergenic():
+    # H13 / 1.6: only protein-coding genes are compared, so an overlap with an
+    # annotated lncRNA or a pseudogene must not be reported as `intergenic`.
+    rows = [
+        lnc("L", "chr1", 1000, 2000, "+", origin="novel"),
+        lnc("ANN", "chr1", 1200, 1300, "+", origin="annotated_lncrna"),
+        coding("PSEUDO", "chr1", 1400, 1500, "+", biotype="pseudogene",
+               origin="reference_other"),
+    ]
+    r = classify(rows, "L")
+    check(r["lnc_position_class"] == "no_coding_overlap",
+          "overlap with lncRNA/pseudogene is no_coding_overlap, not intergenic")
+
+
 def main():
     for t in (test_basic_classes, test_priority_and_tiebreak, test_multiple_overlaps_audited,
               test_lower_bound_skips_distant_genes, test_origin_filtering,
-              test_missing_coordinates, test_cli):
+              test_missing_coordinates,
+              test_overlap_with_non_coding_annotated_is_not_intergenic, test_cli):
         t()
     print()
     if FAILS:

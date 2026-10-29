@@ -17,7 +17,7 @@ process VERSION_DISCOVERY {
     emit_versions.sh "STRINGTIE2_PER_SAMPLE" "${task.container}" stringtie stringtie --version
     emit_versions.sh "STRINGTIE2_MERGE" "${task.container}" stringtie stringtie --version
     emit_versions.sh "GFFCOMPARE" "${task.container}" gffcompare gffcompare --version
-    emit_versions.sh "FEATURECOUNTS_EXPRESSION" "${task.container}" featureCounts featureCounts -v
+    emit_versions.sh "FEATURECOUNTS_EXPRESSION" "${task.container}" featureCounts sh -c 'featureCounts -v 2>&1 | grep -m1 -i featurecounts'
     """
 }
 

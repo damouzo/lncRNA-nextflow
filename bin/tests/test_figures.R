@@ -17,12 +17,16 @@ check <- function(cond, msg) {
 }
 
 d <- tempfile("fig_"); dir.create(d)
+# Canonical chromosomes so the per-chromosome panel is not dropped; gene_group and
+# tier feed the composition panels.
 write_tsv(data.frame(
   gene_id = sprintf("G%02d", 1:10),
   origin = rep(c("novel", "annotated_lncrna"), 5),
   class_code = rep(c("u", "j", "x", "o", "i"), 2),
-  chromosome = rep(c("chr1", "chr2"), 5),
-  lnc_position_class = rep(c("antisense", "intronic", "overlapping", "intergenic"), length.out = 10),
+  tier = rep(c("1a", "1b", "2"), length.out = 10),
+  gene_group = rep(c("novel_lncRNA", "annotated_lncRNA"), 5),
+  chromosome = rep(c("1", "2"), 5),
+  lnc_position_class = rep(c("antisense", "intronic", "overlapping", "no_coding_overlap"), length.out = 10),
   n_tier1_transcripts = c(1, 2, 1, 3, 1, 2, 2, 1, 1, 4),
   stringsAsFactors = FALSE), file.path(d, "catalog_genes.tsv"))
 write_tsv(data.frame(
@@ -32,18 +36,26 @@ write_tsv(data.frame(
   n = c(10, 20), stringsAsFactors = FALSE), file.path(d, "tier_final_by_class.tsv"))
 write_tsv(data.frame(
   gene_id = sprintf("G%02d", 1:10),
+  # annotation columns must never be mistaken for samples by figures.R
+  gene_group = rep(c("novel_lncRNA", "annotated_lncRNA"), 5),
+  catalog_id = ifelse(seq_len(10) %% 2 == 0, sprintf("LNC%04d", 1:10), NA_character_),
   S1 = rep(c(5, 0), 5), S2 = rep(c(5, 0), 5),
   stringsAsFactors = FALSE), file.path(d, "grpA_tpm.tsv"))
 write_tsv(data.frame(
   sample = c("S1", "S2"), norm_group = c("grpA", "grpA"),
   condition = c("case", "control"), stringsAsFactors = FALSE),
   file.path(d, "sample_metadata.tsv"))
+# comparisons: the denominator is the control condition (exercises detection).
+write_tsv(data.frame(
+  contrast_name = "case_vs_control", numerator = "case", denominator = "control",
+  stringsAsFactors = FALSE), file.path(d, "comparisons.csv"))
 
 o <- file.path(d, "out"); dir.create(o)
 st <- system2("Rscript", c(script, "--catalog", file.path(d, "catalog_genes.tsv"),
                            "--by-class", file.path(d, "tier_final_by_class.tsv"),
                            "--tpm", file.path(d, "grpA_tpm.tsv"),
                            "--sample-metadata", file.path(d, "sample_metadata.tsv"),
+                           "--comparisons", file.path(d, "comparisons.csv"),
                            "--outdir", o))
 check(st == 0, "figures.R exits 0 (non-blocking)")
 manifest <- file.path(o, "figures_manifest.tsv")
@@ -53,7 +65,8 @@ if (file.exists(manifest)) {
   check(all(c("figure", "path", "description", "status") %in% colnames(m)),
         "manifest has figure/path/description/status")
   check(any(m$status == "ok"), "at least one figure produced")
-  for (fig in c("fig_catalog_chromosome", "fig_lnc_position_class", "fig_lnc_position_expr")) {
+  for (fig in c("fig_catalog_gene_group", "fig_catalog_novel_class_tier",
+                "fig_catalog_chromosome", "fig_lnc_position_class", "fig_lnc_position_expr")) {
     row <- m[m$figure == fig, , drop = FALSE]
     check(nrow(row) == 1 && row$status[1] == "ok", sprintf("%s produced", fig))
   }

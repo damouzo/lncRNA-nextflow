@@ -100,6 +100,8 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("heterogeneity_concordant_frac=${params.heterogeneity_concordant_frac}")),
             "-P", shQuote(paste0("heterogeneity_discordant_frac=${params.heterogeneity_discordant_frac}")),
             "-P", shQuote(paste0("gene_catalog=${gene_catalog}")),
+            "-P", shQuote(paste0("fdr=${params.fdr_threshold}")),
+            "-P", shQuote(paste0("lfc=${params.lfc_threshold}")),
             "-P", shQuote(paste0("species=${params.species}")),
             "-P", shQuote(paste0("genome_build=${params.genome_build ?: ''}")),
             "-P", shQuote(paste0("conservation_metric=${params.conservation_metric}")),

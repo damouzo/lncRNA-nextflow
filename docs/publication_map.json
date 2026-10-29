@@ -209,7 +209,8 @@
       "module": "COMPUTE_TIER_FINAL",
       "dest": [
         "raw/tier_final",
-        "deliverables/catalog"
+        "deliverables/catalog",
+        "deliverables/catalog/validation"
       ],
       "level": "core_raw+core"
     },
@@ -353,6 +354,7 @@
     "VERSION_DISCOVERY",
     "VERSION_CODING",
     "SPLIT_CONTRASTS",
-    "CHECK_DELIVERABLES"
+    "CHECK_DELIVERABLES",
+    "QC_CONTROLS"
   ]
 }

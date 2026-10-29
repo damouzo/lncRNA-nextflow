@@ -107,9 +107,12 @@ workflow DISCOVERY {
             .map { hex, logit -> [hex, logit] }
     }
 
+    // 3.2: expose the model files so PUBLISH_RUN_INFO can record their sha256.
+    ch_cpat_hexamer = ch_cpat_models.map { hex, _logit -> hex }
+    ch_cpat_logit   = ch_cpat_models.map { _hex, logit -> logit }
+
     CPAT(ch_for_cpat, genome_fa, ch_cpat_models)
     CPC2(ch_for_cpc2, genome_fa)
-
     CODING_CONSENSUS(CPAT.out.cpat_output, CPC2.out.cpc2_output, ch_for_cpc2)
 
     CATALOG_OVERLAP(
@@ -136,14 +139,19 @@ workflow DISCOVERY {
     // FeatureCounts: quantify all candidate transcripts against validated BAMs
     FEATURECOUNTS_EXPRESSION(ch_bams_fc, ch_for_fc)
 
-    // Collect all per-sample featureCounts TSVs
+    // Collect all per-sample featureCounts TSVs and their .summary files.
+    // The .summary feeds the CPM denominator (total fragments per sample) so the
+    // recurrence filter never normalises by the candidate-only column sums.
     ch_fc_collected = FEATURECOUNTS_EXPRESSION.out.per_sample_counts
+        .collect()
+    ch_fc_summaries = FEATURECOUNTS_EXPRESSION.out.summary
         .collect()
 
     // Expression recurrence filter (condition-blind) using FC counts
     EXPRESSION_RECURRENCE(
         CATALOG_OVERLAP.out.overlap_table,
         ch_fc_collected,
+        ch_fc_summaries,
         TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf
     )
 
@@ -301,6 +309,10 @@ workflow DISCOVERY {
     gene_catalog       = BUILD_GENE_CATALOG.out.gene_catalog
     catalog_genes      = PUBLISH_CATALOG.out.catalog_genes
     strand_consensus   = ch_strand_files
+    coding_consensus   = CODING_CONSENSUS.out.consensus_table
+    recurrence         = EXPRESSION_RECURRENCE.out.recurrence_table
+    cpat_hexamer       = ch_cpat_hexamer
+    cpat_logit         = ch_cpat_logit
     catalog_ids        = ASSIGN_CATALOG_IDS.out.catalog_ids
     catalog_tx         = ASSIGN_CATALOG_IDS.out.catalog_tx
     catalog_gtf        = ASSIGN_CATALOG_IDS.out.catalog_gtf

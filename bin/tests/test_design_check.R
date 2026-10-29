@@ -22,7 +22,7 @@ run <- function(coldata, contrasts, mode) {
   writeLines(contrasts, file.path(d, "contrasts.tsv"))
   st <- system2("Rscript", c(script, "--group", "G", "--coldata", file.path(d, "coldata.csv"),
                              "--contrasts", file.path(d, "contrasts.tsv"),
-                             "--design-formula", "~ batch + condition",
+                             "--design-formula", shQuote("~ batch + condition"),
                              "--mode", mode, "--outdir", d))
   list(status = st, tsv = file.path(d, "design_check.tsv"))
 }

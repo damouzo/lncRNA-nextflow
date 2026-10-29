@@ -1,6 +1,6 @@
 {
   "contract": "lncrna-deliverables",
-  "version": "1.4",
+  "version": "1.5",
   "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group.",
   "files": [
     {
@@ -16,12 +16,14 @@
         {"name": "gene_id", "type": "string"},
         {"name": "origin", "type": "string"},
         {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
         {"name": "tier_static", "type": "bool"},
         {"name": "tier_final", "type": "bool"},
         {"name": "n_tier1_transcripts", "type": "int"},
         {"name": "single_exon_low_confidence", "type": "bool"},
         {"name": "antisense_status", "type": "string"},
-        {"name": "lnc_position_class", "type": "string"}
+        {"name": "lnc_position_class", "type": "string"},
+        {"name": "gene_group", "type": "string"}
       ]
     },
     {
@@ -32,8 +34,13 @@
         {"name": "transcript_id", "type": "string"},
         {"name": "gene_id", "type": "string"},
         {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
         {"name": "tier_static", "type": "bool"},
-        {"name": "tier_final", "type": "bool"}
+        {"name": "tier_final", "type": "bool"},
+        {"name": "catalog_id", "type": "string"},
+        {"name": "catalog_transcript_id", "type": "string"},
+        {"name": "mstrg_transcript_id", "type": "string"},
+        {"name": "closest_reference_transcript", "type": "string"}
       ]
     },
     {
@@ -73,7 +80,7 @@
       ]
     },
     {
-      "path": "catalog/tier_final_sensitivity.tsv",
+      "path": "catalog/validation/tier_final_sensitivity.tsv",
       "kind": "table",
       "min_rows": 1,
       "columns": [
@@ -81,6 +88,11 @@
         {"name": "percentile", "type": "string"},
         {"name": "n_tier1_final_genes", "type": "int"}
       ]
+    },
+    {
+      "path": "catalog/annotation/README.md",
+      "kind": "file",
+      "description": "What the annotation/ GTF and FASTA contain"
     },
     {
       "path": "catalog/annotation/lncrna_catalog.gtf",
@@ -104,15 +116,56 @@
         {"name": "lfcSE", "type": "float"},
         {"name": "pvalue", "type": "float"},
         {"name": "padj", "type": "float"},
+        {"name": "stat", "type": "float"},
+        {"name": "lfc_unshrunken", "type": "float"},
+        {"name": "shrink_type", "type": "string"},
         {"name": "significant", "type": "bool"},
+        {"name": "significant_padj", "type": "bool"},
+        {"name": "significant_padj_lfc1", "type": "bool"},
         {"name": "tested", "type": "bool"},
         {"name": "not_tested_reason", "type": "string"},
         {"name": "padj_na_reason", "type": "string"},
         {"name": "origin", "type": "string"},
         {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
         {"name": "tier_static", "type": "bool"},
         {"name": "tier_final", "type": "bool"},
-        {"name": "antisense_status", "type": "string"}
+        {"name": "single_exon_low_confidence", "type": "bool"},
+        {"name": "gene_name", "type": "string"},
+        {"name": "gene_biotype", "type": "string"},
+        {"name": "catalog_id", "type": "string"},
+        {"name": "locus", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"},
+        {"name": "antisense_status", "type": "string"},
+        {"name": "chr", "type": "string"},
+        {"name": "start", "type": "int"},
+        {"name": "end", "type": "int"},
+        {"name": "strand", "type": "string"},
+        {"name": "gene_id_stable", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "contig_type", "type": "string"},
+        {"name": "baseMean_extreme", "type": "bool"},
+        {"name": "genome_build", "type": "string"}
+      ]
+    },
+    {
+      "path": "contrasts/<id>/de_lncrna_full.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_id_stable", "type": "string"},
+        {"name": "contrast", "type": "string"},
+        {"name": "padj", "type": "float"},
+        {"name": "log2FoldChange", "type": "float"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"},
+        {"name": "chr", "type": "string"},
+        {"name": "start", "type": "int"},
+        {"name": "end", "type": "int"},
+        {"name": "strand", "type": "string"}
       ]
     },
     {
@@ -183,7 +236,9 @@
       "kind": "table",
       "min_rows": 1,
       "columns": [
-        {"name": "gene_id", "type": "string"}
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "catalog_id", "type": "string"}
       ]
     },
     {
@@ -191,7 +246,9 @@
       "kind": "table",
       "min_rows": 1,
       "columns": [
-        {"name": "gene_id", "type": "string"}
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "catalog_id", "type": "string"}
       ]
     },
     {

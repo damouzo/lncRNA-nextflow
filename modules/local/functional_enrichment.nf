@@ -74,15 +74,25 @@ process FUNCTIONAL_ENRICHMENT {
         gene_list <- sort(gene_list[is.finite(gene_list)], decreasing = TRUE)
 
         # ---- ORA: DE-significant cis targets (guilt by association) ----
-        de_sig <- ct_data\$gene_id[!is.na(ct_data\$padj) & ct_data\$padj < 0.05]
+        # Same significance definition as the deliverable tables: padj < FDR and
+        # |shrunken log2FC| >= LFC (the strict `significant` flag).
+        fdr_cut <- ${params.fdr_threshold}
+        lfc_cut <- ${params.lfc_threshold}
+        de_sig <- ct_data\$gene_id[!is.na(ct_data\$padj) & ct_data\$padj < fdr_cut &
+                                   abs(ct_data\$log2FoldChange) >= lfc_cut]
         foreground <- unique(intersect(targets, de_sig))
+        foreground_type <- "significant_cis_targets"
         if (length(foreground) < 5) {
             # fallback: all cis targets expressed in this contrast
             foreground <- unique(intersect(targets, universe))
+            foreground_type <- "all_cis_targets_expressed"
         }
-        cat("Contrast", ct, ": ORA foreground =", length(foreground), "cis targets\\n")
+        cat("Contrast", ct, ": ORA foreground =", length(foreground),
+            "cis targets (", foreground_type, ")\\n")
 
         if (length(foreground) >= 5) {
+            # pvalueCutoff/qvalueCutoff = 1: keep every tested term, the researcher
+            # filters by p.adjust downstream. Nothing is dropped here.
             ego <- tryCatch({
                 enrichGO(gene = foreground,
                          universe = universe,
@@ -90,14 +100,16 @@ process FUNCTIONAL_ENRICHMENT {
                          keyType = "ENSEMBL",
                          ont = "BP",
                          pAdjustMethod = "BH",
-                         pvalueCutoff = 0.1,
+                         pvalueCutoff = 1,
+                         qvalueCutoff = 1,
                          minGSSize = 5)
             }, error = function(e) NULL)
             if (!is.null(ego) && nrow(as.data.frame(ego)) > 0) {
                 ego_df <- as.data.frame(ego)
                 ego_df\$contrast <- ct
+                ego_df\$foreground_type <- foreground_type
                 ora_all[[ct]] <- ego_df
-                cat(sprintf("  ORA: %d GO-BP terms (p<0.1)\n", nrow(ego_df)))
+                cat(sprintf("  ORA: %d GO-BP terms (full table, no cutoff)\n", nrow(ego_df)))
             } else {
                 cat(sprintf("  ORA: enrichGO returned 0 terms (foreground=%d, universe=%d)\n",
                             length(foreground), length(universe)))
@@ -107,13 +119,14 @@ process FUNCTIONAL_ENRICHMENT {
                         length(foreground)))
         }
 
-        # ---- GSEA: all protein-coding genes ranked by DE stat ----
+        # ---- GSEA: all protein-coding genes ranked by the unshrunken DE stat ----
         gsea <- tryCatch({
             gseGO(geneList = gene_list,
                   OrgDb = org.Hs.eg.db,
                   keyType = "ENSEMBL",
                   ont = "BP",
-                  pAdjustMethod = "BH")
+                  pAdjustMethod = "BH",
+                  pvalueCutoff = 1)
         }, error = function(e) NULL)
 
         if (!is.null(gsea) && nrow(as.data.frame(gsea)) > 0) {
@@ -137,7 +150,7 @@ process FUNCTIONAL_ENRICHMENT {
         d
     }
     ora_cols <- c("ID", "Description", "GeneRatio", "BgRatio", "pvalue", "p.adjust",
-                  "qvalue", "geneID", "Count", "contrast")
+                  "qvalue", "geneID", "Count", "contrast", "foreground_type")
     gsea_cols <- c("ID", "Description", "setSize", "enrichmentScore", "NES", "pvalue",
                    "p.adjust", "qvalue", "rank", "leading_edge", "core_enrichment", "contrast")
 

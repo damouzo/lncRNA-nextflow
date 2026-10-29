@@ -10,9 +10,13 @@ already live in `catalog_genes.tsv`:
   antisense    overlap with a coding gene on the opposite strand
   intronic     span contained in a coding gene, same strand
   overlapping  partial overlap with a coding gene, same strand
-  intergenic   no overlap with any coding gene (lincRNA)
+  no_coding_overlap  no overlap with any protein-coding gene (lincRNA)
 
-Priority is antisense > intronic > overlapping > intergenic; on a tie the coding
+Only protein-coding genes are compared, so a locus overlapping an annotated
+lncRNA or pseudogene is still `no_coding_overlap`; the previous `intergenic`
+name was misleading (H13).
+
+Priority is antisense > intronic > overlapping > no_coding_overlap; on a tie the coding
 gene with the larger overlap wins, then the smaller gene_id. All overlapping
 coding genes are recorded, so ambiguity stays auditable. Nothing is filtered:
 `reference_other` rows carry NA.
@@ -122,7 +126,7 @@ def classify_lnc(lnc, chrom_idx):
         return None
     hits = _overlapping(lnc, chrom_idx)
     if not hits:
-        return {"lnc_position_class": "intergenic", "lnc_position_gene_id": "NA",
+        return {"lnc_position_class": "no_coding_overlap", "lnc_position_gene_id": "NA",
                 "lnc_position_overlap_bp": "0", "lnc_position_n_genes": "0",
                 "lnc_position_genes": ""}
     best = None
@@ -135,8 +139,8 @@ def classify_lnc(lnc, chrom_idx):
         if best_key is None or key < best_key:
             best_key, best = key, (cls, gid, ov)
     if best is None:
-        # candidate spans touched the window but none overlapped: intergenic
-        return {"lnc_position_class": "intergenic", "lnc_position_gene_id": "NA",
+        # candidate spans touched the window but none overlapped
+        return {"lnc_position_class": "no_coding_overlap", "lnc_position_gene_id": "NA",
                 "lnc_position_overlap_bp": "0", "lnc_position_n_genes": "0",
                 "lnc_position_genes": ""}
     cls, gid, ov = best

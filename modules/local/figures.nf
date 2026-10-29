@@ -15,7 +15,8 @@ process FIGURES {
     path catalog_genes      // deliverables catalog_genes.tsv (with lnc_position_class)
     path tier_by_class      // tier_final_by_class.tsv
     path tpm_tsvs           // collected deliverables/expression/<group>_tpm.tsv (may be empty)
-    path sample_metadata    // deliverables/expression/sample_metadata.tsv (sample, condition)
+    path sample_metadata    // run_info sample_index.tsv (sample, norm_group, condition)
+    path comparisons        // the run's comparisons CSV (denominator = control condition)
 
     output:
     path "*.png", emit: figures
@@ -25,6 +26,7 @@ process FIGURES {
     def tpm_args = tpm_tsvs.collect { "--tpm \"${it}\"" }.join(' ')
     """
     figures.R --catalog "${catalog_genes}" --by-class "${tier_by_class}" \
-        ${tpm_args} --sample-metadata "${sample_metadata}" --outdir .
+        ${tpm_args} --sample-metadata "${sample_metadata}" \
+        --comparisons "${comparisons}" --outdir .
     """
 }
