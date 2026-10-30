@@ -14,12 +14,21 @@ a tested gene with `padj = NA` carries `padj_na_reason`.
 CLI:
   build_contrast_tables.py --universe genes.tsv --de DE.tsv --catalog catalog_genes.tsv \
       --contrast <id> --fdr 0.05 --lfc 0.0 --out contrasts/<id>/de_full.tsv \
-      --significant-out contrasts/<id>/de_significant.tsv \
+      --significant-out contrasts/<id>/de_full_significant.tsv \
+      --lncrna-out contrasts/<id>/de_lncrna_full.tsv \
+      --lncrna-significant-out contrasts/<id>/de_lncrna_significant.tsv \
       --summary-out contrasts/<id>/summary.tsv
 
-The LFC cutoff is applied only to the `significant` flag here (|log2FC| >= lfc);
-it must not enter DESeq2 results() as lfcThreshold, which would change the null
-hypothesis and the padj values.
+`significant_padj` (padj < FDR) is the default "significant" everywhere; the
+`significant_padj_lfc1` column adds the |log2FC| >= lfc cutoff and is only used
+where a table/panel names it explicitly. The `*_significant` tables ship the
+`significant_padj` set; the lfc1 subset is a column inside them. The LFC cutoff is
+applied only to that column here; it must not enter DESeq2 results() as
+lfcThreshold, which would change the null hypothesis and the padj values.
+
+`summary.tsv` is a one-row index of the row count of every table shipped for the
+contrast: `n_universe` (de_full), `n_tested`, `n_significant` (de_full_significant),
+`n_lncrna_full` (de_lncrna_full) and `n_lncrna_significant` (de_lncrna_significant).
 """
 
 import argparse
@@ -154,7 +163,6 @@ def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_thr
             "baseMean": baseMean, "log2FoldChange": lfc, "lfcSE": lfcse,
             "pvalue": pval, "padj": padj,
             "stat": stat, "lfc_unshrunken": lfc_unshrunken, "shrink_type": shrink_type,
-            "significant": "TRUE" if sig else "FALSE",
             "significant_padj": "TRUE" if sig_padj else "FALSE",
             "significant_padj_lfc1": "TRUE" if sig else "FALSE",
             "tested": "TRUE" if tested else "FALSE",
@@ -207,6 +215,8 @@ def main():
     ap.add_argument("--significant-out")
     ap.add_argument("--lncrna-out",
                     help="4b.4: unfiltered lncRNA-only table (annotated + novel)")
+    ap.add_argument("--lncrna-significant-out",
+                    help="4b.5: lncRNAs with significant_padj == TRUE (padj < FDR)")
     ap.add_argument("--summary-out")
     args = ap.parse_args()
 
@@ -219,7 +229,7 @@ def main():
 
     cols = (["gene_id", "contrast", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj",
              "stat", "lfc_unshrunken", "shrink_type",
-             "significant", "significant_padj", "significant_padj_lfc1",
+             "significant_padj", "significant_padj_lfc1",
              "tested", "not_tested_reason", "padj_na_reason"] + ANNOT_COLS
             + POS_COLS + DERIVED_COLS)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -229,9 +239,14 @@ def main():
         w.writerows(rows)
 
     n_tested = sum(1 for r in rows if r["tested"] == "TRUE")
-    n_sig = sum(1 for r in rows if r["significant"] == "TRUE")
+    # "significant" = padj < FDR (significant_padj); the lfc1 subset is a column.
+    n_sig = sum(1 for r in rows if r["significant_padj"] == "TRUE")
+    n_lnc = sum(1 for r in rows if r["gene_group"] in ("annotated_lncRNA", "novel_lncRNA"))
+    n_lnc_sig = sum(1 for r in rows
+                    if r["gene_group"] in ("annotated_lncRNA", "novel_lncRNA")
+                    and r["significant_padj"] == "TRUE")
     if args.significant_out:
-        sig_rows = [r for r in rows if r["significant"] == "TRUE"]
+        sig_rows = [r for r in rows if r["significant_padj"] == "TRUE"]
         os.makedirs(os.path.dirname(os.path.abspath(args.significant_out)), exist_ok=True)
         with open(args.significant_out, "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
@@ -246,12 +261,26 @@ def main():
             w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
             w.writeheader()
             w.writerows(lnc_rows)
+    if args.lncrna_significant_out:
+        # 4b.5: significant lncRNAs (annotated + novel), significant = significant_padj.
+        lnc_sig = [r for r in rows
+                   if r["gene_group"] in ("annotated_lncRNA", "novel_lncRNA")
+                   and r["significant_padj"] == "TRUE"]
+        os.makedirs(os.path.dirname(os.path.abspath(args.lncrna_significant_out)), exist_ok=True)
+        with open(args.lncrna_significant_out, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
+            w.writeheader()
+            w.writerows(lnc_sig)
     if args.summary_out:
+        # One row indexing the row counts of every table shipped for this contrast:
+        # n_universe -> de_full, n_significant -> de_full_significant,
+        # n_lncrna_full -> de_lncrna_full, n_lncrna_significant -> de_lncrna_significant.
         os.makedirs(os.path.dirname(os.path.abspath(args.summary_out)), exist_ok=True)
         with open(args.summary_out, "w", newline="") as fh:
             w = csv.writer(fh, delimiter="\t")
-            w.writerow(["contrast", "n_universe", "n_tested", "n_significant"])
-            w.writerow([args.contrast, len(rows), n_tested, n_sig])
+            w.writerow(["contrast", "n_universe", "n_tested", "n_significant",
+                        "n_lncrna_full", "n_lncrna_significant"])
+            w.writerow([args.contrast, len(rows), n_tested, n_sig, n_lnc, n_lnc_sig])
 
     print("build_contrast_tables [%s]: %d genes (%d tested, %d significant)"
           % (args.contrast, len(rows), n_tested, n_sig))

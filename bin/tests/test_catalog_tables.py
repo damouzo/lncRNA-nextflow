@@ -202,6 +202,31 @@ def test_tier_consistency_abort():
         check(True, "tier_static mismatch raises SystemExit (H26 abort)")
 
 
+def test_gene_annotation_joined():
+    # catalog_tx.tsv and candidates_all.tsv must carry the same gene-level
+    # classification columns as catalog_genes.tsv.
+    d = tempfile.mkdtemp()
+    make_fixture(d)
+    out = os.path.join(d, "out")
+    tier_final = B.index_unique(os.path.join(d, "tier_final_genes.tsv"), "gene_id")
+    B.build_catalog_genes(os.path.join(d, "gene_catalog.tsv"), tier_final, out)
+    gene_ann = B.load_gene_annotation(os.path.join(out, "catalog_genes.tsv"))
+    B.build_catalog_tx(os.path.join(d, "tier_final_transcripts.tsv"), out, None, gene_ann)
+    _, tx = B.read_tsv(os.path.join(out, "catalog_tx.tsv"))
+    check(tx[0]["origin"] == "novel", "catalog_tx carries the gene origin")
+    check(tx[0]["gene_group"] == "novel_lncRNA", "catalog_tx carries gene_group")
+    check("lnc_position_class" in tx[0], "catalog_tx carries lnc_position_class")
+
+    _, rows = B.build_candidates_all(os.path.join(d, "gffcmp.annotated.gtf"),
+                                     os.path.join(d, "recurrence_filtered.tsv"),
+                                     os.path.join(d, "frozen.gtf"), 200, out,
+                                     None, gene_ann)
+    by = {r["transcript_id"]: r for r in rows}
+    check(all(k in by["T1"] for k in ("gene_id", "catalog_id", "origin",
+                                      "gene_group", "tier", "lnc_position_class")),
+          "candidates_all carries gene_id + the annotation columns")
+
+
 def test_cli():
     d = tempfile.mkdtemp()
     make_fixture(d)
@@ -227,7 +252,7 @@ def test_cli():
 
 def main():
     for fn in (test_build, test_catalog_tx_ids, test_position_class_wired,
-               test_tier_consistency_abort, test_cli):
+               test_gene_annotation_joined, test_tier_consistency_abort, test_cli):
         fn()
     print()
     if FAILS:

@@ -70,9 +70,9 @@ COLUMN_MEANINGS = {
                    "baseMean is a repeat/rRNA suspect.",
     "baseMean_extreme": "TRUE when baseMean >= the configured `extreme_basemean`. A flag, "
                         "never a filter.",
-    "significant_padj": "padj < FDR only (the definition some report figures used).",
-    "significant_padj_lfc1": "padj < FDR AND |log2FoldChange| >= LFC. Same as `significant`; "
-                             "the flag the tables/volcano use.",
+    "significant_padj": "padj < FDR. This is what 'significant' means by default.",
+    "significant_padj_lfc1": "padj < FDR AND |log2FoldChange| >= LFC. Used only where a "
+                             "table/panel names it explicitly (e.g. the report Overview tab).",
     "spearman_pvalue": "cis correlation p-value (t-approximation on `df_effective`; `NA` when "
                        "not computable, never floored). `p_method` records how it was obtained.",
     "df_effective": "Degrees of freedom used for the cis p-value (n samples minus one per "
@@ -99,7 +99,6 @@ COLUMN_MEANINGS = {
     "lfcSE": "Standard error of the shrunken LFC.",
     "pvalue": "Wald test p-value, unadjusted.",
     "padj": "BH-adjusted p-value; `NA` = independent filtering or baseMean 0.",
-    "significant": "padj < FDR AND |log2FoldChange| >= LFC. A label, not a filter.",
     "contrast": "`<numerator>_vs_<denominator>` label of the comparison.",
     "batch_subset": "TRUE when the contrast used a batch-restricted sample subset.",
     "sample": "Sample id from the samplesheet.",
@@ -110,6 +109,11 @@ COLUMN_MEANINGS = {
     "filter_reason": "Why a gene was dropped (`low_expression`, ...); empty when kept.",
     "step": "Funnel stage name (catalog, coding consensus, DE universe, ...).",
     "n": "Count for the funnel step (1 on per-gene rows).",
+    "n_universe": "Rows in `de_full.tsv` (all quantified genes, tested or not).",
+    "n_tested": "Genes DESeq2 actually tested (independent filtering removes the rest).",
+    "n_significant": "Rows in `de_full_significant.tsv` (`significant_padj`, padj < FDR).",
+    "n_lncrna_full": "Rows in `de_lncrna_full.tsv` (all lncRNAs, significant or not).",
+    "n_lncrna_significant": "Rows in `de_lncrna_significant.tsv` (significant lncRNAs).",
     "reason": "Motive attached to a funnel step or a dropped gene.",
     "lnc_position_class": "Position vs protein-coding genes: antisense / intronic / "
                           "overlapping / no_coding_overlap. Only protein-coding genes "
@@ -178,8 +182,9 @@ def _start_here():
     lines.append("| see the candidates kept/filtered in discovery | `catalog/candidates_all.tsv` |")
     lines.append("| compare DE counts across contrasts | `contrasts/contrasts_overview.tsv` |")
     lines.append("| see what changed in one contrast | `contrasts/<group>__<contrast>/de_full.tsv` |")
-    lines.append("| see only the significant genes | `contrasts/<group>__<contrast>/de_significant.tsv` |")
+    lines.append("| see only the significant genes | `contrasts/<group>__<contrast>/de_full_significant.tsv` |")
     lines.append("| get a complete lncRNA-only table for Excel | `contrasts/<group>__<contrast>/de_lncrna_full.tsv` |")
+    lines.append("| see only the significant lncRNAs | `contrasts/<group>__<contrast>/de_lncrna_significant.tsv` |")
     lines.append("| read the narrative report of a contrast | `contrasts/<group>__<contrast>/<id>_report.html` |")
     lines.append("| see functional enrichment for a contrast | `contrasts/<group>__<contrast>/enrichment_ora.tsv`, `enrichment_gsea.tsv` |")
     lines.append("| check cis candidates of a group | `groups/<group>/cis_pairs_significant.tsv` |")
@@ -232,8 +237,8 @@ def _where_to_look():
                  "`catalog/candidates_all.tsv`.")
     lines.append("- Expression matrix and cis candidates for one model/group: "
                  "`groups/<group>/tpm.tsv`, `groups/<group>/cis_pairs_significant.tsv`.")
-    lines.append("- What changes between conditions: `contrasts/<id>/de_significant.tsv`, or "
-                 "`de_lncrna_full.tsv` for the lncRNA-only view.")
+    lines.append("- What changes between conditions: `contrasts/<id>/de_full_significant.tsv` (any gene), or "
+                 "`de_lncrna_full.tsv` / `de_lncrna_significant.tsv` for the lncRNA-only view.")
     lines.append("- Run metadata, thresholds and tool versions: `run_info/`.")
     lines.append("")
     return lines
@@ -253,9 +258,10 @@ def build_deliverables_readme(contract, qa_rows, publish_level, fdr=None, lfc=No
     lines.extend(build_column_dictionary(contract))
     lines.append("## Significance")
     lines.append("")
-    lines.append("- `significant` = `padj < %s` **and** `|log2FoldChange| >= %s`."
-                 % (_fmt(fdr), _fmt(lfc)))
-    lines.append("- The cutoff is applied only to this flag, on the **shrunken** "
+    lines.append("- 'significant' means `significant_padj` = `padj < %s`. "
+                 "`significant_padj_lfc1` adds `|log2FoldChange| >= %s` and is used only "
+                 "where a table/panel names it explicitly." % (_fmt(fdr), _fmt(lfc)))
+    lines.append("- The LFC cutoff is applied only to `significant_padj_lfc1`, on the **shrunken** "
                  "`log2FoldChange` from `lfcShrink`; it is not passed to DESeq2 "
                  "`results()`, so `pvalue`/`padj` keep their standard meaning.")
     lines.append("- Defaults live in `nextflow.config`/`nextflow_schema.json` "

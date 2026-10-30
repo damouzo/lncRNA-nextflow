@@ -86,7 +86,8 @@ def test_contrasts_overview():
           "gene_id\torigin\ttier_final\n"
           "N1\tnovel\tTRUE\nN2\tnovel\tFALSE\nA1\tannotated_lncrna\tTRUE\n")
     write(os.path.join(d, "staging", "c1__summary.tsv"),
-          "contrast\tn_universe\tn_tested\tn_significant\nc1\t100\t80\t5\n")
+          "contrast\tn_universe\tn_tested\tn_significant\tn_lncrna_full\tn_lncrna_significant\n"
+          "c1\t100\t80\t5\t300\t12\n")
     write(os.path.join(d, "staging", "c1__significant.tsv"),
           "gene_id\tlog2FoldChange\tpadj\nN1\t2.0\t0.001\nA1\t1.5\t0.01\n")
     write(os.path.join(d, "staging", "c2__summary.tsv"),
@@ -100,6 +101,8 @@ def test_contrasts_overview():
     check(by["c1"]["n_novel_tier1_significant"] == 1,
           "counts only novel Tier-1 significant genes")
     check(by["c2"]["n_novel_tier1_significant"] == 0, "0 significant -> 0 novel tier1")
+    check(by["c1"]["n_lncrna_full"] == "300" and by["c1"]["n_lncrna_significant"] == "12",
+          "lncRNA counts pass through from summary.tsv")
     check(by["c1"]["report"] == "contrasts/c1/c1_report.html", "report path format")
 
     # group-prefixed id: the report keeps the bare contrast name, no doubled prefix

@@ -1,6 +1,6 @@
 {
   "contract": "lncrna-deliverables",
-  "version": "1.5",
+  "version": "1.6",
   "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group.",
   "files": [
     {
@@ -37,6 +37,9 @@
         {"name": "tier", "type": "string"},
         {"name": "tier_static", "type": "bool"},
         {"name": "tier_final", "type": "bool"},
+        {"name": "origin", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"},
         {"name": "catalog_id", "type": "string"},
         {"name": "catalog_transcript_id", "type": "string"},
         {"name": "mstrg_transcript_id", "type": "string"},
@@ -49,11 +52,17 @@
       "min_rows": 1,
       "columns": [
         {"name": "transcript_id", "type": "string"},
+        {"name": "gene_id", "type": "string"},
         {"name": "class_code", "type": "string"},
         {"name": "length", "type": "int"},
         {"name": "filter_status", "type": "string"},
         {"name": "filter_reason", "type": "string"},
-        {"name": "frozen", "type": "bool"}
+        {"name": "frozen", "type": "bool"},
+        {"name": "catalog_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "tier", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"}
       ]
     },
     {
@@ -119,7 +128,6 @@
         {"name": "stat", "type": "float"},
         {"name": "lfc_unshrunken", "type": "float"},
         {"name": "shrink_type", "type": "string"},
-        {"name": "significant", "type": "bool"},
         {"name": "significant_padj", "type": "bool"},
         {"name": "significant_padj_lfc1", "type": "bool"},
         {"name": "tested", "type": "bool"},
@@ -169,13 +177,25 @@
       ]
     },
     {
-      "path": "contrasts/<id>/de_significant.tsv",
+      "path": "contrasts/<id>/de_full_significant.tsv",
       "kind": "table",
       "min_rows": 0,
       "columns": [
         {"name": "gene_id", "type": "string"},
         {"name": "log2FoldChange", "type": "float"},
         {"name": "padj", "type": "float"}
+      ]
+    },
+    {
+      "path": "contrasts/<id>/de_lncrna_significant.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_id_stable", "type": "string"},
+        {"name": "log2FoldChange", "type": "float"},
+        {"name": "padj", "type": "float"},
+        {"name": "gene_group", "type": "string"}
       ]
     },
     {
@@ -186,7 +206,9 @@
         {"name": "contrast", "type": "string"},
         {"name": "n_universe", "type": "int"},
         {"name": "n_tested", "type": "int"},
-        {"name": "n_significant", "type": "int"}
+        {"name": "n_significant", "type": "int"},
+        {"name": "n_lncrna_full", "type": "int"},
+        {"name": "n_lncrna_significant", "type": "int"}
       ]
     },
     {
@@ -203,6 +225,8 @@
         {"name": "n_universe", "type": "int"},
         {"name": "n_tested", "type": "int"},
         {"name": "n_significant", "type": "int"},
+        {"name": "n_lncrna_full", "type": "int"},
+        {"name": "n_lncrna_significant", "type": "int"},
         {"name": "n_novel_tier1_significant", "type": "int"},
         {"name": "report", "type": "string"}
       ]
@@ -220,10 +244,22 @@
       "columns": []
     },
     {
-      "path": "contrasts/<id>/plots/volcano.png",
+      "path": "contrasts/<id>/plots/volcano.pdf",
       "kind": "file",
       "optional": true,
-      "description": "Volcano panel as a standalone PNG (absent when the contrast has no DE data)"
+      "description": "Volcano panel (all lncRNAs: annotated + novel) as a standalone PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/volcano_annotated.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Volcano panel, annotated lncRNAs only (absent when none are tested)"
+    },
+    {
+      "path": "contrasts/<id>/plots/volcano_novel.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Volcano panel, novel lncRNAs only (absent when none are tested)"
     },
     {
       "path": "contrasts/<id>/plots/ma.png",
@@ -232,13 +268,29 @@
       "description": "MA panel as a standalone PNG (absent when the contrast has no DE data)"
     },
     {
+      "path": "contrasts/<id>/plots/sig_genes_by_chromosome.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant genes per chromosome by gene_group + within-chromosome significance rate (absent without DE data)"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_lncrna_position_class.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant lncRNAs by lnc_position_class and direction (absent without significant lncRNAs)"
+    },
+    {
       "path": "groups/<group>/counts.tsv",
       "kind": "table",
       "min_rows": 1,
       "columns": [
         {"name": "gene_id", "type": "string"},
         {"name": "gene_group", "type": "string"},
-        {"name": "catalog_id", "type": "string"}
+        {"name": "catalog_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"}
       ]
     },
     {
@@ -248,7 +300,11 @@
       "columns": [
         {"name": "gene_id", "type": "string"},
         {"name": "gene_group", "type": "string"},
-        {"name": "catalog_id", "type": "string"}
+        {"name": "catalog_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"}
       ]
     },
     {

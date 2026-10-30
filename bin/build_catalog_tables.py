@@ -9,10 +9,13 @@ Stdlib only (csv), no pandas. Inputs are native pipeline artifacts:
   catalog_tx.tsv           tier_final_transcripts.tsv (frozen catalog, transcript level)
                            with stable ids resolved from the ASSIGN_CATALOG_IDS GTF
                            (catalog_id, catalog_transcript_id, mstrg_transcript_id and
-                           closest_reference_transcript = gffcompare cmp_ref).
+                           closest_reference_transcript = gffcompare cmp_ref), plus the
+                           gene-level annotation (origin, gene_group, lnc_position_class).
   candidates_all.tsv       F4.3b: every merged candidate (class != '=') with
                            filter_status/filter_reason across the discovery funnel
-                           (artifact class -> length -> coding -> recurrence -> frozen).
+                           (artifact class -> length -> coding -> recurrence -> frozen),
+                           plus gene_id and the gene-level annotation so it reads like
+                           catalog_genes.tsv.
 
 The candidate funnel replicates TRANSCRIPT_LENGTH_FILTER's logic on the gffcompare
 annotated GTF (class_code + summed exon length) and reads the coding/recurrence
@@ -52,6 +55,7 @@ GENES_COLS = [
 ] + LP.POSITION_COLS
 TX_COLS = [
     "transcript_id", "gene_id", "class_code", "tier", "tier_static", "tier_final",
+    "origin", "gene_group", "lnc_position_class",
     "parent_biotype", "novel_type", "monoexonic", "single_exon_low_confidence",
     "antisense_status", "x_host_leak_suspect", "n_groups_evaluated",
     "thresholds_status",
@@ -59,8 +63,9 @@ TX_COLS = [
     "closest_reference_transcript",
 ]
 CAND_COLS = [
-    "transcript_id", "class_code", "length", "filter_status", "filter_reason",
+    "transcript_id", "gene_id", "class_code", "length", "filter_status", "filter_reason",
     "consensus_noncoding", "passes_recurrence", "frozen",
+    "catalog_id", "origin", "gene_group", "tier", "lnc_position_class",
 ]
 
 
@@ -216,12 +221,28 @@ def parse_catalog_gtf_ids(path):
     return out
 
 
-def build_catalog_tx(tier_final_tx, out_dir, cat_map=None):
+def load_gene_annotation(path):
+    """{gene_id: annotation} from catalog_genes.tsv, for the gen-centric tables.
+
+    Carries the catalog's own column names so `catalog_tx.tsv` and
+    `candidates_all.tsv` read like `catalog_genes.tsv` (origin / class_code /
+    tier / lnc_position_class / gene_group / catalog_id).
+    """
+    _, rows = read_tsv(path)
+    cols = ("catalog_id", "origin", "class_code", "tier", "lnc_position_class", "gene_group")
+    ann = {}
+    for r in rows:
+        ann[r["gene_id"]] = {c: (r.get(c) or "NA") for c in cols}
+    return ann
+
+
+def build_catalog_tx(tier_final_tx, out_dir, cat_map=None, gene_ann=None):
     header, rows = read_tsv(tier_final_tx)
     for k in ("transcript_id", "gene_id"):
         if k not in header:
             raise SystemExit("%s: missing '%s' column" % (tier_final_tx, k))
     cat_map = cat_map or {}
+    gene_ann = gene_ann or {}
     for r in rows:
         # 1.5: transcript-level categorical tier (the frozen catalog is novel only).
         nt = r.get("novel_type")
@@ -231,15 +252,26 @@ def build_catalog_tx(tier_final_tx, out_dir, cat_map=None):
         for col in ("catalog_id", "catalog_transcript_id", "mstrg_transcript_id",
                     "closest_reference_transcript"):
             r[col] = info.get(col, "NA")
+        # Gene-level annotation joined through gene_id, so the transcript table
+        # carries the same classification columns as the gene catalog.
+        ann = gene_ann.get(r.get("gene_id", ""), {})
+        for col in ("origin", "gene_group", "lnc_position_class"):
+            r[col] = ann.get(col, "NA")
+        # catalog_id comes from the catalog GTF (transcript-resolved); fall back to
+        # the gene-level id when the GTF is absent.
+        if r["catalog_id"] == "NA":
+            r["catalog_id"] = ann.get("catalog_id", "NA")
     n = write_tsv(os.path.join(out_dir, "catalog_tx.tsv"),
                   TX_COLS + [c for c in header if c not in TX_COLS], rows)
     return n
 
 
 def parse_gtf_classes_lengths(path):
-    """Replicate length_filter.nf: tx -> class_code, tx -> summed exon length."""
+    """Replicate length_filter.nf: tx -> class_code, tx -> summed exon length,
+    tx -> gene_id."""
     tx_class = {}
     tx_len = {}
+    tx_gene = {}
     with open(path) as fh:
         for line in fh:
             if line.startswith("#"):
@@ -257,12 +289,15 @@ def parse_gtf_classes_lengths(path):
                 continue
             if parts[2] == "transcript":
                 tx_class[tid] = attrs.get("class_code", "").strip('"').strip()
+                gid = attrs.get("gene_id", "").strip('"').strip()
+                if gid:
+                    tx_gene[tid] = gid
             elif parts[2] == "exon":
                 try:
                     tx_len[tid] = tx_len.get(tid, 0) + (int(parts[4]) - int(parts[3]) + 1)
                 except ValueError:
                     pass
-    return tx_class, tx_len
+    return tx_class, tx_len, tx_gene
 
 
 def count_gtf_transcripts(path):
@@ -282,8 +317,9 @@ def count_gtf_transcripts(path):
 
 
 def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir,
-                         length_filtered_gtf=None):
-    tx_class, tx_len = parse_gtf_classes_lengths(gffcmp_gtf)
+                         length_filtered_gtf=None, gene_ann=None):
+    tx_class, tx_len, tx_gene = parse_gtf_classes_lengths(gffcmp_gtf)
+    gene_ann = gene_ann or {}
     rec = index_unique(recurrence, "ID") if recurrence else {}
     frozen = set()
     if frozen_gtf:
@@ -316,12 +352,19 @@ def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir
             status, reason = "filtered", "low_recurrence"
         else:
             status, reason = "frozen", ""
+        gene = tx_gene.get(tid, "NA")
+        ann = gene_ann.get(gene, {})
         rows.append({
-            "transcript_id": tid, "class_code": code, "length": length,
+            "transcript_id": tid, "gene_id": gene, "class_code": code, "length": length,
             "filter_status": status, "filter_reason": reason,
             "consensus_noncoding": (rec.get(tid, {}) or {}).get("consensus_noncoding", "NA") or "NA",
             "passes_recurrence": (rec.get(tid, {}) or {}).get("passes_recurrence", "NA") or "NA",
             "frozen": "TRUE" if tid in frozen else "FALSE",
+            "catalog_id": ann.get("catalog_id", "NA"),
+            "origin": ann.get("origin", "NA"),
+            "gene_group": ann.get("gene_group", "NA"),
+            "tier": ann.get("tier", "NA"),
+            "lnc_position_class": ann.get("lnc_position_class", "NA"),
         })
     n = write_tsv(os.path.join(out_dir, "candidates_all.tsv"), CAND_COLS, rows)
 
@@ -358,15 +401,18 @@ def main():
 
     tf = index_unique(args.tier_final_genes, "gene_id")
     n_genes, n_tier1 = build_catalog_genes(args.gene_catalog, tf, args.outdir)
+    # Gene-level annotation from the catalog just written, so catalog_tx.tsv and
+    # candidates_all.tsv carry the same classification columns as catalog_genes.tsv.
+    gene_ann = load_gene_annotation(os.path.join(args.outdir, "catalog_genes.tsv"))
     cat_map = parse_catalog_gtf_ids(args.catalog_gtf) if args.catalog_gtf else {}
-    n_tx = build_catalog_tx(args.tier_final_transcripts, args.outdir, cat_map)
+    n_tx = build_catalog_tx(args.tier_final_transcripts, args.outdir, cat_map, gene_ann)
     print("catalog_genes.tsv: %d genes (%d tier_final)" % (n_genes, n_tier1))
     print("catalog_tx.tsv:    %d transcripts" % n_tx)
 
     if args.gffcmp_gtf and args.recurrence:
         n_cand, rows = build_candidates_all(args.gffcmp_gtf, args.recurrence,
                                             args.frozen_gtf, args.min_length, args.outdir,
-                                            args.length_filtered_gtf)
+                                            args.length_filtered_gtf, gene_ann)
         by_status = {}
         by_reason = {}
         for r in rows:

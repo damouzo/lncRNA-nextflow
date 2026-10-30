@@ -7,7 +7,7 @@
 # F3.5: the LFC cutoff is NOT passed to results() as lfcThreshold. lfcThreshold
 # changes the null hypothesis (|LFC| <= thr) and therefore pvalue/padj/stat, and
 # the cutoff would be applied twice (here and in build_contrast_tables.py). The
-# cutoff lives only in the `significant` flag, computed upstream on the SHUNKEN
+# cutoff lives only in the `significant_padj_lfc1` flag, computed upstream on the SHUNKEN
 # log2FoldChange (lfcShrink below). results() keeps alpha = fdr so independent
 # filtering targets the configured FDR.
 #
@@ -201,7 +201,7 @@ for (i in seq_len(nrow(contrasts))) {
 
   res_df <- as.data.frame(res_shrunk)
   # H4 / 1.2: keep the unshrunken test statistics next to the shrunken LFC.
-  # log2FoldChange (shrunken) drives the `significant` flag; lfc_unshrunken and
+  # log2FoldChange (shrunken) drives the `significant_padj_lfc1` flag; lfc_unshrunken and
   # stat are the raw Wald estimates and never enter the cutoff.
   res_df$lfc_unshrunken <- res$log2FoldChange
   res_df$stat <- res$stat

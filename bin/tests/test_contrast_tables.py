@@ -46,8 +46,9 @@ def build(group, ct, d, out_dir):
         "--contrast", "%s__%s" % (group, ct), "--fdr", "0.05", "--lfc", "1.0",
         "--extreme-basemean", "1000", "--genome-build", "GRCh38",
         "--out", os.path.join(out_dir, "de_full.tsv"),
-        "--significant-out", os.path.join(out_dir, "de_significant.tsv"),
+        "--significant-out", os.path.join(out_dir, "de_full_significant.tsv"),
         "--lncrna-out", os.path.join(out_dir, "de_lncrna_full.tsv"),
+        "--lncrna-significant-out", os.path.join(out_dir, "de_lncrna_significant.tsv"),
         "--summary-out", os.path.join(out_dir, "summary.tsv"),
     ], capture_output=True, text=True)
 
@@ -86,7 +87,7 @@ def main():
             check(p.returncode == 0, "build %s__%s runs" % (group, ct))
 
             full = read_tsv(os.path.join(out_dir, "de_full.tsv"))
-            sig = read_tsv(os.path.join(out_dir, "de_significant.tsv"))
+            sig = read_tsv(os.path.join(out_dir, "de_full_significant.tsv"))
             summ = read_tsv(os.path.join(out_dir, "summary.tsv"))[0]
 
             check(len(full) == 3, "%s__%s: de_full has one row per universe gene"
@@ -94,14 +95,14 @@ def main():
             check(all(r["contrast"] == "%s__%s" % (group, ct) for r in full),
                   "%s__%s: contrast id is <grupo>__<contraste>" % (group, ct))
             by = {r["gene_id"]: r for r in full}
-            check(by["G1"]["significant"] == "TRUE", "%s__%s: G1 significant" % (group, ct))
-            check(by["G2"]["significant"] == "FALSE",
+            check(by["G1"]["significant_padj_lfc1"] == "TRUE", "%s__%s: G1 significant" % (group, ct))
+            check(by["G2"]["significant_padj_lfc1"] == "FALSE",
                   "%s__%s: G2 padj<fdr but |lfc|<cut -> not significant (LFC on the flag only)"
                   % (group, ct))
             check(by["G3"]["tested"] == "FALSE" and by["G3"]["not_tested_reason"] == "filtered_low_expression",
                   "%s__%s: gene absent from DE is kept as tested=FALSE" % (group, ct))
-            check(int(summ["n_significant"]) == len(sig) == 1,
-                  "%s__%s: summary n_significant matches de_significant" % (group, ct))
+            check(int(summ["n_significant"]) == len(sig) == 2,
+                  "%s__%s: summary n_significant matches de_full_significant (padj<FDR)" % (group, ct))
             check(by["G1"]["antisense_status"] == "not_evaluated",
                   "%s__%s: catalog annotation is joined in" % (group, ct))
             check(all(c in full[0] for c in ("stat", "lfc_unshrunken", "shrink_type",
@@ -114,8 +115,6 @@ def main():
                   "%s__%s: G1 significant under both definitions" % (group, ct))
             check(by["G2"]["significant_padj"] == "TRUE" and by["G2"]["significant_padj_lfc1"] == "FALSE",
                   "%s__%s: G2 significant by padj only (LFC not met)" % (group, ct))
-            check(by["G1"]["significant"] == by["G1"]["significant_padj_lfc1"],
-                  "%s__%s: `significant` == significant_padj_lfc1" % (group, ct))
             # 4b.1/4b.4: positions and gene_group are joined from the catalog.
             check(by["G3"]["chr"] == "4" and by["G3"]["gene_group"] == "annotated_lncRNA",
                   "%s__%s: annotated lncRNA carries position + gene_group" % (group, ct))
@@ -140,6 +139,19 @@ def main():
                   % (group, ct))
             check(all(r["gene_group"] in ("annotated_lncRNA", "novel_lncRNA") for r in lnc),
                   "%s__%s: de_lncrna_full has no protein_coding/other rows" % (group, ct))
+            # 4b.5: de_lncrna_significant is the lncRNA + significant_padj intersection.
+            lnc_sig = read_tsv(os.path.join(out_dir, "de_lncrna_significant.tsv"))
+            check({r["gene_id"] for r in lnc_sig} == {"G1", "G2"},
+                  "%s__%s: de_lncrna_significant holds the significant-padj lncRNAs (G1, G2)"
+                  % (group, ct))
+            check(all(r["gene_group"] in ("annotated_lncRNA", "novel_lncRNA")
+                      and r["significant_padj"] == "TRUE" for r in lnc_sig),
+                  "%s__%s: de_lncrna_significant rows are lncRNAs with significant_padj"
+                  % (group, ct))
+            check(int(summ["n_lncrna_full"]) == len(lnc)
+                  and int(summ["n_lncrna_significant"]) == len(lnc_sig),
+                  "%s__%s: summary n_lncrna_full / n_lncrna_significant match the tables"
+                  % (group, ct))
 
     check(n_runs == 4, "two groups x two contrasts were built")
 

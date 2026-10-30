@@ -50,6 +50,10 @@ catalog <- data.frame(
   gene_id = sprintf("G%03d", 1:n_genes),
   gene_group = rep(c("protein_coding", "novel_lncRNA", "annotated_lncRNA"), length.out = n_genes),
   catalog_id = ifelse(seq_len(n_genes) %% 3 == 0, sprintf("LNC%04d", seq_len(n_genes)), NA_character_),
+  origin = rep(c("reference_other", "novel", "annotated_lncrna"), length.out = n_genes),
+  class_code = rep(c(NA_character_, "u", NA_character_), length.out = n_genes),
+  tier = rep(c("NA", "1a", "NA"), length.out = n_genes),
+  lnc_position_class = rep(c("no_coding_overlap", "antisense", "intronic"), length.out = n_genes),
   stringsAsFactors = FALSE)
 write_tsv(catalog, file.path(work, "catalog_genes.tsv"))
 
@@ -80,9 +84,10 @@ if (file.exists(file.path(work, "MNC_universe.tsv"))) {
 
 if (file.exists(file.path(work, "MNC_counts.tsv"))) {
   cnt <- read_tsv(file.path(work, "MNC_counts.tsv"), show_col_types = FALSE)
-  check(ncol(cnt) == length(samples) + 3,
-        "counts.tsv is gene_id + gene_group + catalog_id + one column per sample")
-  check(all(c("gene_group", "catalog_id") %in% colnames(cnt)),
+  check(ncol(cnt) == length(samples) + 7,
+        "counts.tsv is gene_id + 6 annotation columns + one column per sample")
+  check(all(c("gene_group", "catalog_id", "origin", "class_code", "tier",
+              "lnc_position_class") %in% colnames(cnt)),
         "counts.tsv carries the annotation columns")
   check(nrow(cnt) >= kept_genes - 10, "counts.tsv holds the filtered universe")
 }
@@ -95,9 +100,9 @@ if (file.exists(file.path(work, "coldata_aligned_MNC.csv"))) {
   tpm_hdr <- colnames(read_tsv(file.path(work, "MNC_tpm.tsv"), show_col_types = FALSE))
   check(identical(as.character(cd$sample), sort(samples)),
         "aligned coldata follows the counts column order")
-  check(identical(cnt_hdr[-(1:3)], as.character(cd$sample)),
+  check(identical(cnt_hdr[-(1:7)], as.character(cd$sample)),
         "counts.tsv sample columns match the aligned coldata")
-  check(identical(tpm_hdr[-(1:3)], as.character(cd$sample)),
+  check(identical(tpm_hdr[-(1:7)], as.character(cd$sample)),
         "tpm.tsv sample columns match the aligned coldata")
 }
 

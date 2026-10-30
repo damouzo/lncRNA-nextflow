@@ -74,12 +74,11 @@ process FUNCTIONAL_ENRICHMENT {
         gene_list <- sort(gene_list[is.finite(gene_list)], decreasing = TRUE)
 
         # ---- ORA: DE-significant cis targets (guilt by association) ----
-        # Same significance definition as the deliverable tables: padj < FDR and
-        # |shrunken log2FC| >= LFC (the strict `significant` flag).
+        # "significant" = padj < FDR only (no |LFC| cutoff), matching the default
+        # significance used everywhere else; the foreground is the FDR-significant
+        # cis targets.
         fdr_cut <- ${params.fdr_threshold}
-        lfc_cut <- ${params.lfc_threshold}
-        de_sig <- ct_data\$gene_id[!is.na(ct_data\$padj) & ct_data\$padj < fdr_cut &
-                                   abs(ct_data\$log2FoldChange) >= lfc_cut]
+        de_sig <- ct_data\$gene_id[!is.na(ct_data\$padj) & ct_data\$padj < fdr_cut]
         foreground <- unique(intersect(targets, de_sig))
         foreground_type <- "significant_cis_targets"
         if (length(foreground) < 5) {

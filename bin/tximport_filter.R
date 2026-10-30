@@ -6,14 +6,16 @@
 # without Nextflow (see bin/tests/test_tximport_filter.R). All previous outputs
 # are kept byte-compatible: the filtered counts/TPM RDS, the PCA plot and the
 # filter stats. New:
-#   <group>_counts.tsv    filtered counts (gene_id + gene_group/catalog_id + samples)
+#   <group>_counts.tsv    filtered counts (gene_id + annotation + samples)
 #   <group>_tpm.tsv       filtered TPM (same layout)
 #   <group>_universe.tsv  every imported gene with keep/filter_status/filter_reason
 #
-# With --catalog (catalog_genes.tsv) the TSVs gain two annotation columns right
-# after gene_id: `gene_group` (protein_coding / annotated_lncRNA / novel_lncRNA /
-# other) and `catalog_id` (stable id; NA for reference genes). The numeric RDS
-# matrices stay untouched so DESeq2/cis keep consuming a clean matrix.
+# With --catalog (catalog_genes.tsv) the TSVs gain annotation columns right after
+# gene_id, using the catalog's own names so every gen-centric table reads the same
+# way: `gene_group` (protein_coding / annotated_lncRNA / novel_lncRNA / other),
+# `catalog_id` (stable id; NA for reference genes), `origin`, `class_code`,
+# `tier` and `lnc_position_class`. The numeric RDS matrices stay untouched so
+# DESeq2/cis keep consuming a clean matrix.
 #
 # usage:
 #   tximport_filter.R --group MNC --coldata coldata_MNC.csv --tx2gene tx2gene.tsv
@@ -133,39 +135,46 @@ stats <- data.frame(
 )
 write_tsv(stats, out(paste0(group, "_filter_stats.tsv")))
 
-# Annotation for the expression tables: gene_id -> gene_group / catalog_id.
-# catalog_genes.tsv already carries gene_group; if it is missing, derive it from
+# Annotation for the expression tables: gene_id -> gene_group / catalog_id / origin /
+# class_code / tier / lnc_position_class, using the catalog's own column names.
+# catalog_genes.tsv already carries them; if gene_group is missing, derive it from
 # origin + biotype with the same 4-value rule used across the deliverables
 # (protein_coding / annotated_lncRNA / novel_lncRNA / other).
-gene_group_map <- NULL
-catalog_id_map <- NULL
+ANNOTATION_COLS <- c("gene_group", "catalog_id", "origin", "class_code", "tier",
+                     "lnc_position_class")
+ann_maps <- NULL
 if (!is.null(catalog_path) && file.exists(catalog_path)) {
   cat_df <- tryCatch(read_tsv(catalog_path, show_col_types = FALSE), error = function(e) NULL)
   if (is.null(cat_df) || !("gene_id" %in% colnames(cat_df))) {
     cat("WARNING: catalog unreadable or missing gene_id; expression tables stay unannotated\n")
   } else {
-    if ("gene_group" %in% colnames(cat_df)) {
-      gg <- as.character(cat_df$gene_group)
-    } else {
-      origin  <- cat_df$origin
-      biotype <- if ("gene_biotype" %in% colnames(cat_df)) cat_df$gene_biotype else NA_character_
-      gg <- ifelse(origin == "novel", "novel_lncRNA",
-             ifelse(origin == "annotated_lncrna", "annotated_lncRNA",
-              ifelse(!is.na(biotype) & biotype == "protein_coding", "protein_coding", "other")))
+    gid <- cat_df$gene_id
+    get_col <- function(name) {
+      if (name %in% colnames(cat_df)) as.character(cat_df[[name]]) else rep(NA_character_, length(gid))
     }
-    cid <- if ("catalog_id" %in% colnames(cat_df)) as.character(cat_df$catalog_id) else NA_character_
-    gene_group_map <- setNames(gg, cat_df$gene_id)
-    catalog_id_map <- setNames(cid, cat_df$gene_id)
+    gg <- if ("gene_group" %in% colnames(cat_df)) {
+      get_col("gene_group")
+    } else {
+      origin  <- get_col("origin")
+      biotype <- get_col("gene_biotype")
+      ifelse(origin == "novel", "novel_lncRNA",
+             ifelse(origin == "annotated_lncrna", "annotated_lncRNA",
+                    ifelse(!is.na(biotype) & biotype == "protein_coding", "protein_coding", "other")))
+    }
+    ann_vals <- list(gene_group = gg, catalog_id = get_col("catalog_id"),
+                     origin = get_col("origin"), class_code = get_col("class_code"),
+                     tier = get_col("tier"), lnc_position_class = get_col("lnc_position_class"))
+    ann_maps <- setNames(lapply(ann_vals[ANNOTATION_COLS], function(v) setNames(v, gid)),
+                         ANNOTATION_COLS)
   }
 }
 
 # Insert the annotation columns right after gene_id; samples keep their order.
 with_annotation <- function(df) {
-  if (is.null(gene_group_map)) return(df)
+  if (is.null(ann_maps)) return(df)
   gid <- df[["gene_id"]]
-  ann <- data.frame(gene_group = unname(gene_group_map[gid]),
-                    catalog_id = unname(catalog_id_map[gid]),
-                    stringsAsFactors = FALSE, check.names = FALSE)
+  ann <- as.data.frame(lapply(ann_maps, function(m) unname(m[gid])),
+                       stringsAsFactors = FALSE, check.names = FALSE)
   cbind(df["gene_id"], ann, df[setdiff(colnames(df), "gene_id")])
 }
 

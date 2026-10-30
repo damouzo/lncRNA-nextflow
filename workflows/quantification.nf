@@ -249,7 +249,7 @@ workflow QUANTIFICATION {
     SPLIT_ENRICHMENT(ch_split_enrich_in)
 
     // One row per contrast: concatenation of every summary.tsv plus the count of
-    // novel Tier-1 significant genes (join of de_significant with the catalog).
+    // novel Tier-1 significant genes (join of de_full_significant with the catalog).
     // collectFile renames each file after its contrast id so the single downstream
     // task can stage them without the homonymous-name collision.
     ch_overview_summaries = BUILD_CONTRAST_TABLES.out.overview_input

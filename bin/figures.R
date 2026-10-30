@@ -80,19 +80,42 @@ if (is.null(catalog) || nrow(catalog) == 0) {
       labs(title = "Catalog genes by gene_group", x = "gene_group", y = "genes")
   })
 
-  # Novel genes only: class_code on x, tier as fill. Shows which gffcompare
-  # classes compose each tier (u/x/i = Tier 1a, j/o + lncRNA host = Tier 1b).
-  land("fig_catalog_novel_class_tier", "novel genes by class_code and tier", {
+  # What makes up `gene_group == other`: reference genes that are neither
+  # protein-coding nor annotated lncRNAs (pseudogenes, TEC, snRNA, miRNA, ...).
+  # Horizontal bars so a long biotype list stays readable.
+  land("fig_catalog_gene_group_other", "other reference genes by biotype", {
+    if (!all(c("gene_group", "gene_biotype") %in% colnames(catalog)))
+      stop("no gene_group/gene_biotype column")
+    d <- as.data.frame(table(biotype = catalog$gene_biotype[catalog$gene_group == "other"]))
+    d <- d[d$Freq > 0, , drop = FALSE]
+    if (nrow(d) == 0) stop("no 'other' genes")
+    d$biotype <- factor(d$biotype, levels = d$biotype[order(d$Freq)])
+    ggplot(d, aes(x = biotype, y = Freq)) +
+      geom_col(fill = "#4c72b0") + coord_flip() + theme_minimal() +
+      labs(title = "gene_group = other, by biotype", x = "gene_biotype", y = "genes")
+  }, width = 9, height = 7)
+
+  # Novel genes only: class_code on y, tier on x, count in each cell. A gene whose
+  # transcripts carry several gffcompare codes appears once, under its full code
+  # set, so the same gene is never counted twice across single-code rows.
+  land("fig_catalog_novel_class_tier", "novel genes by class_code and tier (cell counts)", {
     need <- c("origin", "class_code", "tier")
     if (!all(need %in% colnames(catalog))) stop("missing origin/class_code/tier")
     d <- catalog[catalog$origin == "novel", , drop = FALSE]
     if (nrow(d) == 0) stop("no novel genes")
     d <- as.data.frame(table(class_code = d$class_code, tier = d$tier))
-    ggplot(d, aes(x = class_code, y = Freq, fill = tier)) +
-      geom_col() + theme_minimal() +
+    d <- d[d$Freq > 0, , drop = FALSE]
+    tot <- tapply(d$Freq, d$class_code, sum)
+    d$class_code <- factor(d$class_code, levels = names(sort(tot, decreasing = TRUE)))
+    ggplot(d, aes(x = tier, y = class_code, fill = Freq)) +
+      geom_tile(color = "white") +
+      geom_text(aes(label = Freq), size = 2.8, color = "grey15") +
+      scale_fill_gradient(low = "#e8f0fb", high = "#08306b") +
+      theme_minimal() +
       labs(title = "Novel lncRNAs by class_code and tier",
-           x = "class_code", y = "genes", fill = "tier")
-  })
+           subtitle = "Cell = number of genes. Each gene is counted once, under its full gffcompare class_code set.",
+           x = "tier", y = "class_code", fill = "genes")
+  }, width = 7, height = 14)
 
   # Genes per canonical chromosome by origin: one panel with counts, a second
   # with the within-chromosome origin fraction (same figure, free y per panel).
@@ -148,8 +171,10 @@ if (is.null(catalog) || nrow(catalog) == 0) {
         if (nrow(tp) == 0) next
         tp$cls <- unname(cmap[tp$gene_id])
         # Exclude the annotation columns the TPM tables now carry (gene_group,
-        # catalog_id) so they are never mistaken for sample columns.
-        samples <- setdiff(colnames(tp), c("gene_id", "cls", "gene_group", "catalog_id"))
+        # catalog_id, origin, class_code, tier, lnc_position_class) so they are
+        # never mistaken for sample columns.
+        samples <- setdiff(colnames(tp), c("gene_id", "cls", "gene_group", "catalog_id",
+                                           "origin", "class_code", "tier", "lnc_position_class"))
         for (s in samples) {
           v <- suppressWarnings(as.numeric(tp[[s]]))
           for (cl in unique(tp$cls)) {
@@ -206,14 +231,21 @@ if (is.null(catalog) || nrow(catalog) == 0) {
 }
 
 by_class <- tryCatch(read_tsv(by_class_path, show_col_types = FALSE), error = function(e) NULL)
-land("fig_tier_by_class", "tier_final_by_class counts", {
+land("fig_tier_by_class", "Tier 1 composition by gffcompare class set", {
   if (is.null(by_class) || nrow(by_class) == 0) stop("tier_final_by_class empty")
   d <- by_class
   d$n <- suppressWarnings(as.numeric(d$n))
+  # `tier1_allow_single_exon` changes the Tier 1 set; both settings are in the
+  # table, so facet on it. Without the facet the two rows per (class_set, unit)
+  # would overlap and only the last drawn setting would be visible.
+  if (!"tier1_allow_single_exon" %in% colnames(d)) stop("no tier1_allow_single_exon column")
   ggplot(d, aes(x = class_set, y = n, fill = unit)) +
     geom_col(position = "dodge") + theme_minimal() +
-    labs(title = "Tier counts by class set", x = "class set", y = "n")
-})
+    facet_wrap(~tier1_allow_single_exon, nrow = 1) +
+    labs(title = "Tier 1 counts by class set",
+         subtitle = "Composition of the Tier 1 catalog by gffcompare class set of its transcripts",
+         x = "class set", y = "n", fill = "unit")
+}, width = 12, height = 6)
 
 out <- if (length(manifest) > 0) do.call(rbind, manifest) else
   data.frame(figure = character(), path = character(), description = character(), status = character())

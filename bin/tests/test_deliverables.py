@@ -224,8 +224,8 @@ def test_builder():
                             extreme_basemean=0.0, genome_build="")
     by = {r["gene_id"]: r for r in rows}
     check(len(rows) == 4, "de_full has one row per universe gene")
-    check(by["A"]["significant"] == "TRUE" and by["A"]["tested"] == "TRUE", "A tested+significant")
-    check(by["B"]["significant"] == "FALSE", "B tested not significant")
+    check(by["A"]["significant_padj_lfc1"] == "TRUE" and by["A"]["tested"] == "TRUE", "A tested+significant")
+    check(by["B"]["significant_padj_lfc1"] == "FALSE", "B tested not significant")
     check(by["C"]["padj_na_reason"] == "independent_filtering", "C tested padj NA reason")
     check(by["D"]["tested"] == "FALSE" and by["D"]["not_tested_reason"] == "filtered_low_expression",
           "D absent -> tested FALSE + reason")

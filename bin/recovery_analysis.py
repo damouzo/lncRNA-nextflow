@@ -25,7 +25,8 @@ import f1_common as C  # noqa: E402
 SETS = ("novel_tier1", "novel_tier2", "annotated_lncrna")
 
 # TPM tables may carry annotation columns next to gene_id; never count them as samples.
-EXPR_ANNOT_COLS = {"gene_id", "gene_group", "catalog_id", "class_code", "origin"}
+EXPR_ANNOT_COLS = {"gene_id", "gene_group", "catalog_id", "class_code", "origin",
+                   "tier", "lnc_position_class"}
 
 
 def _write(outdir, name, header, rows):

@@ -21,12 +21,14 @@ d <- tempfile("fig_"); dir.create(d)
 # tier feed the composition panels.
 write_tsv(data.frame(
   gene_id = sprintf("G%02d", 1:10),
-  origin = rep(c("novel", "annotated_lncrna"), 5),
+  origin = c(rep("novel", 4), rep("annotated_lncrna", 4), "reference_other", "reference_other"),
   class_code = rep(c("u", "j", "x", "o", "i"), 2),
   tier = rep(c("1a", "1b", "2"), length.out = 10),
-  gene_group = rep(c("novel_lncRNA", "annotated_lncRNA"), 5),
+  gene_group = c(rep("novel_lncRNA", 4), rep("annotated_lncRNA", 4), "other", "other"),
+  gene_biotype = c(rep(NA_character_, 8), "processed_pseudogene", "misc_RNA"),
   chromosome = rep(c("1", "2"), 5),
-  lnc_position_class = rep(c("antisense", "intronic", "overlapping", "no_coding_overlap"), length.out = 10),
+  lnc_position_class = c(rep("antisense", 2), rep("intronic", 2), rep("overlapping", 2),
+                         rep("no_coding_overlap", 2), "NA", "NA"),
   n_tier1_transcripts = c(1, 2, 1, 3, 1, 2, 2, 1, 1, 4),
   stringsAsFactors = FALSE), file.path(d, "catalog_genes.tsv"))
 write_tsv(data.frame(
@@ -39,6 +41,10 @@ write_tsv(data.frame(
   # annotation columns must never be mistaken for samples by figures.R
   gene_group = rep(c("novel_lncRNA", "annotated_lncRNA"), 5),
   catalog_id = ifelse(seq_len(10) %% 2 == 0, sprintf("LNC%04d", 1:10), NA_character_),
+  origin = rep(c("novel", "annotated_lncrna"), 5),
+  class_code = rep(c("u", "j"), 5),
+  tier = rep(c("1a", "1b"), 5),
+  lnc_position_class = rep(c("antisense", "intronic"), 5),
   S1 = rep(c(5, 0), 5), S2 = rep(c(5, 0), 5),
   stringsAsFactors = FALSE), file.path(d, "grpA_tpm.tsv"))
 write_tsv(data.frame(
@@ -65,8 +71,10 @@ if (file.exists(manifest)) {
   check(all(c("figure", "path", "description", "status") %in% colnames(m)),
         "manifest has figure/path/description/status")
   check(any(m$status == "ok"), "at least one figure produced")
-  for (fig in c("fig_catalog_gene_group", "fig_catalog_novel_class_tier",
-                "fig_catalog_chromosome", "fig_lnc_position_class", "fig_lnc_position_expr")) {
+  for (fig in c("fig_catalog_gene_group", "fig_catalog_gene_group_other",
+                "fig_catalog_novel_class_tier", "fig_catalog_chromosome",
+                "fig_lnc_position_class", "fig_lnc_position_expr",
+                "fig_tier_by_class")) {
     row <- m[m$figure == fig, , drop = FALSE]
     check(nrow(row) == 1 && row$status[1] == "ok", sprintf("%s produced", fig))
   }

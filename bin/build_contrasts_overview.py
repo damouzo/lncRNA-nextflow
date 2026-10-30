@@ -2,7 +2,7 @@
 """F4.2/F4.3: one-row-per-contrast overview of the DE deliverables.
 
 Concatenates every per-contrast `summary.tsv` and adds a count of novel Tier-1
-genes that were significant in that contrast (join of `de_significant.tsv` with
+genes that were significant in that contrast (join of `de_full_significant.tsv` with
 `catalog_genes.tsv`). Stdlib only.
 
 The input files are staged flat with the contrast id encoded in the name
@@ -20,6 +20,7 @@ import glob
 import os
 
 COLS = ["contrast", "n_universe", "n_tested", "n_significant",
+        "n_lncrna_full", "n_lncrna_significant",
         "n_novel_tier1_significant", "report"]
 
 
@@ -77,6 +78,8 @@ def build(summaries_dir, catalog_path):
             "n_universe": s.get("n_universe", ""),
             "n_tested": s.get("n_tested", ""),
             "n_significant": s.get("n_significant", ""),
+            "n_lncrna_full": s.get("n_lncrna_full", ""),
+            "n_lncrna_significant": s.get("n_lncrna_significant", ""),
             "n_novel_tier1_significant": n_novel_t1,
             # REPORT_CONTRAST writes <contrast>_report.html (no group prefix).
             "report": "contrasts/%s/%s_report.html" % (cid, contrast_from_id(cid)),

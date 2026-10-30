@@ -31,8 +31,8 @@ library_strandedness: reverse
 
 # ---- DE significance ----
 # fdr_threshold: alpha for DESeq2 results() (independent filtering targets this FDR).
-# lfc_threshold: post-hoc |log2FoldChange| cutoff applied ONLY to the `significant`
-# column, on the shrunken log2FC; it is NOT passed to DESeq2 results().
+# lfc_threshold: post-hoc |log2FoldChange| cutoff applied ONLY to the
+# `significant_padj_lfc1` column, on the shrunken log2FC; it is NOT passed to DESeq2 results().
 fdr_threshold: 0.05
 lfc_threshold: 1.0
 
