@@ -50,7 +50,11 @@ GENES_COLS = [
     "gene_name", "chromosome", "start", "end", "strand", "gene_biotype",
     "parent_biotype", "novel_type", "catalog_id", "locus", "gene_group",
     "ref_gene_id", "ref_gene_name", "ref_gene_relation", "ref_gene_distance",
-    "known_catalog_hit", "catalog_sources",
+    "known_catalog_hit", "catalog_sources", "novelty_class", "n_tx_hit", "n_tx",
+    "in_lncipedia", "lncipedia_best_id", "lncipedia_best_pct",
+    "in_noncode", "noncode_best_id", "noncode_best_pct",
+    "in_rnacentral", "rnacentral_best_id", "rnacentral_best_pct",
+    "in_fantomcat", "fantomcat_best_id", "fantomcat_best_pct",
     "x_host_leak_suspect", "thresholds_status", "conservation_mean",
 ] + LP.POSITION_COLS
 TX_COLS = [

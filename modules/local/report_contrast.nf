@@ -24,8 +24,6 @@ process REPORT_CONTRAST {
           path(coldata), path(contrasts_tsv), path(tpm_rds)
     path template         // report_template.qmd
     path gene_catalog     // gene_catalog.tsv (origin/class_code/biotype annotations)
-    path novelty_status   // CHECK_NOVELTY novelty_status.tsv (metric/value)
-    path strandedness     // CHECK_STRANDEDNESS strandedness_summary.tsv
 
     output:
     path "*.html", emit: reports
@@ -43,17 +41,6 @@ process REPORT_CONTRAST {
     library(dplyr)
 
     de <- read_tsv("${de_summary}", show_col_types = FALSE)
-
-    # F5.2: novelty status comes from CHECK_NOVELTY (run-wide, single value)
-    novelty <- tryCatch({
-        ns <- read_tsv("${novelty_status}", show_col_types = FALSE)
-        as.character(ns[["value"]][ns[["metric"]] == "novelty_status"][1])
-    }, error = function(e) NA_character_)
-    ns_arg <- if (!is.na(novelty) && nzchar(novelty)) {
-        paste0("-P ", shQuote(paste0("novelty_status=", novelty)), " ")
-    } else {
-        ""
-    }
 
     # Condition levels present in this norm_group's coldata
     group_conditions <- tryCatch({
@@ -85,7 +72,6 @@ process REPORT_CONTRAST {
         if (file.exists(fname)) next
         cmd <- paste(
             "quarto render ${template}",
-            ns_arg,
             "-M", shQuote(paste0("title=lncRNA report - ", ct)),
             "-M", shQuote(paste0("subtitle=norm_group: ${group}")),
             "-P", shQuote(paste0("contrast=", ct)),
@@ -110,7 +96,6 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("synteny_configured=${(params.synteny_chain_file && params.synteny_target_gtf) ? true : false}")),
             "-P", shQuote(paste0("synteny_target_species=${params.synteny_target_species ?: ''}")),
             "-P", shQuote(paste0("tpm=${tpm_rds}")),
-            "-P", shQuote(paste0("strandedness_summary=${strandedness}")),
             "--output", shQuote(fname)
         )
         cat("Rendering contrast:", ct, "\n")

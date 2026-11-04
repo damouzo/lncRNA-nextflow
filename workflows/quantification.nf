@@ -31,8 +31,6 @@ workflow QUANTIFICATION {
     design_formula
     gene_catalog
     catalog_genes       // deliverables/catalog catalog_genes.tsv (annotation for de_full)
-    novelty_status      // CHECK_NOVELTY novelty_status.tsv (run-wide, single value)
-    strandedness        // CHECK_STRANDEDNESS strandedness_summary.tsv (run-wide)
 
     main:
     // tx2gene_detailed and gene_catalog come from single-execution Discovery processes:
@@ -43,8 +41,6 @@ workflow QUANTIFICATION {
     // catalog_genes.tsv is the annotated superset of gene_catalog.tsv (adds
     // lnc_position_class + gene_group); used by tximport TSVs, cis and the report.
     ch_catalog_genes = catalog_genes.first()
-    ch_novelty      = novelty_status.first()
-    ch_strandedness = strandedness.first()
 
     // (group, coldata, contrasts) — reused by DESIGN_CHECK and SPLIT_CONTRASTS.
     ch_ct_in = ch_per_group.map { group, coldata, _quants, ct_tsv ->
@@ -220,9 +216,7 @@ workflow QUANTIFICATION {
     REPORT_CONTRAST(
         ch_rpt,
         channel.value(file("${params.report_template ?: projectDir + '/assets/report_template.qmd'}")),
-        ch_catalog_genes,
-        ch_novelty,
-        ch_strandedness
+        ch_catalog_genes
     )
 
     // F4.2: per-contrast master tables — last node of the graph.
@@ -234,7 +228,8 @@ workflow QUANTIFICATION {
         .map { g, ct, de_tsv, universe_tsv ->
             tuple(g, ct, de_tsv, universe_tsv)
         }
-    BUILD_CONTRAST_TABLES(ch_bt_in, catalog_genes.first())
+    BUILD_CONTRAST_TABLES(ch_bt_in, catalog_genes.first(),
+                          channel.value(file("${projectDir}/bin/build_contrast_tables.py")))
 
     // Split the group-level enrichment table (one file per group, rows keyed by the
     // `contrast` column) into one file per (group, contrast) so it is delivered next

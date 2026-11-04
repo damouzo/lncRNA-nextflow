@@ -23,7 +23,18 @@
         {"name": "single_exon_low_confidence", "type": "bool"},
         {"name": "antisense_status", "type": "string"},
         {"name": "lnc_position_class", "type": "string"},
-        {"name": "gene_group", "type": "string"}
+        {"name": "gene_group", "type": "string"},
+        {"name": "known_catalog_hit", "type": "bool"},
+        {"name": "catalog_sources", "type": "string"},
+        {"name": "novelty_class", "type": "string"},
+        {"name": "n_tx_hit", "type": "int"},
+        {"name": "n_tx", "type": "int"},
+        {"name": "in_noncode", "type": "bool"},
+        {"name": "noncode_best_id", "type": "string"},
+        {"name": "noncode_best_pct", "type": "float"},
+        {"name": "in_rnacentral", "type": "bool"},
+        {"name": "rnacentral_best_id", "type": "string"},
+        {"name": "rnacentral_best_pct", "type": "float"}
       ]
     },
     {
@@ -153,7 +164,18 @@
         {"name": "gene_group", "type": "string"},
         {"name": "contig_type", "type": "string"},
         {"name": "baseMean_extreme", "type": "bool"},
-        {"name": "genome_build", "type": "string"}
+        {"name": "genome_build", "type": "string"},
+        {"name": "known_catalog_hit", "type": "bool"},
+        {"name": "catalog_sources", "type": "string"},
+        {"name": "novelty_class", "type": "string"},
+        {"name": "n_tx_hit", "type": "int"},
+        {"name": "n_tx", "type": "int"},
+        {"name": "in_noncode", "type": "bool"},
+        {"name": "noncode_best_id", "type": "string"},
+        {"name": "noncode_best_pct", "type": "float"},
+        {"name": "in_rnacentral", "type": "bool"},
+        {"name": "rnacentral_best_id", "type": "string"},
+        {"name": "rnacentral_best_pct", "type": "float"}
       ]
     },
     {
@@ -173,7 +195,18 @@
         {"name": "chr", "type": "string"},
         {"name": "start", "type": "int"},
         {"name": "end", "type": "int"},
-        {"name": "strand", "type": "string"}
+        {"name": "strand", "type": "string"},
+        {"name": "known_catalog_hit", "type": "bool"},
+        {"name": "catalog_sources", "type": "string"},
+        {"name": "novelty_class", "type": "string"},
+        {"name": "n_tx_hit", "type": "int"},
+        {"name": "n_tx", "type": "int"},
+        {"name": "in_noncode", "type": "bool"},
+        {"name": "noncode_best_id", "type": "string"},
+        {"name": "noncode_best_pct", "type": "float"},
+        {"name": "in_rnacentral", "type": "bool"},
+        {"name": "rnacentral_best_id", "type": "string"},
+        {"name": "rnacentral_best_pct", "type": "float"}
       ]
     },
     {
@@ -183,7 +216,14 @@
       "columns": [
         {"name": "gene_id", "type": "string"},
         {"name": "log2FoldChange", "type": "float"},
-        {"name": "padj", "type": "float"}
+        {"name": "padj", "type": "float"},
+        {"name": "known_catalog_hit", "type": "bool"},
+        {"name": "catalog_sources", "type": "string"},
+        {"name": "novelty_class", "type": "string"},
+        {"name": "in_noncode", "type": "bool"},
+        {"name": "noncode_best_pct", "type": "float"},
+        {"name": "in_rnacentral", "type": "bool"},
+        {"name": "rnacentral_best_pct", "type": "float"}
       ]
     },
     {
@@ -195,7 +235,14 @@
         {"name": "gene_id_stable", "type": "string"},
         {"name": "log2FoldChange", "type": "float"},
         {"name": "padj", "type": "float"},
-        {"name": "gene_group", "type": "string"}
+        {"name": "gene_group", "type": "string"},
+        {"name": "known_catalog_hit", "type": "bool"},
+        {"name": "catalog_sources", "type": "string"},
+        {"name": "novelty_class", "type": "string"},
+        {"name": "in_noncode", "type": "bool"},
+        {"name": "noncode_best_pct", "type": "float"},
+        {"name": "in_rnacentral", "type": "bool"},
+        {"name": "rnacentral_best_pct", "type": "float"}
       ]
     },
     {
@@ -278,6 +325,12 @@
       "kind": "file",
       "optional": true,
       "description": "Significant lncRNAs by lnc_position_class and direction (absent without significant lncRNAs)"
+    },
+    {
+      "path": "contrasts/<id>/plots/novel_catalog_overlap.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Pie of novel significant lncRNAs by external-catalog membership (noncode/rnacentral; absent without significant novel lncRNAs)"
     },
     {
       "path": "groups/<group>/counts.tsv",

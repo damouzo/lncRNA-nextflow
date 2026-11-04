@@ -39,7 +39,12 @@ import sys
 IS_NA = {"", "NA", "NaN", "nan", "None", "NA_character_"}
 ANNOT_COLS = ["origin", "class_code", "tier", "tier_static", "tier_final",
               "single_exon_low_confidence", "antisense_status",
-              "gene_name", "gene_biotype", "catalog_id", "locus", "lnc_position_class"]
+              "gene_name", "gene_biotype", "catalog_id", "locus", "lnc_position_class",
+              "known_catalog_hit", "catalog_sources", "novelty_class", "n_tx_hit", "n_tx",
+              "in_lncipedia", "lncipedia_best_id", "lncipedia_best_pct",
+              "in_noncode", "noncode_best_id", "noncode_best_pct",
+              "in_rnacentral", "rnacentral_best_id", "rnacentral_best_pct",
+              "in_fantomcat", "fantomcat_best_id", "fantomcat_best_pct"]
 # 4b.1: genomic position (from the catalog) and derived grouping/QC columns.
 POS_COLS = ["chr", "start", "end", "strand"]
 DERIVED_COLS = ["gene_id_stable", "gene_group", "contig_type", "baseMean_extreme", "genome_build"]

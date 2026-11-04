@@ -94,6 +94,31 @@ COLUMN_MEANINGS = {
     "tier_final": "Tier after flags; equals tier_static in this version.",
     "single_exon_low_confidence": "TRUE when a mono-exonic candidate is demoted to Tier 2.",
     "antisense_status": "Antisense-leakage flag; annotates, never filters.",
+    "known_catalog_hit": "TRUE when at least one isoform of the gene is a strict reciprocal hit "
+                         "in a configured external catalog (NONCODE/RNAcentral); FALSE when "
+                         "evaluated but none matches; NA for annotated/reference genes. Only the "
+                         "strict call counts — a `TRUE` means the locus is already described.",
+    "catalog_sources": "`;`-separated list of the catalogs that contributed a hit, in canonical "
+                       "order (e.g. `noncode;rnacentral`); `NA` when none. Never contains a "
+                       "placeholder for absence.",
+    "novelty_class": "annotated (in Ensembl 115) / novel_known_external (novel but already in a "
+                     "configured catalog) / novel_no_external_hit (novel and absent from every "
+                     "catalog evaluated) / not_evaluated (no catalog configured).",
+    "n_tx_hit": "Number of the gene's isoforms that are a strict external-catalog hit.",
+    "n_tx": "Number of the gene's isoforms considered for the external-catalog evidence.",
+    "in_noncode": "TRUE when the gene hits NONCODE (strict); NA when NONCODE was not configured.",
+    "in_rnacentral": "TRUE when the gene hits RNAcentral (strict); NA when RNAcentral was not configured.",
+    "in_lncipedia": "TRUE when the gene hits LNCipedia (strict); NA when LNCipedia was not configured.",
+    "in_fantomcat": "TRUE when the gene hits FANTOM CAT (strict); NA when FANTOM CAT was not configured.",
+    "noncode_best_id": "External id of the best NONCODE hit (NA when the gene does not hit NONCODE).",
+    "rnacentral_best_id": "External id of the best RNAcentral hit (NA when the gene does not hit RNAcentral).",
+    "lncipedia_best_id": "External id of the best LNCipedia hit (NA when the gene does not hit LNCipedia).",
+    "fantomcat_best_id": "External id of the best FANTOM CAT hit (NA when the gene does not hit FANTOM CAT).",
+    "noncode_best_pct": "Closest NONCODE candidate fraction for the gene (0-1). Below the "
+                        "reciprocal threshold means it overlapped but did not qualify as a hit.",
+    "rnacentral_best_pct": "Closest RNAcentral candidate fraction for the gene (0-1); see noncode_best_pct.",
+    "lncipedia_best_pct": "Closest LNCipedia candidate fraction for the gene (0-1); see noncode_best_pct.",
+    "fantomcat_best_pct": "Closest FANTOM CAT candidate fraction for the gene (0-1); see noncode_best_pct.",
     "baseMean": "Mean normalised count across the samples of the contrast.",
     "log2FoldChange": "Shrunken LFC (lfcShrink/apeglm); the sign is the direction.",
     "lfcSE": "Standard error of the shrunken LFC.",
@@ -285,12 +310,27 @@ def build_deliverables_readme(contract, qa_rows, publish_level, fdr=None, lfc=No
     lines.append("- `NA` means *not evaluated*, never *clean*.")
     lines.append("")
     lines.extend(_tiers_section())
+    qa = {r[0]: r[1] for r in (qa_rows or []) if len(r) >= 2}
+    novelty = qa.get("novelty_status", "not_evaluated")
+    if novelty == "novel_for_all_catalogs":
+        novelty_txt = ("external catalogs were configured and **no novel candidate matched "
+                       "any** of them (`novelty_status = novel_for_all_catalogs`).")
+    elif novelty == "known":
+        novelty_txt = ("at least one novel candidate matched a known external catalog "
+                       "(`novelty_status = known`): check `known_catalog_hit` / "
+                       "`catalog_sources` before treating it as novel.")
+    else:
+        novelty_txt = ("no external catalog was configured for this run, so novelty is "
+                       "*not evaluated* against other databases.")
     lines.append("## What \"novel\" means here")
     lines.append("")
     lines.append("- `novel` = a transcript not present in the reference annotation "
                  "(Ensembl 115). It is **not** a claim that the locus was never described "
-                 "before: no external catalog was configured for this run, so novelty is "
-                 "*not evaluated* against other databases.")
+                 "before: " + novelty_txt)
+    lines.append("- `novelty_class` makes that explicit per gene: `novel_known_external` "
+                 "(already in a configured catalog) vs `novel_no_external_hit` (absent from "
+                 "every catalog evaluated) — the latter means *not in the catalogs we checked*, "
+                 "not *never described*. `not_evaluated` when no catalog was configured.")
     lines.append("- Coding genes (and other non-lncRNA reference genes) are tested and shipped "
                  "in full in `de_full.tsv` under `gene_group = protein_coding` / `other`. "
                  "`de_lncrna_full.tsv` contains **only** lncRNAs (annotated + novel).")

@@ -105,9 +105,7 @@ workflow {
         DISCOVERY.out.tx2gene_detailed,
         validateInput.out.design_formula,
         DISCOVERY.out.gene_catalog,
-        DISCOVERY.out.catalog_genes,
-        DISCOVERY.out.novelty,
-        CHECK_STRANDEDNESS.out.summary
+        DISCOVERY.out.catalog_genes
     )
 
     // ── F4.6 / F4.7: run metadata + generated READMEs ──────────────────────

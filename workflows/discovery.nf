@@ -122,7 +122,8 @@ workflow DISCOVERY {
 
     // F2.3 novelty guard. Cheap and always runs: with no catalogs it records
     // novelty_status=not_evaluated; with catalogs it fails fast on an empty or
-    // chromosome-mismatched BED.
+    // chromosome-mismatched BED, else reports known / novel_for_all_catalogs
+    // over the novel MSTRG set.
     def cat_pairs = [["lncipedia", params.lncipedia_bed],
                      ["noncode", params.noncode_bed],
                      ["rnacentral", params.rnacentral_bed],

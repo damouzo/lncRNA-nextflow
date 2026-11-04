@@ -33,6 +33,44 @@ def strip_version(x):
     return re.sub(r"\.\d+$", "", x) if x else x
 
 
+def canonical_chrom(chrom):
+    """Canonical chromosome key for cross-source matching.
+
+    Strips a `chr` prefix and folds mitochondrial aliases (M, MT, chrM, ...) to
+    `MT`, so `chr1`/`1` and `chrM`/`MT` compare equal. Any other name is returned
+    unchanged: a genuine mismatch must stay a mismatch (the novelty guard relies
+    on that to fail fast on a wrong assembly).
+    """
+    if not chrom:
+        return chrom
+    c = chrom[3:] if chrom.startswith("chr") else chrom
+    if c.lower() in ("m", "mt"):
+        return "MT"
+    return c
+
+
+def build_chrom_map(target_chroms):
+    """{canonical form -> reference spelling} for a set of reference chromosomes."""
+    return {canonical_chrom(t): t for t in target_chroms}
+
+
+def match_chrom(chrom, chrom_map):
+    """Reference spelling for `chrom`, or `chrom` unchanged when it does not map."""
+    return chrom_map.get(canonical_chrom(chrom), chrom)
+
+
+def normalize_chroms(features, chrom_map, key="chrom"):
+    """Rewrite `features[*][key]` to the reference spelling. Returns the count changed."""
+    changed = 0
+    for f in features:
+        c = f.get(key)
+        t = match_chrom(c, chrom_map)
+        if t != c:
+            f[key] = t
+            changed += 1
+    return changed
+
+
 def parse_list(s):
     return [x.strip() for x in s.split(",") if x.strip()]
 

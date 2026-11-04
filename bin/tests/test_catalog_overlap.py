@@ -121,11 +121,84 @@ def test_consensus_annotation():
     check(by["T1"]["known_catalog_hit"] == "FALSE",
           "candidate whose exon union is only partly covered is not strict")
     check(by["T2"]["catalog_sources"] == "lncipedia", "catalog_sources lists the source")
+    # Absence is never a text token: a non-hit carries an empty source list, not "none".
+    check(by["T1"]["catalog_sources"] == "", "no hit -> empty catalog_sources (never 'none')")
+    check(by["T2"]["lncipedia_hit"] == "TRUE" and by["T1"]["lncipedia_hit"] == "FALSE",
+          "per-source strict hit flag")
+    check(by["T2"]["lncipedia_pct"] != "" and by["T1"]["lncipedia_id"] == "NA",
+          "per-source pct kept, id NA without a strict hit")
+
+
+def test_consensus_two_sources():
+    print("consensus annotation with two sources")
+    d = tempfile.mkdtemp()
+    cons = os.path.join(d, "consensus.tsv")
+    with open(cons, "w") as fh:
+        fh.write("ID\tclass_code\nT1\ti\nT2\ti\n")
+    gtf = os.path.join(d, "consensus.gtf")
+    with open(gtf, "w") as fh:
+        fh.write('1\tS\ttranscript\t100\t200\t.\t+\t.\tgene_id "g1"; transcript_id "T1";\n')
+        fh.write('1\tS\texon\t100\t200\t.\t+\t.\tgene_id "g1"; transcript_id "T1";\n')
+        fh.write('1\tS\ttranscript\t100\t200\t.\t+\t.\tgene_id "g2"; transcript_id "T2";\n')
+        fh.write('1\tS\texon\t100\t200\t.\t+\t.\tgene_id "g2"; transcript_id "T2";\n')
+    noncode = os.path.join(d, "noncode.bed")
+    with open(noncode, "w") as fh:
+        fh.write("1\t99\t200\tNONHST1\t0\t+\n")
+    rnac = os.path.join(d, "rnacentral.bed")
+    with open(rnac, "w") as fh:
+        fh.write("1\t99\t200\tURS1\t0\t+\n")
+    header, rows = O.C.read_tsv(cons)
+    cands = O.exons_by_tx(gtf)
+    _, out = O.annotate_consensus(header, rows, cands,
+                                  {"noncode": noncode, "rnacentral": rnac}, 0.5)
+    by = {r["ID"]: r for r in out}
+    check(by["T1"]["catalog_sources"] == "noncode;rnacentral",
+          "two hits -> ';'-joined, canonical order, no duplicates")
+    check(by["T1"]["noncode_hit"] == "TRUE" and by["T1"]["rnacentral_hit"] == "TRUE",
+          "both per-source flags TRUE")
+
+
+def test_chrom_aliases():
+    print("chromosome aliasing (chr prefix / M-MT)")
+    C = O.C
+    check(C.canonical_chrom("chr1") == C.canonical_chrom("1") == "1", "chr prefix stripped")
+    check(C.canonical_chrom("chrM") == C.canonical_chrom("MT") == "MT", "mito aliases fold to MT")
+    cmap = C.build_chrom_map(["1", "MT"])
+    check(C.match_chrom("chr1", cmap) == "1", "external chr1 -> reference 1")
+    check(C.match_chrom("chrM", cmap) == "MT", "external chrM -> reference MT")
+    check(C.match_chrom("chrZ", cmap) == "chrZ", "unmapped chromosome left unchanged")
+    feats = [{"chrom": "chr1"}, {"chrom": "1"}, {"chrom": "chrM"}]
+    n = C.normalize_chroms(feats, cmap)
+    check(n == 2 and [f["chrom"] for f in feats] == ["1", "1", "MT"],
+          "normalize_chroms rewrites and counts")
+
+
+def test_consensus_annotation_chr_prefix():
+    print("consensus annotation with a chr-prefixed external BED")
+    d = tempfile.mkdtemp()
+    cons = os.path.join(d, "consensus.tsv")
+    with open(cons, "w") as fh:
+        fh.write("ID\tclass_code\nT1\ti\n")
+    gtf = os.path.join(d, "consensus.gtf")
+    with open(gtf, "w") as fh:
+        fh.write('1\tS\ttranscript\t100\t200\t.\t+\t.\tgene_id "g1"; transcript_id "T1";\n')
+        fh.write('1\tS\texon\t100\t200\t.\t+\t.\tgene_id "g1"; transcript_id "T1";\n')
+    bed = os.path.join(d, "noncode.bed")
+    with open(bed, "w") as fh:
+        fh.write("chr1\t99\t200\tNONHST1\t0\t+\n")
+    header, rows = O.C.read_tsv(cons)
+    cands = O.exons_by_tx(gtf)
+    cmap = O.C.build_chrom_map({c["chrom"] for c in cands.values()})
+    _, out = O.annotate_consensus(header, rows, cands, {"noncode": bed}, 0.5, cmap)
+    check(out[0]["known_catalog_hit"] == "TRUE",
+          "chr-prefixed external BED yields a strict hit against a non-prefixed reference")
 
 
 def main():
     for fn in (test_reciprocal, test_not_summed, test_order_and_best, test_strand,
-               test_parse_bed, test_gtf_parser, test_consensus_annotation):
+               test_parse_bed, test_gtf_parser, test_consensus_annotation,
+               test_consensus_two_sources,
+               test_chrom_aliases, test_consensus_annotation_chr_prefix):
         fn()
     print()
     if FAILS:

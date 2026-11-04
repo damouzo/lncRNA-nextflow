@@ -3,13 +3,20 @@
 
 Without external catalogs there is no evidence, so `novelty_status` is
 `not_evaluated` (no failure). With catalogs configured, the guard fails fast when
-the evidence is empty or unusable:
+the evidence is empty or unusable, and otherwise reports an informative verdict
+over the novel (MSTRG) candidates:
 
   * a BED with 0 features (misparsed / truncated download)
-  * a BED that shares no chromosome with the consensus annotation (wrong assembly
-    or chr1 vs 1 naming)
+  * a BED that shares no chromosome with the consensus annotation (a genuine
+    assembly mismatch; chr1/1 and chrM/MT aliases are normalized first)
   * a catalog run that produced zero known_catalog_hit (novelty would be an
     artefact of the overlap, not a result)
+  * a catalog run where the annotated lncRNAs have a 0 hit rate (positive control)
+
+`novelty_status` values:
+  * `not_evaluated`          — no catalogs configured
+  * `novel_for_all_catalogs` — no novel candidate hits any configured catalog
+  * `known`                  — at least one novel candidate hits a catalog
 
 CLI:
   check_novelty.py --overlap catalog_overlap.tsv --consensus-gtf <length-filtered.gtf> \
@@ -20,6 +27,9 @@ import argparse
 import csv
 import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import f1_common as C  # noqa: E402
 
 IS_NA = {"", "NA", "nan", "NaN", "None"}
 
@@ -58,6 +68,10 @@ def bed_features_chromosomes(path):
     return n, chroms
 
 
+def _is_hit(row):
+    return str(row.get("known_catalog_hit", "")).upper() == "TRUE"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--overlap", required=True, help="catalog_overlap.tsv")
@@ -84,6 +98,9 @@ def main():
     consensus_chroms = gtf_chromosomes(args.consensus_gtf)
     if not consensus_chroms:
         raise SystemExit("consensus GTF has no chromosomes: %s" % args.consensus_gtf)
+    # Compare canonical names so a `chr1`/`chrM` catalog agrees with an
+    # Ensembl-style `1`/`MT` reference (the overlap step normalizes the same way).
+    consensus_canon = {C.canonical_chrom(c) for c in consensus_chroms}
 
     for name, path in beds:
         if not path or not os.path.exists(path):
@@ -91,24 +108,28 @@ def main():
         n, chroms = bed_features_chromosomes(path)
         if n == 0:
             raise SystemExit("catalog BED '%s' has 0 features: %s" % (name, path))
-        if not (chroms & consensus_chroms):
+        if not ({C.canonical_chrom(c) for c in chroms} & consensus_canon):
             raise SystemExit(
                 "catalog BED '%s' shares no chromosome with the consensus "
-                "annotation (assembly/naming mismatch)" % name)
+                "annotation (assembly mismatch; chr/M/MT aliases are handled)"
+                % name)
         rows.append(("n_features_%s" % name, str(n)))
 
     header, overlap = read_tsv(args.overlap)
     if "known_catalog_hit" not in header:
         raise SystemExit("%s: no 'known_catalog_hit' column" % args.overlap)
     n_total = len(overlap)
-    n_hit = sum(1 for r in overlap if str(r["known_catalog_hit"]).upper() == "TRUE")
+    n_hit = sum(1 for r in overlap if _is_hit(r))
     annotated = [r for r in overlap if not str(r.get("ID", "")).startswith("MSTRG")]
-    n_annot_hit = sum(1 for r in annotated
-                      if str(r["known_catalog_hit"]).upper() == "TRUE")
+    novel = [r for r in overlap if str(r.get("ID", "")).startswith("MSTRG")]
+    n_annot_hit = sum(1 for r in annotated if _is_hit(r))
+    n_novel_hit = sum(1 for r in novel if _is_hit(r))
     rows.append(("n_transcripts", str(n_total)))
     rows.append(("n_known_catalog_hit", str(n_hit)))
     rows.append(("n_annotated_transcripts", str(len(annotated))))
     rows.append(("n_annotated_known_catalog_hit", str(n_annot_hit)))
+    rows.append(("n_novel_transcripts", str(len(novel))))
+    rows.append(("n_novel_known_catalog_hit", str(n_novel_hit)))
 
     if n_hit == 0:
         raise SystemExit(
@@ -119,10 +140,12 @@ def main():
             "catalogs configured but annotated lncRNAs have a 0 hit rate "
             "(expected > 0)")
 
-    rows.append(("novelty_status", "evaluated"))
+    # Run-wide verdict over the novel (MSTRG) candidates.
+    status = "known" if n_novel_hit > 0 else "novel_for_all_catalogs"
+    rows.append(("novelty_status", status))
     _write(args.out, rows)
-    print("check_novelty: evaluated (%d/%d hits, %d/%d annotated)"
-          % (n_hit, n_total, n_annot_hit, len(annotated)))
+    print("check_novelty: %s (%d/%d novel hit, %d/%d annotated hit)"
+          % (status, n_novel_hit, len(novel), n_annot_hit, len(annotated)))
 
 
 def _write(path, rows):

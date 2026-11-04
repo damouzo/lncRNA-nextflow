@@ -1,9 +1,9 @@
 {
-  "description": "Pinned external lncRNA catalogs for F2.1/F2.2. Fill `version` and `url` with the exact pinned release before running --mode download. `file` may be set to an existing local BED instead of downloading. Feature counts and md5 are recorded in run_info/external_catalogs.tsv.",
+  "description": "Pinned external lncRNA catalogs for F2.1/F2.2. NONCODE is the recommended primary catalog and RNAcentral the recommended second (it aggregates lncRNA catalogs). Fill `version` and `url` with the exact pinned release before running --mode download. `file` may be set to an existing local BED instead of downloading. BED contract: tab-separated, 0-based, col4 = feature id, col6 = strand. Feature counts and md5 are recorded in run_info/external_catalogs.tsv.",
   "sources": [
-    {"name": "lncipedia", "version": "", "url": "", "file": "", "note": "LNCipedia hg38 BED (BED6 or BED12). Record the exact release used."},
-    {"name": "noncode", "version": "", "url": "", "file": "", "note": "NONCODE hg38 BED (BED6 or BED12). Record the exact release used."},
-    {"name": "rnacentral", "version": "", "url": "", "file": "", "note": "Optional. RNAcentral hg38 lncRNA BED, if easily available."},
+    {"name": "noncode", "version": "", "url": "http://www.noncode.org/datadownload/NONCODEv6_hg38.lncAndGene.bed.gz", "file": "", "note": "Recommended primary. NONCODE v6 human hg38 BED; needs a browser User-Agent to download. Record the exact release used."},
+    {"name": "rnacentral", "version": "", "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/current_release/genome_coordinates/bed/homo_sapiens.GRCh38.bed.gz", "file": "", "note": "Recommended second. RNAcentral GRCh38 genome-coordinates BED12 covering all ncRNA types (not lncRNA-only)."},
+    {"name": "lncipedia", "version": "", "url": "", "file": "", "note": "Optional / legacy. lncipedia.org is inactive; use only a verifiable mirror. Non-commercial licence."},
     {"name": "fantomcat", "version": "", "url": "", "file": "", "note": "Optional. FANTOM CAT, only if an hg38 BED exists."}
   ]
 }

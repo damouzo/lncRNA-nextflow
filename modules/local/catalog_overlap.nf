@@ -11,8 +11,9 @@
 //   INFORMATIVE (never filters): <src>_pct = best-pair candidate fraction.
 //
 // The consensus table is annotated in place: known_catalog_hit, catalog_sources
-// and <src>_id/<src>_pct per source (LNCipedia, NONCODE, RNAcentral, FANTOM CAT).
-// A missing BED is skipped, never an error. BED6 is matched on its span.
+// and <src>_hit/<src>_id/<src>_pct per source (LNCipedia, NONCODE, RNAcentral,
+// FANTOM CAT). Absence is NA/FALSE, never a text token. A missing BED is
+// skipped, never an error. BED6 is matched on its span.
 
 process CATALOG_OVERLAP {
 

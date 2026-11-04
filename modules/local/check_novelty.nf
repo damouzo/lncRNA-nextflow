@@ -1,6 +1,7 @@
 // F2.3: novelty guard. Cheap, always runs: with no catalogs it writes
 // novelty_status=not_evaluated; with catalogs it fails fast on an empty or
-// mismatched BED (0 features, or no chromosome in common with the consensus).
+// mismatched BED (0 features, or no chromosome in common with the consensus)
+// and otherwise reports known / novel_for_all_catalogs over the novel MSTRG set.
 
 process CHECK_NOVELTY {
 

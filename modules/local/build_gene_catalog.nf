@@ -21,12 +21,16 @@ process BUILD_GENE_CATALOG {
 
     script:
     def allow_single_exon_r = params.tier1_allow_single_exon ? "TRUE" : "FALSE"
+    // Only sources with a configured BED were actually evaluated; the rest stay
+    // NA (not evaluated) instead of a misleading FALSE (no hit).
+    def configured_sources = ['lncipedia', 'noncode', 'rnacentral', 'fantomcat'].findAll { s -> params."${s}_bed" }
     """
     #!/usr/bin/env Rscript
     library(dplyr)
     library(readr)
 
     ANNOT_BIOTYPES <- c(${params.annotated_lncrna_biotypes.collect { bt -> "\"${bt}\"" } .join(", ")})
+    SOURCES <- c(${configured_sources.collect { s -> "\"${s}\"" } .join(", ")})
 
     extract_attr <- function(attrs, key) {
         pat <- paste0('(?:^|; )', key, ' "([^"]+)"')
@@ -346,33 +350,113 @@ synth <- read_scores("${synteny_scores}",
         catalog\$ref_gene_relation[i] <- rr\$rel
     }
 
-    # ---- External catalog hits (reporting): aggregate transcript-level evidence ----
+    # ---- External catalog evidence (reporting): transcript -> gene aggregation ----
+    # Evidence is per transcript, the label is per gene: a gene is "in" a source
+    # when at least one isoform is a strict hit. Absence is NA, never a text token,
+    # so no sentinel can leak into catalog_sources. <src>_best_pct keeps the closest
+    # candidate fraction of the gene (informative even below the reciprocal cut).
+    ALL_SOURCES <- c("lncipedia", "noncode", "rnacentral", "fantomcat")
     ov_tab <- tryCatch(read_tsv("${overlap_table}", show_col_types = FALSE), error = function(e) data.frame())
     # CATALOG_OVERLAP keeps the CODING_CONSENSUS id column (`ID`), not
     # `transcript_id` — renormalize like build_catalog_master's renorm_tx().
     tid_over <- intersect(c("transcript_id", "ID"), colnames(ov_tab))
     if (nrow(ov_tab) > 0 && length(tid_over) == 1) ov_tab\$transcript_id <- ov_tab[[tid_over[1]]]
-    if (nrow(ov_tab) > 0 && "transcript_id" %in% colnames(ov_tab) &&
-        "known_catalog_hit" %in% colnames(ov_tab)) {
-        ov_tab\$transcript_id <- remap_tx_id(ov_tab\$transcript_id)
-        ov_keep <- ov_tab[ov_tab\$transcript_id %in% tx2gene_frozen\$transcript_id, , drop = FALSE]
-        ov_gene <- ov_keep %>%
-            left_join(tx2gene_frozen, by = "transcript_id") %>%
+    if (!("transcript_id" %in% colnames(ov_tab))) ov_tab\$transcript_id <- character(0)
+    ev_cols <- c("known_catalog_hit",
+                 unlist(lapply(ALL_SOURCES, function(s) paste0(s, c("_hit", "_id", "_pct")))))
+    if (nrow(ov_tab) > 0) {
+        for (cc in setdiff(ev_cols, colnames(ov_tab))) ov_tab[[cc]] <- NA
+    }
+
+    # Denominator: every transcript the gene contributes to the frozen catalog.
+    n_tx_gene <- tx2gene_frozen %>% count(gene_id, name = "n_tx")
+
+    ev_gene <- data.frame(gene_id = character(), known_catalog_hit = logical(),
+                          n_tx_hit = integer(), stringsAsFactors = FALSE)
+    if (nrow(ov_tab) > 0) {
+        ov_keep <- ov_tab %>%
+            mutate(transcript_id = remap_tx_id(transcript_id)) %>%
+            filter(transcript_id %in% tx2gene_frozen\$transcript_id) %>%
+            left_join(tx2gene_frozen, by = "transcript_id")
+        ev_gene <- ov_keep %>%
             group_by(gene_id) %>%
             summarise(
                 known_catalog_hit = any(!is.na(known_catalog_hit) & known_catalog_hit),
-                catalog_sources = paste(unique(na.omit(catalog_sources)), collapse = ","),
+                n_tx_hit = sum(!is.na(known_catalog_hit) & known_catalog_hit),
                 .groups = "drop")
-        ov_gene\$known_catalog_hit[is.na(ov_gene\$known_catalog_hit)] <- FALSE
-        catalog <- left_join(catalog, ov_gene, by = "gene_id") %>%
-            mutate(
-                known_catalog_hit = ifelse(origin == "novel", coalesce(known_catalog_hit, FALSE), NA),
-                catalog_sources   = ifelse(origin == "novel" & !is.na(catalog_sources), catalog_sources, NA_character_)
-            )
+        for (s in ALL_SOURCES) {
+            n_ev <- nrow(ev_gene)
+            if (!(s %in% SOURCES)) {
+                ev_gene[[paste0("in_", s)]]       <- rep(NA, n_ev)
+                ev_gene[[paste0(s, "_best_id")]]  <- rep(NA_character_, n_ev)
+                ev_gene[[paste0(s, "_best_pct")]] <- rep(NA_real_, n_ev)
+                next
+            }
+            hcol <- paste0(s, "_hit")
+            per_src <- ov_keep %>%
+                group_by(gene_id) %>%
+                summarise(
+                    in_src   = any(.data[[hcol]] %in% TRUE),
+                    best_pct = suppressWarnings(max(as.numeric(.data[[paste0(s, "_pct")]]), na.rm = TRUE)),
+                    .groups = "drop") %>%
+                mutate(best_pct = ifelse(is.finite(best_pct), best_pct, NA_real_))
+            # Best strict hit per gene = the strict isoform with the highest pct.
+            best_id <- ov_keep %>%
+                filter(.data[[hcol]] %in% TRUE) %>%
+                mutate(.pct = suppressWarnings(as.numeric(.data[[paste0(s, "_pct")]]))) %>%
+                group_by(gene_id) %>%
+                slice_max(.pct, n = 1, with_ties = FALSE) %>%
+                transmute(gene_id, best_id = .data[[paste0(s, "_id")]])
+            per_src <- left_join(per_src, best_id, by = "gene_id")
+            names(per_src)[names(per_src) == "in_src"]   <- paste0("in_", s)
+            names(per_src)[names(per_src) == "best_pct"] <- paste0(s, "_best_pct")
+            names(per_src)[names(per_src) == "best_id"]  <- paste0(s, "_best_id")
+            ev_gene <- left_join(ev_gene, per_src, by = "gene_id")
+        }
     } else {
-        catalog\$known_catalog_hit <- NA
-        catalog\$catalog_sources   <- NA_character_
+        for (s in ALL_SOURCES) {
+            ev_gene[[paste0("in_", s)]]       <- logical(0)
+            ev_gene[[paste0(s, "_best_id")]]  <- character(0)
+            ev_gene[[paste0(s, "_best_pct")]] <- numeric(0)
+        }
     }
+
+    # catalog_sources: configured sources with a hit, canonical order, no duplicates.
+    if (length(SOURCES) > 0 && nrow(ev_gene) > 0) {
+        src_mat <- as.matrix(ev_gene[, paste0("in_", SOURCES), drop = FALSE])
+        ev_gene\$catalog_sources <- apply(src_mat, 1, function(x) {
+            hit <- SOURCES[x %in% TRUE]
+            if (length(hit) == 0) NA_character_ else paste(hit, collapse = ";")
+        })
+    } else {
+        ev_gene\$catalog_sources <- if (nrow(ev_gene) > 0) NA_character_ else character(0)
+    }
+
+    catalog <- catalog %>%
+        left_join(ev_gene, by = "gene_id") %>%
+        left_join(n_tx_gene, by = "gene_id") %>%
+        mutate(
+            is_novel = origin == "novel",
+            n_tx     = ifelse(is_novel, coalesce(n_tx, 0L), NA_integer_),
+            n_tx_hit = ifelse(is_novel, coalesce(n_tx_hit, 0L), NA_integer_),
+            known_catalog_hit = ifelse(is_novel, coalesce(known_catalog_hit, FALSE), NA),
+            catalog_sources   = ifelse(is_novel, catalog_sources, NA_character_),
+            novelty_class = case_when(
+                !is_novel ~ "annotated",
+                length(SOURCES) == 0 ~ "not_evaluated",
+                known_catalog_hit ~ "novel_known_external",
+                TRUE ~ "novel_no_external_hit"),
+            # Evaluated sources carry TRUE/FALSE for novel genes (a gene with no
+            # evidence row is FALSE, not NA); unevaluated sources stay NA.
+            across(any_of(paste0("in_", SOURCES)),
+                   ~ ifelse(is_novel, coalesce(.x, FALSE), NA)),
+            across(any_of(paste0("in_", setdiff(ALL_SOURCES, SOURCES))),
+                   ~ ifelse(is_novel, .x, NA)),
+            across(any_of(c(paste0(ALL_SOURCES, "_best_id"),
+                            paste0(ALL_SOURCES, "_best_pct"))),
+                   ~ ifelse(is_novel, .x, NA))
+        ) %>%
+        select(-is_novel)
 
     if (nrow(catalog) == 0) stop("Gene catalog is empty — check reference GTF parsing")
 

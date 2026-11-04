@@ -105,12 +105,9 @@ process BUILD_CATALOG_MASTER {
     }
     ov <- renorm_tx(ov)
     rec <- renorm_tx(rec)
-    # Guard evidence/reported columns (always present on this pipeline's CATALOG_OVERLAP
-    # output; padding keeps the master stable if a future source ever drops one).
-    evidence_cols <- c("known_catalog_hit", "catalog_sources",
-                       "lncipedia_id", "noncode_id", "fantomcat_id", "rnacentral_id",
-                       "lncipedia_pct", "noncode_pct", "fantomcat_pct", "rnacentral_pct")
-    for (cc in setdiff(evidence_cols, colnames(ov))) ov[[cc]] <- NA
+    # Per-transcript evidence is read straight from CATALOG_OVERLAP; the gene-level
+    # label (booleans, best id/pct, novelty_class) comes from gene_catalog.tsv, so
+    # there is a single aggregation rule and no sentinel text to parse here.
     if (nrow(ov) > 0) {
         ov\$transcript_id <- remap_tx_id(ov\$transcript_id)
         ov <- ov[ov\$transcript_id %in% frozen_ids, , drop = FALSE]
@@ -128,31 +125,8 @@ process BUILD_CATALOG_MASTER {
         summarise(n_transcripts = n_distinct(catalog_tx_id), .groups = "drop") %>%
         rename(catalog_id = parent_catalog_id)
 
-    ov_gene <- data.frame(
-        gene_id = character(), known_catalog_hit = logical(), catalog_sources = character(),
-        lncipedia_id = character(), noncode_id = character(), fantomcat_id = character(),
-        rnacentral_id = character(), lncipedia_pct = numeric(), noncode_pct = numeric(),
-        fantomcat_pct = numeric(), rnacentral_pct = numeric(), stringsAsFactors = FALSE)
-    if (nrow(ov) > 0) {
-        ov_gene <- ov %>%
-            left_join(tx2gene, by = "transcript_id") %>%
-            group_by(gene_id) %>%
-            summarise(
-                known_catalog_hit = ifelse(any(!is.na(known_catalog_hit) & known_catalog_hit), TRUE, FALSE),
-                catalog_sources = paste(unique(na.omit(catalog_sources)), collapse = ","),
-                lncipedia_id  = paste(unique(na.omit(lncipedia_id)),  collapse = ","),
-                noncode_id    = paste(unique(na.omit(noncode_id)),    collapse = ","),
-                fantomcat_id  = paste(unique(na.omit(fantomcat_id)),  collapse = ","),
-                rnacentral_id = paste(unique(na.omit(rnacentral_id)), collapse = ","),
-                lncipedia_pct  = suppressWarnings(max(0, max(lncipedia_pct,  na.rm = TRUE))),
-                noncode_pct    = suppressWarnings(max(0, max(noncode_pct,    na.rm = TRUE))),
-                fantomcat_pct  = suppressWarnings(max(0, max(fantomcat_pct,  na.rm = TRUE))),
-                rnacentral_pct = suppressWarnings(max(0, max(rnacentral_pct, na.rm = TRUE))),
-                .groups = "drop")
-        for (cc in c("lncipedia_id", "noncode_id", "fantomcat_id", "rnacentral_id", "catalog_sources")) {
-            ov_gene[[cc]][is.na(ov_gene[[cc]]) | ov_gene[[cc]] == ""] <- NA_character_
-        }
-    }
+    # Gene-level external-catalog evidence is aggregated once, in BUILD_GENE_CATALOG,
+    # and joined here from gene_catalog.tsv (see the select(gc, ...) below).
 
     rec_gene <- data.frame(
         gene_id = character(), n_reps_expressed = integer(), consensus_noncoding = character(),
@@ -195,7 +169,12 @@ process BUILD_CATALOG_MASTER {
                n_tier1_transcripts, frac_tier1_transcripts,
                n_exons, conservation_mean, conservation_pct,
                syntenic_locus, syntenic_target_gene_id,
-               single_exon_low_confidence, u_single_exon_low_confidence),
+               single_exon_low_confidence, u_single_exon_low_confidence,
+               known_catalog_hit, catalog_sources, novelty_class, n_tx_hit, n_tx,
+               in_lncipedia, lncipedia_best_id, lncipedia_best_pct,
+               in_noncode, noncode_best_id, noncode_best_pct,
+               in_rnacentral, rnacentral_best_id, rnacentral_best_pct,
+               in_fantomcat, fantomcat_best_id, fantomcat_best_pct),
         by = "gene_id")
     m <- m %>% distinct(gene_id, .keep_all = TRUE)
     assert_nrow(m, n0, "master×gene_catalog")
@@ -203,26 +182,23 @@ process BUILD_CATALOG_MASTER {
     m <- left_join(m, n_tx_by_gene, by = "catalog_id")
     assert_nrow(m, n0, "master×n_transcripts")
 
-    m <- left_join(m, ov_gene, by = "gene_id")
-    assert_nrow(m, n0, "master×overlap")
-
     m <- left_join(m, rec_gene, by = "gene_id")
     assert_nrow(m, n0, "master×recurrence")
 
     m <- m %>%
         mutate(
             class_codes = coalesce(class_codes, class_code),
-            across(c(lncipedia_id, noncode_id, fantomcat_id, rnacentral_id),
-                   ~ ifelse(is.na(.x) | !nzchar(.x), NA_character_, .x)),
-            catalog_sources = ifelse(is.na(catalog_sources) | !nzchar(catalog_sources), NA_character_, catalog_sources),
-            known_catalog_hit = ifelse(is.na(known_catalog_hit), FALSE, known_catalog_hit)) %>%
+            catalog_sources = ifelse(is.na(catalog_sources) | !nzchar(catalog_sources),
+                                     NA_character_, catalog_sources)) %>%
         select(catalog_id, gene_id, gene_name, locus, chromosome, start, end, strand,
                n_transcripts, n_exons, class_codes, consensus_noncoding, n_reps_expressed,
                novel_type, tier_static, n_tier1_transcripts, frac_tier1_transcripts,
                ref_gene_id, ref_gene_name, ref_gene_distance, ref_gene_relation, parent_biotype,
-               known_catalog_hit, catalog_sources,
-               lncipedia_id, lncipedia_pct, noncode_id, noncode_pct,
-               fantomcat_id, fantomcat_pct, rnacentral_id, rnacentral_pct,
+               known_catalog_hit, catalog_sources, novelty_class, n_tx_hit, n_tx,
+               in_lncipedia, lncipedia_best_id, lncipedia_best_pct,
+               in_noncode, noncode_best_id, noncode_best_pct,
+               in_rnacentral, rnacentral_best_id, rnacentral_best_pct,
+               in_fantomcat, fantomcat_best_id, fantomcat_best_pct,
                conservation_mean, conservation_pct, syntenic_locus, syntenic_target_gene_id,
                single_exon_low_confidence, u_single_exon_low_confidence)
     assert_nrow(m, n0, "master-final")
@@ -237,8 +213,11 @@ process BUILD_CATALOG_MASTER {
         left_join(tx2gene, by = "transcript_id") %>%
         left_join(select(f_tx, transcript_id, chr, start, end, strand, class_code), by = "transcript_id") %>%
         left_join(ex_struct, by = "transcript_id") %>%
-        left_join(select(ov, transcript_id, known_catalog_hit,
-                         lncipedia_id, noncode_id, fantomcat_id, rnacentral_id), by = "transcript_id") %>%
+        left_join(select(ov, transcript_id, known_catalog_hit, catalog_sources,
+                         lncipedia_hit, lncipedia_id, lncipedia_pct,
+                         noncode_hit, noncode_id, noncode_pct,
+                         rnacentral_hit, rnacentral_id, rnacentral_pct,
+                         fantomcat_hit, fantomcat_id, fantomcat_pct), by = "transcript_id") %>%
         mutate(known_catalog_hit = ifelse(is.na(known_catalog_hit), FALSE, known_catalog_hit))
     if (any(is.na(tr\$transcript_id))) stop("catalog transcript not found in the frozen GTF")
     assert_nrow(tr, nrow(cat_tx), "transcripts")

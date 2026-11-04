@@ -57,10 +57,15 @@ def main():
     d = tempfile.mkdtemp()
     write(os.path.join(d, "catalog.tsv"),
           "gene_id\torigin\tclass_code\ttier_static\ttier_final\tsingle_exon_low_confidence\tantisense_status\t"
-          "gene_biotype\tcatalog_id\tchromosome\tstart\tend\tstrand\tlocus\n"
-          "G1\tnovel\tu\tTRUE\tTRUE\tFALSE\tnot_evaluated\tNA\tLNC000001\tKI270733.1\t100\t200\t+\tKI270733.1:100-200(+)\n"
-          "G2\tnovel\tu\tFALSE\tFALSE\tFALSE\tnot_evaluated\tNA\tLNC000002\t1\t500\t600\t-\t1:500-600(-)\n"
-          "G3\tannotated_lncrna\tNA\tNA\tFALSE\tNA\tnot_evaluated\tlncRNA\tNA\t4\t1000\t2000\t+\t4:1000-2000(+)\n")
+          "gene_biotype\tcatalog_id\tchromosome\tstart\tend\tstrand\tlocus\tknown_catalog_hit\tcatalog_sources\t"
+          "novelty_class\tn_tx_hit\tn_tx\tin_noncode\tnoncode_best_id\tnoncode_best_pct\t"
+          "in_rnacentral\trnacentral_best_id\trnacentral_best_pct\n"
+          "G1\tnovel\tu\tTRUE\tTRUE\tFALSE\tnot_evaluated\tNA\tLNC000001\tKI270733.1\t100\t200\t+\tKI270733.1:100-200(+)\tTRUE\tnoncode\t"
+          "novel_known_external\t1\t2\tTRUE\tNONHSAT1\t0.9\tFALSE\tNA\t0.1\n"
+          "G2\tnovel\tu\tFALSE\tFALSE\tFALSE\tnot_evaluated\tNA\tLNC000002\t1\t500\t600\t-\t1:500-600(-)\tFALSE\tNA\t"
+          "novel_no_external_hit\t0\t1\tFALSE\tNA\t0.2\tFALSE\tNA\t0.0\n"
+          "G3\tannotated_lncrna\tNA\tNA\tFALSE\tNA\tnot_evaluated\tlncRNA\tNA\t4\t1000\t2000\t+\t4:1000-2000(+)\tFALSE\tNA\t"
+          "annotated\tNA\tNA\tNA\tNA\tNA\tNA\tNA\tNA\n")
 
     # universe = pre-filter universe (all imported genes), one file per group
     for group in ("MNC", "MSC"):
@@ -105,6 +110,16 @@ def main():
                   "%s__%s: summary n_significant matches de_full_significant (padj<FDR)" % (group, ct))
             check(by["G1"]["antisense_status"] == "not_evaluated",
                   "%s__%s: catalog annotation is joined in" % (group, ct))
+            check(by["G1"]["known_catalog_hit"] == "TRUE" and by["G1"]["catalog_sources"] == "noncode",
+                  "%s__%s: known_catalog_hit + catalog_sources joined from the catalog" % (group, ct))
+            check(by["G1"]["novelty_class"] == "novel_known_external"
+                  and by["G1"]["in_noncode"] == "TRUE" and by["G1"]["noncode_best_pct"] == "0.9",
+                  "%s__%s: per-source evidence + novelty_class joined" % (group, ct))
+            check(by["G2"]["novelty_class"] == "novel_no_external_hit"
+                  and by["G2"]["in_noncode"] == "FALSE",
+                  "%s__%s: novel without a catalog hit is flagged" % (group, ct))
+            check(by["G3"]["known_catalog_hit"] == "FALSE",
+                  "%s__%s: non-hit gene carries known_catalog_hit FALSE" % (group, ct))
             check(all(c in full[0] for c in ("stat", "lfc_unshrunken", "shrink_type",
                                              "gene_name", "gene_biotype", "catalog_id",
                                              "lnc_position_class")),

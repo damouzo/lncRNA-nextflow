@@ -10,6 +10,10 @@ process BUILD_CONTRAST_TABLES {
     input:
     tuple val(group), val(ct), path(de_tsv), path(universe_tsv)
     path catalog_genes      // deliverables/catalog catalog_genes.tsv (annotation)
+    // bin/build_contrast_tables.py staged as an input so its content is part of the
+    // task hash: Nextflow does not track bin/, so without this an edit to the script
+    // would be silently served from cache under -resume.
+    path build_script
 
     output:
     path "de_full.tsv"

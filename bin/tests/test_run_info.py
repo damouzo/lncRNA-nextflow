@@ -46,7 +46,7 @@ def make_fixture(d):
     write(os.path.join(d, "tier_final_sensitivity.tsv"),
           "changed\tpercentile\tn_tier1_final_genes\nbaseline\tderived\t2507\n")
     write(os.path.join(d, "novelty_status.tsv"),
-          "metric\tvalue\nnovelty_status\tevaluated\nn_catalogs\t2\n")
+          "metric\tvalue\nnovelty_status\tnovel_for_all_catalogs\nn_catalogs\t2\n")
     write(os.path.join(d, "NB4_length_offset.txt"),
           "group\tlength_offset_used\nNB4\tTRUE\n")
     write(os.path.join(d, "versions_a.yml"),
@@ -99,7 +99,7 @@ def test_run_info():
     check(q["strandedness_fidelity_min"] == "0.8100" and q["strandedness_fidelity_max"] == "0.8800",
           "qa fidelity range")
     check(q["thresholds_status"] == "thresholds_not_specific", "qa thresholds status")
-    check(q["novelty_status"] == "evaluated", "qa novelty_status comes from CHECK_NOVELTY")
+    check(q["novelty_status"] == "novel_for_all_catalogs", "qa novelty_status comes from CHECK_NOVELTY")
 
     _, ver = R.read_tsv(os.path.join(out, "versions.tsv"))
     check(len(ver) == 2 and ver[0]["process"] == "STRINGTIE2_MERGE",

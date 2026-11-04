@@ -130,6 +130,67 @@ catalog_registry_project: MY_PROJECT        # provenance label
 - Omit `catalog_registry` to disable the feature (columns come out `NA`); no
   existing run changes behaviour.
 
+### 4c. External lncRNA catalogs (optional — supports the novelty claim)
+
+Without catalogs the run still completes but records `novelty_status = not_evaluated`
+(never "clean"). To back the novelty claim, download **NONCODE** (hg38) yourself and
+pass the local BED as a param — **the pipeline never downloads anything**, exactly
+like `genome`/`gtf` and the §4 resources. Any subset of the catalogs below works; the
+run uses whichever ones you configured.
+
+| Source | Status | Where to obtain |
+|--------|--------|-----------------|
+| NONCODE v6 (hg38) | recommended (primary) | <http://www.noncode.org/download.php> → BED section, `NONCODEv6_hg38.lncAndGene.bed.gz` |
+| RNAcentral (GRCh38) | recommended (second) | <https://ftp.ebi.ac.uk/pub/databases/RNAcentral/current_release/genome_coordinates/bed/> → `homo_sapiens.GRCh38.bed.gz` |
+| LNCipedia | optional / legacy | lncipedia.org is inactive; only from a verifiable mirror. Non-commercial licence |
+
+**NONCODE** ships a ready BED. The host blocks requests without a browser User-Agent,
+so pass one (the URL works over plain HTTP):
+
+```bash
+http://www.noncode.org/datadownload/NONCODEv6_hg38.lncAndGene.bed.gz
+gunzip -k NONCODEv6_hg38.lncAndGene.bed.gz
+md5sum NONCODEv6_hg38.lncAndGene.bed.gz  
+head -3 NONCODEv6_hg38.lncAndGene.bed 
+```
+
+**RNAcentral** ships BED12 with exon blocks, but it is **all ncRNA** (rRNA, tRNA, snoRNA,
+miRNA, lncRNA, …), not lncRNA-only — a small ncRNA overlapping ≥50 % of a candidate
+still counts as a strict hit, so treat it as broad "known ncRNA" evidence:
+
+```bash
+wget -O homo_sapiens.GRCh38.bed.gz \
+  https://ftp.ebi.ac.uk/pub/databases/RNAcentral/current_release/genome_coordinates/bed/homo_sapiens.GRCh38.bed.gz
+gunzip -k homo_sapiens.GRCh38.bed.gz
+```
+
+```yaml
+noncode_bed:    /path/to/reference/catalogs/NONCODEv6_hg38.lncAndGene.bed
+rnacentral_bed: /path/to/reference/catalogs/homo_sapiens.GRCh38.bed
+```
+
+The overlap is **reciprocal and pair-by-pair** (threshold `external_catalog_min_reciprocal`,
+default 0.5), strand anchored to the candidate. Only the strict call feeds
+`known_catalog_hit` and the novel figures; the per-source coverage (`<src>_pct`) is
+informative and never filters.
+
+`CHECK_NOVELTY` fails fast if a configured BED has 0 features, shares no chromosome with
+the annotation after normalization (a genuine assembly mismatch — `chr1`/`1` and
+`chrM`/`MT` are already handled), yields zero hits, or the annotated lncRNAs have a 0
+hit rate (positive control) — a bad download stops the run instead of silently marking
+everything novel. It reports a run-wide `novelty_status` over the novel (MSTRG)
+candidates:
+
+- `novel_for_all_catalogs` — no novel candidate matches any configured catalog;
+- `known` — at least one novel candidate matches a catalog (check `known_catalog_hit` /
+  `catalog_sources` before claiming novelty);
+- `not_evaluated` — no catalog configured (never "clean").
+
+The status lands in `run_info/novelty_status.tsv` (with `n_novel_*` counts) and
+`run_info/qa_report.tsv`; the per-gene evidence (`known_catalog_hit` / `catalog_sources`)
+travels in the catalog and contrast tables.
+
+
 ### 5. Run
 
 ```bash

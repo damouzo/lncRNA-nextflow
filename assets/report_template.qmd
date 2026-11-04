@@ -37,8 +37,6 @@ params:
   conservation_configured: false
   synteny_configured: false
   synteny_target_species: ""
-  novelty_status: ""
-  strandedness_summary: ""
 ---
 
 ```{r setup, include=FALSE}
@@ -162,7 +160,12 @@ if (!is.null(catalog) && nrow(catalog) > 0 && "gene_id" %in% colnames(de_ct)) {
   de_ann <- de_ct %>%
     left_join(select(catalog, any_of(c("gene_id", "gene_name", "gene_biotype", "origin", "class_code",
                                        "catalog_id", "locus", "ref_gene_name", "known_catalog_hit",
-                                       "catalog_sources", "chromosome", "start", "end", "strand",
+                                       "catalog_sources", "novelty_class", "n_tx_hit", "n_tx",
+                                       "in_lncipedia", "lncipedia_best_id", "lncipedia_best_pct",
+                                       "in_noncode", "noncode_best_id", "noncode_best_pct",
+                                       "in_rnacentral", "rnacentral_best_id", "rnacentral_best_pct",
+                                       "in_fantomcat", "fantomcat_best_id", "fantomcat_best_pct",
+                                       "chromosome", "start", "end", "strand",
                                        "conservation_mean", "conservation_pct", "syntenic_locus",
                                        "syntenic_target_gene_id", "lnc_position_class"))),
               by = "gene_id")
@@ -410,6 +413,83 @@ if (nrow(novel_de) > 0) {
                       sprintf("Significant & |LFC|>=%g", params$lfc)))
 } else {
   cat("No novel lncRNAs tested for this contrast.\n")
+}
+```
+
+### Novel significant lncRNAs in external catalogs
+
+The `novel` call is only as strong as the external evidence behind it. For the
+**novel lncRNAs significant in this contrast**, this shows how many are in fact a
+strict reciprocal hit in a configured external catalog and in which one. It reads
+the per-source `in_<source>` flags directly — no text list is parsed, so a
+non-evaluated source (NA) can never be mistaken for a source with no hit.
+
+```{r novel-catalog-overlap, fig.width=7, fig.height=6}
+NOVEL_CATALOG_SOURCES <- c("lncipedia", "noncode", "rnacentral", "fantomcat")
+# Tolerant of logical or "TRUE"/"FALSE" text: read_tsv normally returns logical.
+is_true <- function(x) !is.na(x) & as.character(x) %in% c("TRUE", "true", "1")
+
+if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
+  novel_sig <- de_ann %>% filter(origin == "novel", significant_padj)
+
+  # Only sources evaluated in this run: an all-NA in_<src> column means the
+  # catalog was not configured (absent evidence, not a negative result).
+  present <- NOVEL_CATALOG_SOURCES[
+    vapply(NOVEL_CATALOG_SOURCES, function(s) {
+      col <- paste0("in_", s)
+      col %in% colnames(de_ann) && any(!is.na(de_ann[[col]]))
+    }, logical(1))]
+
+  if (nrow(novel_sig) > 0) {
+    absent_label <- if (length(present) == 0) "Not evaluated (no catalog)" else "Not in any catalog"
+    hit_list <- lapply(seq_len(nrow(novel_sig)), function(i) {
+      present[vapply(present, function(s) is_true(novel_sig[[paste0("in_", s)]][i]), logical(1))]
+    })
+
+    pie_df <- data.frame(
+      group = vapply(hit_list, function(h)
+        if (length(h) == 0) absent_label else paste(h, collapse = " + "),
+        character(1)),
+      stringsAsFactors = FALSE
+    ) %>%
+      count(group, name = "n") %>%
+      mutate(
+        group = factor(group, levels = c(absent_label,
+                  sort(setdiff(unique(group), absent_label)))),
+        pct   = 100 * n / sum(n),
+        label = sprintf("%d (%.0f%%)", n, pct)
+      ) %>%
+      arrange(group)
+
+    p <- ggplot(pie_df, aes(x = "", y = n, fill = group)) +
+      geom_col(width = 1, color = "white") +
+      coord_polar(theta = "y") +
+      geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3.5) +
+      labs(title = sprintf("Novel significant lncRNAs by external-catalog membership (n=%d)",
+                           nrow(novel_sig)),
+           fill = NULL) +
+      theme_void()
+    print(p)
+
+    dir.create("plots", showWarnings = FALSE)
+    ggsave(file.path("plots", "novel_catalog_overlap.pdf"), p, width = 7, height = 6)
+
+    n_hit <- sum(vapply(hit_list, length, integer(1)) > 0)
+    per_src <- data.frame(
+      catalog = present,
+      n = vapply(present, function(s)
+        sum(vapply(hit_list, function(h) s %in% h, logical(1))), integer(1)),
+      stringsAsFactors = FALSE)
+    kable(bind_rows(
+        data.frame(catalog = c("Novel significant (total)", "In >=1 catalog", absent_label),
+                   n = c(nrow(novel_sig), n_hit, nrow(novel_sig) - n_hit)),
+        per_src),
+      format = "html", col.names = c("Group", "Genes"))
+  } else {
+    cat("No significant novel lncRNAs in this contrast.\n")
+  }
+} else {
+  cat("External-catalog evidence not available for this contrast.\n")
 }
 ```
 
@@ -784,6 +864,14 @@ DE_VIEW_COLS <- c("gene_id", "gene_id_stable", "catalog_id", "gene_name", "gene_
                   "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj",
                   "significant_padj", "significant_padj_lfc1")
 
+# External-catalog evidence columns kept together so a per-source boolean sits
+# next to its best id and pct.
+DE_EVIDENCE_COLS <- c("novelty_class", "catalog_sources", "n_tx_hit", "n_tx",
+                      "in_noncode", "noncode_best_id", "noncode_best_pct",
+                      "in_rnacentral", "rnacentral_best_id", "rnacentral_best_pct",
+                      "in_lncipedia", "lncipedia_best_id", "lncipedia_best_pct",
+                      "in_fantomcat", "fantomcat_best_id", "fantomcat_best_pct")
+
 render_de_table <- function(df, cap = DE_TABLE_CAP) {
   if (is.null(df) || nrow(df) == 0) return("No rows.")
   # cap = Inf means "show every row" (the lncRNA tabs); a finite cap truncates to
@@ -825,7 +913,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "gene_group" %in% colnames(de_ann)) 
   tab <- de_ann %>%
     filter(gene_group == "novel_lncRNA", significant_padj) %>%
     mutate(class_code_label = sapply(coalesce(class_code, ""), format_class_code)) %>%
-    select(any_of(c(DE_VIEW_COLS, "locus", "catalog_sources"))) %>%
+    select(any_of(c(DE_VIEW_COLS, "locus", DE_EVIDENCE_COLS))) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
     render_de_table(tab, cap = Inf)
@@ -1252,57 +1340,6 @@ tryCatch({
   }
   cat("\nTiers are labels, not filters: no gene is dropped by tier.\n")
 }, error = function(e) cat(sprintf("*TIER SECTION SKIPPED: %s*\n", conditionMessage(e))))
-```
-
-## Novelty status {.unnumbered}
-
-```{r novelty, echo=FALSE}
-tryCatch({
-  ns <- if (!is.null(params$novelty_status) && nzchar(params$novelty_status)) {
-    params$novelty_status
-  } else {
-    "not_provided"
-  }
-  cat(sprintf("novelty_status: **%s**.\n", ns))
-  if (identical(ns, "not_evaluated")) {
-    cat("No external catalog was configured, so novelty is *not evaluated* (never 'clean').\n")
-  } else if (identical(ns, "not_provided")) {
-    cat("Status not provided to this report; see `run_info/qa_report.tsv`.\n")
-  }
-}, error = function(e) cat(sprintf("*NOVELTY SECTION SKIPPED: %s*\n", conditionMessage(e))))
-```
-
-## Strandedness QC {.unnumbered}
-
-```{r strandedness, echo=FALSE}
-tryCatch({
-  ss <- if (!is.null(params$strandedness_summary)) params$strandedness_summary else ""
-  if (!nzchar(ss) || !file.exists(ss)) {
-    cat("Strandedness summary not provided to this report.\n")
-  } else {
-    sx <- readr::read_tsv(ss, show_col_types = FALSE)
-    if ("fidelity" %in% colnames(sx)) {
-      cat(sprintf("Strandedness fidelity: min %.4f, median %.4f, max %.4f over %d sample(s).\n",
-                  min(sx$fidelity, na.rm = TRUE), stats::median(sx$fidelity, na.rm = TRUE),
-                  max(sx$fidelity, na.rm = TRUE), nrow(sx)))
-    } else {
-      print(utils::head(sx))
-    }
-  }
-}, error = function(e) cat(sprintf("*STRANDEDNESS SECTION SKIPPED: %s*\n", conditionMessage(e))))
-```
-
-## Statistical power {.unnumbered}
-
-```{r power-note, echo=FALSE}
-tryCatch({
-  n_univ <- if (exists("de")) nrow(de) else NA
-  n_tested <- if (exists("de") && "baseMean" %in% colnames(de)) sum(!is.na(de$baseMean)) else NA
-  cat(sprintf("Universe in this table: %s genes; with baseMean (testable): %s.\n",
-              if (is.na(n_univ)) "NA" else as.character(n_univ),
-              if (is.na(n_tested)) "NA" else as.character(n_tested)))
-  cat("Absence of significance is not evidence of absence; the panel is small.\n")
-}, error = function(e) cat(sprintf("*POWER SECTION SKIPPED: %s*\n", conditionMessage(e))))
 ```
 
 ```{r session, echo=FALSE, results='asis'}

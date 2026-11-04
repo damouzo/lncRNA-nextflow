@@ -121,7 +121,31 @@ def test_novelty():
             "--bed", "lncipedia=" + ok, "--out", out1)
     check(p.returncode == 0, "catalogs with hits -> passes")
     with open(out1) as fh:
-        check("evaluated" in fh.read(), "catalogs with hits -> evaluated")
+        check("novelty_status\tnovel_for_all_catalogs" in fh.read(),
+              "annotated-only hits -> novel_for_all_catalogs")
+
+    # chr-prefix alias: a BED without the prefix still matches the chr-prefixed consensus
+    noprefix = os.path.join(d, "noprefix.bed")
+    write(noprefix, "1\t0\t100\tx\nchrM\t0\t50\tm\n")
+    out5 = os.path.join(d, "n5.tsv")
+    p = run("check_novelty.py", "--overlap", os.path.join(d, "overlap.tsv"),
+            "--consensus-gtf", os.path.join(d, "consensus.gtf"),
+            "--bed", "noncode=" + noprefix, "--out", out5)
+    check(p.returncode == 0, "non-prefixed BED matches chr-prefixed consensus (chr/M alias)")
+    with open(out5) as fh:
+        check("novelty_status\tnovel_for_all_catalogs" in fh.read(),
+              "alias-normalized BED -> novel_for_all_catalogs")
+
+    # a novel (MSTRG) candidate that hits a catalog -> known
+    known = os.path.join(d, "known.tsv")
+    write(known, "ID\tknown_catalog_hit\nT1\tTRUE\nMSTRG.1\tTRUE\n")
+    out6 = os.path.join(d, "n6.tsv")
+    p = run("check_novelty.py", "--overlap", known,
+            "--consensus-gtf", os.path.join(d, "consensus.gtf"),
+            "--bed", "lncipedia=" + ok, "--out", out6)
+    check(p.returncode == 0, "novel candidate with a catalog hit -> passes")
+    with open(out6) as fh:
+        check("novelty_status\tknown" in fh.read(), "novel hit -> novelty_status=known")
 
     # empty bed -> fail
     empty = os.path.join(d, "empty.bed")

@@ -179,23 +179,38 @@ def exons_by_tx(path):
     return out
 
 
-def annotate_consensus(header, rows, cands, source_beds, min_reciprocal):
+def annotate_consensus(header, rows, cands, source_beds, min_reciprocal, chrom_map=None):
     """Annotate a consensus table with per-source reciprocal overlap.
 
     Returns the consensus table with the same columns the R module produced,
     appended in the same order: known_catalog_hit, catalog_sources, then
-    <src>_id / <src>_pct for each source. <src>_pct is the best-pair candidate
-    fraction (informative; never filters). known_catalog_hit = any strict hit.
+    <src>_hit / <src>_id / <src>_pct for each source. <src>_hit is the strict
+    call, <src>_id the best strict external id (NA otherwise), <src>_pct the
+    best-pair candidate fraction (informative; never filters). known_catalog_hit
+    = any strict hit. catalog_sources is a `;`-joined list of the strict sources
+    (empty when none) — absence is never encoded as a text token.
+
+    `chrom_map` (from C.build_chrom_map over the reference chromosomes) rewrites
+    external BED chromosome names to the reference spelling, so a `chr1` catalog
+    matches an Ensembl-style `1` reference (and `chrM` matches `MT`).
     """
     id_col = _consensus_id_col(header)
     per = {}
     for s in SRCS:
         p = source_beds.get(s)
-        per[s] = annotate_source(cands, parse_bed(p), s, min_reciprocal) if (p and os.path.exists(p)) else {}
+        if p and os.path.exists(p):
+            feats = parse_bed(p)
+            if chrom_map:
+                n = C.normalize_chroms(feats, chrom_map)
+                if n:
+                    print("  %s: normalized %d feature(s) to reference chrom naming" % (s, n))
+            per[s] = annotate_source(cands, feats, s, min_reciprocal)
+        else:
+            per[s] = {}
 
     new_header = header + ["known_catalog_hit", "catalog_sources"]
     for s in SRCS:
-        new_header += ["%s_id" % s, "%s_pct" % s]
+        new_header += ["%s_hit" % s, "%s_id" % s, "%s_pct" % s]
 
     out = []
     for r in rows:
@@ -203,15 +218,20 @@ def annotate_consensus(header, rows, cands, source_beds, min_reciprocal):
         cats, vals = [], {}
         for s in SRCS:
             b = per[s].get(tid)
-            if b and b["strict"]:
+            strict = bool(b and b["strict"])
+            # Absence is encoded as NA/FALSE, never as a text token: a gene
+            # aggregation that mixes sources must not have to filter a sentinel.
+            if strict:
                 cats.append(s)
+                vals["%s_hit" % s] = "TRUE"
                 vals["%s_id" % s] = b["ext_id"]
             else:
+                vals["%s_hit" % s] = "FALSE"
                 vals["%s_id" % s] = "NA"
             vals["%s_pct" % s] = "%.4f" % (b["frac_candidate"] if b else 0.0)
         r2 = dict(r)
         r2["known_catalog_hit"] = "TRUE" if cats else "FALSE"
-        r2["catalog_sources"] = ",".join(cats) if cats else "none"
+        r2["catalog_sources"] = ";".join(cats) if cats else ""
         r2.update(vals)
         out.append(r2)
     return new_header, out
@@ -252,7 +272,8 @@ def main():
         C.ensure_file(args.consensus_gtf, "consensus GTF")
         header, rows = C.read_tsv(args.consensus_table)
         cands = exons_by_tx(args.consensus_gtf)
-        new_header, out = annotate_consensus(header, rows, cands, beds, args.min_reciprocal)
+        chrom_map = C.build_chrom_map({c["chrom"] for c in cands.values()})
+        new_header, out = annotate_consensus(header, rows, cands, beds, args.min_reciprocal, chrom_map)
         C.write_tsv([[r[c] for c in new_header] for r in out], args.out, new_header)
         n_hit = sum(1 for r in out if r["known_catalog_hit"] == "TRUE")
         print("catalog_overlap (consensus): %d transcripts, %d known_catalog_hit"
@@ -263,12 +284,16 @@ def main():
         raise SystemExit("catalog_overlap: provide --consensus-table+--consensus-gtf or --frozen-gtf")
     C.ensure_file(args.frozen_gtf, "frozen GTF")
     candidates = _load_candidates(args.frozen_gtf)
+    chrom_map = C.build_chrom_map({c["chrom"] for c in candidates.values()})
     rows = []
     for src, path in beds.items():
         if not path or not os.path.exists(path):
             print("  %s: not configured — skipped" % src)
             continue
         external = parse_bed(path)
+        n = C.normalize_chroms(external, chrom_map)
+        if n:
+            print("  %s: normalized %d feature(s) to reference chrom naming" % (src, n))
         for tid, r in annotate_source(candidates, external, src, args.min_reciprocal).items():
             rows.append((tid, r["source"], "TRUE" if r["strict"] else "FALSE",
                          "TRUE" if r["permissive"] else "FALSE", r["ext_id"],
