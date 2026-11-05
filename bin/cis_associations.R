@@ -100,12 +100,26 @@ pairs <- unique(data.frame(
   lncrna_origin = lnc_df$origin[qh],
   lncrna_class_code = lnc_df$class_code[qh],
   lncrna_position_class = lnc_df$position_class[qh],
+  lncrna_strand = lnc_df$strand[qh],
   target_gene_id = pc_df$gene_id[sh],
   target_gene_name = pc_df$gene_name[sh],
+  target_strand = pc_df$strand[sh],
   overlaps_target = dist_bp == 0,
   distance_bp = dist_bp,
   stringsAsFactors = FALSE))
 cat("Found", nrow(pairs), "lncRNA-gene pairs within +/-", window / 1000, "kb\n")
+
+# 2.5: a same-strand overlapping pair shares transcripts and reads, so its
+# expression is coupled by construction and the correlation is an artefact, not
+# regulation. Drop those pairs before the test family. Antisense overlap is
+# kept: under the stranded protocol the two loci do not share reads, so the
+# association remains a genuine cis candidate.
+n_found <- nrow(pairs)
+pairs <- pairs[!(pairs$overlaps_target &
+                 pairs$lncrna_strand %in% c("+", "-") &
+                 pairs$lncrna_strand == pairs$target_strand), , drop = FALSE]
+cat(sprintf("Dropped %d same-strand overlapping pairs; %d pairs remain\n",
+            n_found - nrow(pairs), nrow(pairs)))
 if (nrow(pairs) == 0) {
   empty_out("no cis pairs found")
   quit(save = "no", status = 0)

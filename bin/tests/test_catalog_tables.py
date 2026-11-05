@@ -124,6 +124,33 @@ def test_build():
                            os.path.join(d, "length_filtered.gtf"))
     check(True, "parity passes when replica kept set matches the length filter")
 
+    # Freeze class gate: a k transcript that passes coding + recurrence is not frozen.
+    write(os.path.join(d, "gffcmp_k.gtf"),
+          'chr1\ts\ttranscript\t1\t300\t.\t+\t.\ttranscript_id "T1"; class_code "u";\n'
+          'chr1\ts\texon\t1\t300\t.\t+\t.\ttranscript_id "T1";\n'
+          'chr1\ts\ttranscript\t1\t400\t.\t+\t.\ttranscript_id "T5"; class_code "k";\n'
+          'chr1\ts\texon\t1\t400\t.\t+\t.\ttranscript_id "T5";\n'
+          'chr1\ts\ttranscript\t1\t400\t.\t+\t.\ttranscript_id "T6"; class_code "o";\n'
+          'chr1\ts\texon\t1\t400\t.\t+\t.\ttranscript_id "T6";\n')
+    write(os.path.join(d, "recurrence_k.tsv"),
+          "ID\tconsensus_noncoding\tpasses_recurrence\n"
+          "T1\tTRUE\tTRUE\nT5\tTRUE\tTRUE\nT6\tTRUE\tTRUE\n")
+    _, rows_k = B.build_candidates_all(os.path.join(d, "gffcmp_k.gtf"),
+                                       os.path.join(d, "recurrence_k.tsv"),
+                                       os.path.join(d, "frozen.gtf"), 200, out,
+                                       novel_classes={"u", "x", "i", "j"})
+    bk = {r["transcript_id"]: r for r in rows_k}
+    check(bk["T1"]["filter_status"] == "frozen", "novel-class u still frozen")
+    check(bk["T5"]["filter_status"] == "filtered" and bk["T5"]["filter_reason"] == "not_novel_class"
+          and bk["T5"]["frozen"] == "FALSE",
+          "k passing every filter is not_novel_class, never frozen")
+    check(bk["T6"]["filter_reason"] == "not_novel_class", "o is not_novel_class")
+    _, rows_nogate = B.build_candidates_all(os.path.join(d, "gffcmp_k.gtf"),
+                                            os.path.join(d, "recurrence_k.tsv"),
+                                            os.path.join(d, "frozen.gtf"), 200, out)
+    check({r["transcript_id"]: r for r in rows_nogate}["T5"]["filter_reason"] == "",
+          "without novel_classes the class gate is off (back-compat)")
+
     try:
         B.build_candidates_all(os.path.join(d, "gffcmp.annotated.gtf"),
                                os.path.join(d, "recurrence_filtered.tsv"),

@@ -1,7 +1,9 @@
 // B5 / F3.1: cis-regulatory candidate associations (novel + annotated lncRNAs).
 // The R logic lives in bin/cis_associations.R (testable without Nextflow); this
 // module is a thin wrapper. params.cis_normalize selects the normalization
-// (VST + removeBatchEffect vs log2(counts + 1)).
+// (VST + batch removal vs log2(counts + 1)); the correlation itself runs on
+// within-condition residuals, and same-strand overlapping pairs are dropped
+// before testing.
 
 process CIS_ASSOCIATIONS {
 

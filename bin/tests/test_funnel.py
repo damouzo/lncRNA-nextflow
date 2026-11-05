@@ -82,6 +82,38 @@ check(len(short) == 1 and short[0]["step"] == "not_quantified"
 low = [r for r in rows if r["step"] == "universe_filtered_low_expression"]
 check(len(low) == 1 and low[0]["n"] == "1", "low-expression filtered genes are counted")
 
+# Freeze gate: transcripts that pass coding + recurrence are split by class.
+write(os.path.join(d, "recurrence_cls.tsv"),
+      "ID\tconsensus_noncoding\tpasses_recurrence\tclass_code\n"
+      "T1\tTRUE\tTRUE\tu\n"
+      "T2\tTRUE\tTRUE\tj\n"
+      "T3\tTRUE\tTRUE\tk\n"
+      "T4\tTRUE\tTRUE\tk\n"
+      "T5\tTRUE\tTRUE\to\n"
+      "T6\tFALSE\tTRUE\tk\n"
+      "T7\tTRUE\tFALSE\tk\n")
+out2 = os.path.join(d, "out2")
+proc2 = subprocess.run([sys.executable, SCRIPT,
+                        "--gene-catalog", os.path.join(d, "gene_catalog.tsv"),
+                        "--universe", os.path.join(d, "MNC_universe.tsv"),
+                        "--coding-consensus", os.path.join(d, "coding_consensus.tsv"),
+                        "--recurrence", os.path.join(d, "recurrence_cls.tsv"),
+                        "--novel-classes", "u,x,i,j",
+                        "--outdir", out2], capture_output=True, text=True)
+check(proc2.returncode == 0, "build_funnel.py with --novel-classes exits 0")
+with open(os.path.join(out2, "funnel.tsv")) as fh:
+    h2 = fh.readline().rstrip("\n").split("\t")
+    rows2 = [dict(zip(h2, ln.rstrip("\n").split("\t"))) for ln in fh]
+cls = {(r["step"], r["reason"]): r["n"] for r in rows2
+       if r["step"] in ("frozen_by_class", "reference_derived_class", "excluded_class")}
+check(cls.get(("frozen_by_class", "u")) == "1" and cls.get(("frozen_by_class", "j")) == "1",
+      "novel classes are counted as frozen_by_class")
+check(cls.get(("reference_derived_class", "k")) == "2",
+      "k counts only transcripts that passed coding + recurrence (reference_derived_class)")
+check(cls.get(("excluded_class", "o")) == "1", "o is reported as excluded_class")
+check(not any(s == "frozen_by_class" and rsn in ("k", "o") for s, rsn in cls),
+      "no reference-derived class is reported as frozen")
+
 print()
 if fails:
     print("FAILED: %d" % fails)

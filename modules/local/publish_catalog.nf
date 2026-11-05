@@ -41,6 +41,7 @@ process PUBLISH_CATALOG {
         --recurrence "${recurrence}" \\
         --frozen-gtf "${frozen_gtf}" \\
         --min-length ${params.min_transcript_length} \\
+        --novel-classes '${params.novel_classes.join(",")}' \\
         --outdir .
 
     mkdir -p annotation

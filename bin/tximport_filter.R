@@ -85,26 +85,50 @@ dds <- DESeqDataSetFromTximport(txi, coldata, ~1)
 dds <- dds[keep, ]
 
 vsd <- varianceStabilizingTransformation(dds, blind = TRUE)
-# H/2.2: colour the PCA by the biological metadata, never by `sample`. `batch`
-# joins `condition` only when the samplesheet actually has it. plotPCA pastes
-# every intgroup value into the legend label, so a batch column that is empty/NA
-# for the whole group (single-batch groups) would render as "<condition>:NA" —
-# drop it unless it actually separates samples.
-intgroup <- intersect(c("condition", "batch"), colnames(coldata))
+# H/2.2: colour the PCA by the biological metadata, never by `sample`. `seq_batch`
+# (sequencing configuration: flowcell/lane) is drawn as shape so a technical
+# structure is visible without hiding the condition split; `batch` is the fallback
+# shape for cell-line experiments. A column that is empty/NA for the whole group
+# (single level) is dropped, and with no shape column left the plot is colour-only.
 has_levels <- function(x) {
   x <- as.character(x)
   length(unique(x[!is.na(x) & nzchar(x)])) > 1
 }
-if ("batch" %in% intgroup && !has_levels(coldata[["batch"]])) {
-  intgroup <- setdiff(intgroup, "batch")
+color_var <- if ("condition" %in% colnames(coldata)) "condition" else colnames(coldata)[1]
+shape_var <- NULL
+for (cand in c("seq_batch", "batch")) {
+  if (cand %in% colnames(coldata) && has_levels(coldata[[cand]])) {
+    shape_var <- cand
+    break
+  }
 }
-if (length(intgroup) == 0) intgroup <- colnames(coldata)[1]
-pca <- plotPCA(vsd, intgroup = intgroup) +
+
+# plotPCA maps a single aesthetic (several intgroup collapse into one colour), so
+# take the projected coordinates and build the plot here to keep colour and shape
+# separate.
+pca_data <- plotPCA(vsd, intgroup = unique(c(color_var, shape_var)), returnData = TRUE)
+percentVar <- round(100 * attr(pca_data, "percentVar"))
+pca_data$.color_group <- factor(pca_data[[color_var]])
+mapping <- ggplot2::aes(x = PC1, y = PC2, color = .color_group)
+if (!is.null(shape_var)) {
+  pca_data$.shape_group <- factor(pca_data[[shape_var]])
+  mapping <- ggplot2::aes(x = PC1, y = PC2, color = .color_group, shape = .shape_group)
+}
+pca <- ggplot2::ggplot(pca_data, mapping) +
+  ggplot2::geom_point(size = 3) +
+  ggplot2::geom_text(ggplot2::aes(label = name), size = 2.5, vjust = -0.8,
+                     check_overlap = TRUE) +
   ggplot2::labs(
     title    = sprintf("%s — variance-stabilized PCA (VST)", group),
-    subtitle = sprintf("%d samples; colour = %s", ncol(vsd), paste(intgroup, collapse = " / ")),
-    colour   = paste(tools::toTitleCase(intgroup), collapse = " / ")
+    subtitle = sprintf("%d samples; colour = %s%s", ncol(vsd), color_var,
+                       if (is.null(shape_var)) "" else paste0("; shape = ", shape_var)),
+    color    = tools::toTitleCase(color_var),
+    x        = sprintf("PC1: %d%% variance", percentVar[1]),
+    y        = sprintf("PC2: %d%% variance", percentVar[2])
   )
+if (!is.null(shape_var)) {
+  pca <- pca + ggplot2::labs(shape = tools::toTitleCase(shape_var))
+}
 ggsave(out(paste0(group, "_sample_qc_pca.png")), pca, width = 10, height = 8)
 
 keep_counts <- counts(dds)

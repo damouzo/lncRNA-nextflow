@@ -90,6 +90,15 @@ workflow validateInput {
     if (!genome_fa) { error("genome FASTA is required") }
     if (!reference_gtf) { error("reference GTF is required") }
 
+    // The freeze gate (novel_classes) and the Tier definition are separate params,
+    // but a Tier 1 class that is never frozen could not exist in the catalog.
+    def novel_cls = params.novel_classes as List
+    def tier1_outside = (params.tier1_classes as List).findAll { !(it in novel_cls) }
+    if (!novel_cls) { error("novel_classes must not be empty") }
+    if (tier1_outside) {
+        error("tier1_classes ${tier1_outside} are not in novel_classes ${novel_cls}: they would never be frozen")
+    }
+
     emit:
     ch_samplesheet  = ch_parsed
     ch_contrasts    = ch_contrasts

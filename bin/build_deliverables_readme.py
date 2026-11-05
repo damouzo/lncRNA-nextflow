@@ -89,7 +89,9 @@ COLUMN_MEANINGS = {
     "lncrna_position_class": "Position of the lncRNA vs protein-coding genes: antisense / "
                              "intronic / overlapping / no_coding_overlap (defined for every "
                              "lncRNA, novel or annotated).",
-    "class_code": "GFFCompare code: u/i/x/j/o = novel, =/c/k/m/n = reference.",
+    "class_code": "GFFCompare code. Only u/x/i/j are frozen as novel; the reference-derived "
+                  "=/c/k/m/n and the ambiguous o are not (they stay with the reference "
+                  "annotation). Seen in candidates_all.tsv as filter_reason=not_novel_class.",
     "tier_static": "Categorical tier from class code + parent biotype + exon count.",
     "tier_final": "Tier after flags; equals tier_static in this version.",
     "single_exon_low_confidence": "TRUE when a mono-exonic candidate is demoted to Tier 2.",
@@ -131,8 +133,12 @@ COLUMN_MEANINGS = {
     "condition": "Experimental condition used by the design formula.",
     "batch": "Batch label.",
     "keep": "TRUE when the gene passed the condition-blind expression filter.",
-    "filter_reason": "Why a gene was dropped (`low_expression`, ...); empty when kept.",
-    "step": "Funnel stage name (catalog, coding consensus, DE universe, ...).",
+    "filter_reason": "Why a gene or candidate was dropped (`low_expression`, ...; in "
+                     "candidates_all: `not_novel_class` = passed every filter but its class is "
+                     "not frozen as novel); empty when kept.",
+    "step": "Funnel stage name (catalog, coding consensus, DE universe, ...). "
+            "`frozen_by_class` / `reference_derived_class` / `excluded_class` split the "
+            "candidates that passed coding + recurrence; the reason is the class code.",
     "n": "Count for the funnel step (1 on per-gene rows).",
     "n_universe": "Rows in `de_full.tsv` (all quantified genes, tested or not).",
     "n_tested": "Genes DESeq2 actually tested (independent filtering removes the rest).",
@@ -160,7 +166,9 @@ COLUMN_MEANINGS = {
     "lfc_unshrunken": "Unshrunken log2 fold change (the shrunken value is log2FoldChange).",
     "tier": "Categorical tier: 1a / 1b / 2 for novel genes; NA for reference rows. "
             "A label, never a filter.",
-    "overlaps_target": "TRUE when the lncRNA and target spans overlap (putative host).",
+    "overlaps_target": "TRUE when the lncRNA and target spans overlap (putative host). "
+                       "Same-strand overlapping pairs are excluded from the cis family "
+                       "(their reads are shared); antisense overlap is kept.",
     "distance_bp": "Gap between the lncRNA and target spans (0 when they overlap).",
     "correlation_input": "What the cis correlation used: residuals_intra_condition "
                          "(within-condition residuals) or expression.",
@@ -233,7 +241,7 @@ def _tiers_section():
     lines.append("## How to read the tiers")
     lines.append("")
     lines.append("- A tier is a **structural priority label**, not a confidence score: "
-                 "`1a` = class `u`/`x`/`i`, `1b` = class `j`/`o` whose reference host is an "
+                 "`1a` = class `u`/`x`/`i`, `1b` = class `j` whose reference host is an "
                  "annotated lncRNA, `2` = mono-exonic or other overlaps. `i` (intronic) and "
                  "`x` (antisense) do overlap reference genes; `u`/`x`/`i` are grouped because "
                  "they cannot be a simple isoform of an annotated gene, not because they are "

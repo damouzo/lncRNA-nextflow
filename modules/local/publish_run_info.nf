@@ -108,6 +108,7 @@ process PUBLISH_RUN_INFO {
         ${uni_args} \\
         --coding-consensus "${coding_consensus}" \\
         --recurrence "${recurrence}" \\
+        --novel-classes '${params.novel_classes.join(",")}' \\
         --outdir .
 
     build_deliverables_readme.py \\

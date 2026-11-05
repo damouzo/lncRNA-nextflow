@@ -13,7 +13,7 @@ Stdlib only (csv), no pandas. Inputs are native pipeline artifacts:
                            gene-level annotation (origin, gene_group, lnc_position_class).
   candidates_all.tsv       F4.3b: every merged candidate (class != '=') with
                            filter_status/filter_reason across the discovery funnel
-                           (artifact class -> length -> coding -> recurrence -> frozen),
+                           (artifact class -> length -> coding -> recurrence -> class gate -> frozen),
                            plus gene_id and the gene-level annotation so it reads like
                            catalog_genes.tsv.
 
@@ -27,6 +27,7 @@ CLI:
       [--catalog-gtf frozen_lncrna.catalog.gtf] \
       [--gffcmp-gtf gffcmp.annotated.gtf] [--length-filtered-gtf transcripts_length_filtered.gtf] \
       [--recurrence recurrence_filtered.tsv] [--frozen-gtf frozen_lncrna.gtf] \
+      [--novel-classes u,x,i,j] \
       --min-length 200 --outdir deliverables/catalog
 """
 
@@ -321,7 +322,7 @@ def count_gtf_transcripts(path):
 
 
 def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir,
-                         length_filtered_gtf=None, gene_ann=None):
+                         length_filtered_gtf=None, gene_ann=None, novel_classes=None):
     tx_class, tx_len, tx_gene = parse_gtf_classes_lengths(gffcmp_gtf)
     gene_ann = gene_ann or {}
     rec = index_unique(recurrence, "ID") if recurrence else {}
@@ -354,6 +355,10 @@ def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir
             status, reason = "filtered", "coding"
         elif not _truthy(rec[tid].get("passes_recurrence")):
             status, reason = "filtered", "low_recurrence"
+        elif novel_classes is not None and code not in novel_classes:
+            # Passed coding + recurrence but ANNOTATION_FREEZE only takes novel_classes
+            # (reference-derived c/k/m/n, ambiguous o), so it is not frozen.
+            status, reason = "filtered", "not_novel_class"
         else:
             status, reason = "frozen", ""
         gene = tx_gene.get(tid, "NA")
@@ -400,6 +405,9 @@ def main():
     ap.add_argument("--recurrence", default=None)
     ap.add_argument("--frozen-gtf", default=None)
     ap.add_argument("--min-length", type=int, default=200)
+    ap.add_argument("--novel-classes", default=None,
+                    help="comma-separated gffcompare classes ANNOTATION_FREEZE keeps; "
+                         "others that pass every filter are tagged not_novel_class")
     ap.add_argument("--outdir", required=True)
     args = ap.parse_args()
 
@@ -414,9 +422,12 @@ def main():
     print("catalog_tx.tsv:    %d transcripts" % n_tx)
 
     if args.gffcmp_gtf and args.recurrence:
+        novel_classes = (set(x for x in args.novel_classes.split(",") if x)
+                         if args.novel_classes else None)
         n_cand, rows = build_candidates_all(args.gffcmp_gtf, args.recurrence,
                                             args.frozen_gtf, args.min_length, args.outdir,
-                                            args.length_filtered_gtf, gene_ann)
+                                            args.length_filtered_gtf, gene_ann,
+                                            novel_classes=novel_classes)
         by_status = {}
         by_reason = {}
         for r in rows:

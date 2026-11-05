@@ -3,6 +3,8 @@
 // tx2gene_detailed.tsv now spans the entire quantification universe
 // (all reference transcripts + novel lncRNAs) so DESeq2 normalizes and
 // corrects over the full transcriptome, matching the Salmon index.
+// The novel set is restricted to novel_classes so reference-derived classes
+// (c/k/m/n, ...) never enter the index as a competing second copy.
 
 process ANNOTATION_FREEZE {
 
@@ -27,8 +29,21 @@ process ANNOTATION_FREEZE {
 
     rec <- read_tsv("${recurrence_table}", show_col_types = FALSE)
 
-    # Filter to high-confidence noncoding that pass recurrence
-    nc <- subset(rec, consensus_noncoding == TRUE & passes_recurrence == TRUE)
+    # Freeze only the classes listed in novel_classes. The reference-derived
+    # classes (c/k/m/n, and =, e, p, ...) are variants of an annotated transcript:
+    # freezing them would put a second, near-identical sequence in the Salmon
+    # index that competes with the reference gene for the same reads and dilutes
+    # its counts. `o` is left out as ambiguous. Those transcripts stay with the
+    # reference annotation, so the reference keeps its own reads.
+    NOVEL_CLASSES <- c(${params.novel_classes.collect { cc -> "\"${cc}\"" } .join(", ")})
+    if (!("class_code" %in% colnames(rec))) {
+        stop("recurrence table lacks class_code — cannot restrict the freeze to novel classes")
+    }
+
+    # Filter to high-confidence noncoding that pass recurrence, restricted to
+    # genuinely novel classes.
+    nc <- subset(rec, consensus_noncoding == TRUE & passes_recurrence == TRUE &
+                     !is.na(class_code) & class_code %in% NOVEL_CLASSES)
 
     if (nrow(nc) == 0) {
         stop("No non-coding transcripts passed all filters. Check your inputs.")

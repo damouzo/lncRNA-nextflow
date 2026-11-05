@@ -75,6 +75,17 @@ pr2 <- setNames(rec2$passes_recurrence, rec2$transcript_id)
 check(st2 == 0 && isTRUE(pr2[["txA"]]),
       "fallback (no summary) inflates txA CPM -> the denominator really matters")
 
+# ANNOTATION_FREEZE gates on class_code, so every route must emit it, including
+# the emergency one with no featureCounts files at all.
+check("class_code" %in% colnames(rec) && identical(rec$class_code, c("u", "u")),
+      "class_code is emitted on the normal route")
+file.remove(list.files(pattern = "featureCounts", full.names = TRUE))
+st3 <- suppressWarnings(run("--catalog", "catalog.tsv", "--merged-gtf", "merged.gtf",
+                            "--fc-dir", ".", "--min-reps", "2", "--cpm-threshold", "5"))
+rec3 <- read_tsv("recurrence_filtered.tsv", show_col_types = FALSE)
+check(st3 == 0 && "class_code" %in% colnames(rec3) && all(rec3$class_code == "u"),
+      "class_code is emitted when no featureCounts files exist (early exit)")
+
 setwd(old_wd)
 cat("\n")
 if (fails > 0) { cat(sprintf("FAILED: %d\n", fails)); quit(save = "no", status = 1) }

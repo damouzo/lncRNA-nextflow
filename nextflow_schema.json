@@ -137,6 +137,19 @@
                     "default": 3,
                     "description": "Minimum biological replicates with expression support"
                 },
+                "novel_classes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "u",
+                        "x",
+                        "i",
+                        "j"
+                    ],
+                    "description": "gffcompare class codes frozen, quantified and indexed as novel (gates ANNOTATION_FREEZE). Reference-derived classes (c/k/m/n) and the ambiguous exon-overlap class o stay out of the Salmon index."
+                },
                 "tier1_classes": {
                     "type": "array",
                     "items": {
@@ -146,10 +159,9 @@
                         "u",
                         "x",
                         "i",
-                        "j",
-                        "o"
+                        "j"
                     ],
-                    "description": "gffcompare class codes considered Tier 1 at the transcript level"
+                    "description": "gffcompare class codes considered Tier 1 at the transcript level. Must be a subset of novel_classes."
                 },
                 "tier1a_classes": {
                     "type": "array",

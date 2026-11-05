@@ -118,6 +118,36 @@ check(rho_expr > 0.5, "expression correlation is high (shared condition effect)"
 check(is.na(rho_resid) || rho_resid < 0.5 || rho_resid < rho_expr,
       "residual correlation is not the condition artefact")
 
+# 2.5: a same-strand overlapping pair shares reads and must be dropped from the
+# cis family; a flanking pair within the window must stay. No coldata here, so
+# no residualisation is applied and both loci keep their raw variance.
+d3 <- tempfile("cis25_"); dir.create(d3)
+write_tsv(data.frame(
+  gene_id = c("L1", "P1", "P2"), chromosome = "1",
+  start = c(1000, 1500, 50000), end = c(2000, 2500, 51000),
+  strand = c("+", "+", "+"), gene_biotype = c(NA, "protein_coding", "protein_coding"),
+  origin = c("novel", "reference_other", "reference_other"), catalog_id = c("LNC.1", NA, NA),
+  class_code = c("u", NA, NA), lnc_position_class = c("overlapping", NA, NA),
+  gene_name = c(NA, "P1", "P2"), stringsAsFactors = FALSE),
+  file.path(d3, "gene_catalog.tsv"))
+cnt3 <- matrix(c(c(10, 12, 11, 200, 210, 190),
+                 c(20, 18, 22, 300, 290, 310),
+                 c(30, 33, 28, 15, 17, 14)), nrow = 3, byrow = TRUE,
+               dimnames = list(c("L1", "P1", "P2"), paste0("S", 1:6)))
+saveRDS(cnt3, file.path(d3, "counts.rds"))
+o3 <- file.path(d3, "out"); dir.create(o3)
+st3 <- system2("Rscript", c(script, "--group", "G", "--gene-catalog", file.path(d3, "gene_catalog.tsv"),
+                            "--counts", file.path(d3, "counts.rds"),
+                            "--cis-window", "100000", "--fdr", "0.05",
+                            "--normalize", "false", "--outdir", o3))
+check(st3 == 0, "2.5 same-strand overlap run exits 0")
+p3 <- file.path(o3, "G_cis_pairs.tsv")
+if (file.exists(p3)) {
+  r3 <- tryCatch(read_tsv(p3, show_col_types = FALSE), error = function(e) data.frame())
+  check(nrow(r3) > 0 && any(r3$target_gene_id == "P2") && !any(r3$target_gene_id == "P1"),
+        "2.5 same-strand overlapping pair dropped, flanking pair kept")
+}
+
 cat("\n")
 if (fails > 0) { cat(sprintf("FAILED: %d\n", fails)); quit(save = "no", status = 1) }
 cat("ALL CIS ASSOCIATION TESTS PASSED\n")

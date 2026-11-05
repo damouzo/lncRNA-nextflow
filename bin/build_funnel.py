@@ -42,6 +42,37 @@ def unique_genes(rows, col):
     return {r[col] for r in rows if r.get(col)}
 
 
+# gffcompare classes that are variants of an annotated transcript.
+REFERENCE_DERIVED = {"c", "k", "m", "n", "="}
+
+
+def freeze_class_steps(rec, pcol, ccol, kcol, novel_classes):
+    """Transcripts that pass coding + recurrence, split by what the freeze does.
+
+    frozen_by_class: kept (class in novel_classes). reference_derived_class and
+    excluded_class: passed every filter but left out of the freeze; the reason is
+    the class code, so the funnel shows which classes were dropped and how many.
+    """
+    counts = {}
+    for r in rec:
+        if str(r.get(pcol, "")) not in IS_TRUE:
+            continue
+        if kcol and str(r.get(kcol, "")) not in IS_TRUE:
+            continue
+        code = str(r.get(ccol, "") or "NA")
+        counts[code] = counts.get(code, 0) + 1
+    out = []
+    for code in sorted(counts):
+        if code in novel_classes:
+            step = "frozen_by_class"
+        elif code in REFERENCE_DERIVED:
+            step = "reference_derived_class"
+        else:
+            step = "excluded_class"
+        out.append((step, "", counts[code], code))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gene-catalog", required=True)
@@ -49,8 +80,11 @@ def main():
                     help="<group>_universe.tsv (repeatable; several groups)")
     ap.add_argument("--coding-consensus", default=None)
     ap.add_argument("--recurrence", default=None)
+    ap.add_argument("--novel-classes", default=None,
+                    help="comma-separated classes ANNOTATION_FREEZE keeps")
     ap.add_argument("--outdir", default=".")
     args = ap.parse_args()
+    novel_classes = {x for x in (args.novel_classes or "").split(",") if x}
 
     catalog = read_tsv(args.gene_catalog)
     if catalog:
@@ -115,6 +149,11 @@ def main():
             if pcol:
                 steps.append(("recurrence_pass", "",
                               sum(1 for r in rec if str(r.get(pcol, "")) in IS_TRUE), ""))
+            ccol = find_col(h, ["class_code"])
+            if pcol and ccol and novel_classes:
+                steps.extend(freeze_class_steps(rec, pcol, ccol,
+                                                find_col(h, ["consensus_noncoding"]),
+                                                novel_classes))
 
     steps.append(("de_universe", "", len(universe_genes), ""))
     steps.append(("universe_kept", "", len(kept_genes), ""))

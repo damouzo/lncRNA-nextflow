@@ -106,9 +106,24 @@ if (file.exists(file.path(work, "coldata_aligned_MNC.csv"))) {
         "tpm.tsv sample columns match the aligned coldata")
 }
 
-# 2.2: the PCA is coloured by condition/batch, never by sample.
+# 2.2: the PCA is coloured by condition, never by sample. `seq_batch` (or `batch`)
+# is drawn as shape when present, so a technical structure stays visible.
 check(file.exists(file.path(work, "MNC_sample_qc_pca.png")),
-      "sample QC PCA written with intgroup = condition/batch")
+      "sample QC PCA written with colour = condition")
+
+# A seq_batch column must switch the shape aesthetic without breaking rendering.
+sb_coldata <- coldata
+sb_coldata$seq_batch <- c("RunA", "RunA", "RunB", "RunB")
+write.csv(sb_coldata, file.path(work, "coldata_sb.csv"), row.names = FALSE)
+setwd(work)
+st_sb <- system2("Rscript",
+                 c(script, "--group", "SB", "--coldata", "coldata_sb.csv",
+                   "--tx2gene", "tx2gene.tsv", "--outdir", "out_sb"),
+                 stdout = FALSE, stderr = FALSE)
+setwd(old)
+check(st_sb == 0, "tximport_filter.R renders a PCA with seq_batch shape")
+check(file.exists(file.path(work, "out_sb", "SB_sample_qc_pca.png")),
+      "sample QC PCA written with shape = seq_batch")
 
 # 2.3: a coldata sample without a quant dir must fail, not be silently dropped.
 write.csv(data.frame(sample = c(samples, "S5"),

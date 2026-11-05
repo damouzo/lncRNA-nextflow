@@ -55,6 +55,18 @@ tx_cc <- data.frame(
 
 catalog <- read_tsv(catalog_table, show_col_types = FALSE)
 
+id_col <- "ID"
+if (!(id_col %in% colnames(catalog))) {
+    for (cname in colnames(catalog)) {
+        if (grepl("transcript_id|ID|gene_id", cname, ignore.case = TRUE)) {
+            id_col <- cname
+            break
+        }
+    }
+}
+# Set before any early exit: ANNOTATION_FREEZE gates on class_code.
+catalog$class_code <- tx_cc$class_code[match(catalog[[id_col]], tx_cc$transcript_id)]
+
 # Count files only: exclude the .summary files (they share the "featureCounts" stem)
 fc_files <- list.files(path = fc_dir, pattern = "featureCounts", full.names = TRUE)
 fc_files <- fc_files[!grepl(".summary", fc_files, fixed = TRUE)]
@@ -154,21 +166,10 @@ rec_df <- data.frame(
     stringsAsFactors = FALSE
 )
 
-id_col <- "ID"
-if (!(id_col %in% colnames(catalog))) {
-    for (cname in colnames(catalog)) {
-        if (grepl("transcript_id|ID|gene_id", cname, ignore.case = TRUE)) {
-            id_col <- cname
-            break
-        }
-    }
-}
-
 catalog$n_reps_expressed <- rec_df$n_reps_expressed[
     match(catalog[[id_col]], rec_df$transcript_id)]
 catalog$n_reps_expressed[is.na(catalog$n_reps_expressed)] <- 0
 catalog$passes_recurrence <- catalog$n_reps_expressed >= MIN_REPS
-catalog$class_code <- tx_cc$class_code[match(catalog[[id_col]], tx_cc$transcript_id)]
 
 n_pass <- sum(catalog$passes_recurrence, na.rm = TRUE)
 n_total <- nrow(catalog)
