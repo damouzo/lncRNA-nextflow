@@ -179,16 +179,18 @@ the annotation after normalization (a genuine assembly mismatch — `chr1`/`1` a
 `chrM`/`MT` are already handled), yields zero hits, or the annotated lncRNAs have a 0
 hit rate (positive control) — a bad download stops the run instead of silently marking
 everything novel. It reports a run-wide `novelty_status` over the novel (MSTRG)
-candidates:
+candidates (the guard's positive control is the non-MSTRG transcripts that enter the
+candidate set, not the whole annotated catalog):
 
 - `novel_for_all_catalogs` — no novel candidate matches any configured catalog;
 - `known` — at least one novel candidate matches a catalog (check `known_catalog_hit` /
   `catalog_sources` before claiming novelty);
 - `not_evaluated` — no catalog configured (never "clean").
 
-The status lands in `run_info/novelty_status.tsv` (with `n_novel_*` counts) and
-`run_info/qa_report.tsv`; the per-gene evidence (`known_catalog_hit` / `catalog_sources`)
-travels in the catalog and contrast tables.
+The status lands in `run_info/novelty_status.tsv` (with `n_candidate_*` counts, scoped to
+the candidate set, not the frozen catalog) and `run_info/qa_report.tsv`; the
+deliverable-level novelty call is per gene in `catalog/catalog_genes.tsv`
+(`novelty_class` / `known_catalog_hit` / `catalog_sources`).
 
 
 ### 5. Run

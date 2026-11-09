@@ -12,6 +12,10 @@ process CHECK_NOVELTY {
     path consensus_gtf      // TRANSCRIPT_LENGTH_FILTER kept GTF
     val bed_names           // catalog names (parallel to `beds`)
     path beds               // catalog BED files (may be empty)
+    // bin/check_novelty.py staged as an input so its content is part of the task
+    // hash: Nextflow does not track bin/, so without this an edit would be served
+    // from cache under -resume.
+    path check_novelty_script
 
     output:
     path "novelty_status.tsv", emit: novelty

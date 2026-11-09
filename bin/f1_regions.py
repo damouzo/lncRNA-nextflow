@@ -329,7 +329,7 @@ def main():
     ap.add_argument("--cap", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--expr-min-reps", type=int, default=3)
-    ap.add_argument("--tier1-classes", default="u,x,i,j,o")
+    ap.add_argument("--tier1-classes", default="u,x,i,j")
     ap.add_argument("--tier1a-classes", default="u,x,i")
     ap.add_argument("--tier1-parent-biotypes", default="lncRNA")
     ap.add_argument("--annotated-lncrna-biotypes", default="lncRNA")

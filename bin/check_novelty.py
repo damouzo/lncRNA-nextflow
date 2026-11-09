@@ -4,7 +4,11 @@
 Without external catalogs there is no evidence, so `novelty_status` is
 `not_evaluated` (no failure). With catalogs configured, the guard fails fast when
 the evidence is empty or unusable, and otherwise reports an informative verdict
-over the novel (MSTRG) candidates:
+over the novel (MSTRG) *candidates*: the counts below are candidate-scoped (they
+include the reference-derived classes c/k/m/n and the ambiguous o that
+ANNOTATION_FREEZE later drops); the frozen-catalog novelty figures live in
+`deliverables/catalog/catalog_genes.tsv` / `novel_lncrnas.tsv`
+(`novelty_class`, `known_catalog_hit`), not here:
 
   * a BED with 0 features (misparsed / truncated download)
   * a BED that shares no chromosome with the consensus annotation (a genuine
@@ -124,12 +128,18 @@ def main():
     novel = [r for r in overlap if str(r.get("ID", "")).startswith("MSTRG")]
     n_annot_hit = sum(1 for r in annotated if _is_hit(r))
     n_novel_hit = sum(1 for r in novel if _is_hit(r))
-    rows.append(("n_transcripts", str(n_total)))
-    rows.append(("n_known_catalog_hit", str(n_hit)))
-    rows.append(("n_annotated_transcripts", str(len(annotated))))
-    rows.append(("n_annotated_known_catalog_hit", str(n_annot_hit)))
-    rows.append(("n_novel_transcripts", str(len(novel))))
-    rows.append(("n_novel_known_catalog_hit", str(n_novel_hit)))
+    # Counts are over the DISCOVERY CANDIDATE set from CATALOG_OVERLAP, not over the
+    # frozen catalog: they include the reference-derived classes (c/k/m/n) and the
+    # ambiguous o that ANNOTATION_FREEZE later excludes. The `candidate_` prefix is
+    # deliberate so these are never quoted as the deliverable's novel count; the
+    # frozen-catalog figures are in catalog/{catalog_genes,novel_lncrnas}.tsv.
+    rows.append(("novelty_scope", "candidates"))
+    rows.append(("n_candidate_transcripts", str(n_total)))
+    rows.append(("n_candidate_known_catalog_hit", str(n_hit)))
+    rows.append(("n_candidate_annotated", str(len(annotated))))
+    rows.append(("n_candidate_annotated_known_catalog_hit", str(n_annot_hit)))
+    rows.append(("n_candidate_novel", str(len(novel))))
+    rows.append(("n_candidate_novel_known_catalog_hit", str(n_novel_hit)))
 
     if n_hit == 0:
         raise SystemExit(

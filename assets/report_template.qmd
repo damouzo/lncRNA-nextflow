@@ -847,11 +847,12 @@ if (!is.null(catalog) && nrow(catalog) > 0 &&
 
 ### DE tables
 
-Annotated/novel tabs list every **significant** lncRNA (`significant_padj`: `padj < r params$fdr`),
+Annotated/novel tabs list **significant** lncRNAs (`significant_padj`: `padj < r params$fdr`),
 with a `significant_padj_lfc1` column for the extra `|log2FoldChange| >= r params$lfc` cutoff.
-The Overview tab lists the **significant & lfc1** genes (all groups, `protein_coding`/`other`
-included), capped; the complete tables are `de_lncrna_significant.tsv`
-(FDR) and `de_full.tsv` (filter `significant_padj_lfc1`).
+Tables are capped at `r DE_TABLE_CAP` rows (lowest padj first); the complete tables are
+`de_lncrna_significant.tsv` (FDR) and `de_lncrna_full.tsv`. The Overview tab lists the
+**significant & lfc1** genes (all groups, `protein_coding`/`other` included), also capped;
+its complete table is `de_full.tsv` (filter `significant_padj_lfc1`).
 
 ```{r de-table-cap}
 DE_TABLE_CAP <- 500
@@ -874,8 +875,8 @@ DE_EVIDENCE_COLS <- c("novelty_class", "catalog_sources", "n_tx_hit", "n_tx",
 
 render_de_table <- function(df, cap = DE_TABLE_CAP) {
   if (is.null(df) || nrow(df) == 0) return("No rows.")
-  # cap = Inf means "show every row" (the lncRNA tabs); a finite cap truncates to
-  # the lowest-padj rows and points at the deliverables.
+  # A finite cap truncates to the lowest-padj rows and points at the deliverables;
+  # cap = Inf would show every row (not used: the lncRNA tabs are capped too).
   truncated <- is.finite(cap) && nrow(df) > cap
   shown <- if (is.finite(cap)) utils::head(df, cap) else df
   if (truncated) {
@@ -899,7 +900,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "gene_group" %in% colnames(de_ann)) 
     select(any_of(DE_VIEW_COLS)) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
-    render_de_table(tab, cap = Inf)
+    render_de_table(tab)
   } else {
     "No significant annotated lncRNA genes in this contrast."
   }
@@ -916,7 +917,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "gene_group" %in% colnames(de_ann)) 
     select(any_of(c(DE_VIEW_COLS, "locus", DE_EVIDENCE_COLS))) %>%
     arrange(padj)
   if (nrow(tab) > 0) {
-    render_de_table(tab, cap = Inf)
+    render_de_table(tab)
   } else {
     "No significant novel lncRNA genes in this contrast."
   }

@@ -129,7 +129,7 @@ def main():
     ap.add_argument("--thresholds", required=True)
     ap.add_argument("--sensitivity-thresholds", default="")
     ap.add_argument("--outdir", required=True)
-    ap.add_argument("--tier1-classes", default="u,x,i,j,o")
+    ap.add_argument("--tier1-classes", default="u,x,i,j")
     ap.add_argument("--tier1a-classes", default="u,x,i")
     ap.add_argument("--tier1-parent-biotypes", default="lncRNA")
     ap.add_argument("--tier1-allow-single-exon", action="store_true")

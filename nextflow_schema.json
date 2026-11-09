@@ -173,7 +173,7 @@
                         "x",
                         "i"
                     ],
-                    "description": "Subset of tier1_classes assigned novel_type 1a; other tier1 classes (j/o) are 1b only when the parent gene is not protein_coding"
+                    "description": "Subset of tier1_classes assigned novel_type 1a; other tier1 classes (j) are 1b only when the parent gene is not protein_coding"
                 },
                 "tier1_parent_biotypes": {
                     "type": "array",
@@ -183,7 +183,7 @@
                     "default": [
                         "lncRNA"
                     ],
-                    "description": "Parent-gene biotype whitelist for j/o Tier 1b; other parents (pseudogenes, TEC, small-RNA hosts) go to Tier 2"
+                    "description": "Parent-gene biotype whitelist for j Tier 1b; other parents (pseudogenes, TEC, small-RNA hosts) go to Tier 2"
                 },
                 "tier1_allow_single_exon": {
                     "type": "boolean",

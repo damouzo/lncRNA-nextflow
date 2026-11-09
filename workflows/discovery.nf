@@ -134,7 +134,8 @@ workflow DISCOVERY {
         CATALOG_OVERLAP.out.overlap_table,
         TRANSCRIPT_LENGTH_FILTER.out.filtered_gtf,
         ch_cat_names,
-        ch_cat_beds
+        ch_cat_beds,
+        channel.value(file("${projectDir}/bin/check_novelty.py"))
     )
 
     // FeatureCounts: quantify all candidate transcripts against validated BAMs
