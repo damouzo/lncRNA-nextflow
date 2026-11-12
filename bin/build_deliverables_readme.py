@@ -89,9 +89,11 @@ COLUMN_MEANINGS = {
     "lncrna_position_class": "Position of the lncRNA vs protein-coding genes: antisense / "
                              "intronic / overlapping / no_coding_overlap (defined for every "
                              "lncRNA, novel or annotated).",
-    "class_code": "GFFCompare code. Only u/x/i/j are frozen as novel; the reference-derived "
-                  "=/c/k/m/n and the ambiguous o are not (they stay with the reference "
-                  "annotation). Seen in candidates_all.tsv as filter_reason=not_novel_class.",
+    "class_code": "GFFCompare code. Only u/x/i are frozen as novel catalog entities; j "
+                  "(shares a junction with the reference gene) is a reference-derived novel "
+                  "isoform reported in novel_isoforms.tsv; the reference-derived =/c/k/m/n and "
+                  "the ambiguous o stay with the reference annotation "
+                  "(seen in candidates_all.tsv as filter_reason=not_novel_class).",
     "tier_static": "Categorical tier from class code + parent biotype + exon count.",
     "tier_final": "Tier after flags; equals tier_static in this version.",
     "single_exon_low_confidence": "TRUE when a mono-exonic candidate is demoted to Tier 2.",
@@ -173,6 +175,35 @@ COLUMN_MEANINGS = {
     "correlation_input": "What the cis correlation used: residuals_intra_condition "
                          "(within-condition residuals) or expression.",
     "spearman_rho": "Spearman correlation (on intra-condition residuals by default).",
+    "direction": "`up_in_<numerator>` / `down_in_<numerator>` / `ns` from the sign of the "
+                 "shrunken log2FoldChange; `ns` = not significant_padj (padj >= FDR). "
+                 "The |LFC| cutoff is not used here.",
+    "mean_tpm_num": "Mean TPM across the samples of the numerator condition.",
+    "mean_tpm_den": "Mean TPM across the samples of the denominator condition.",
+    "n_expressed_num": "Samples in the numerator condition with TPM >= 1.",
+    "n_expressed_den": "Samples in the denominator condition with TPM >= 1.",
+    "n_sig_up": "Significant genes (significant_padj) with log2FoldChange > 0.",
+    "n_sig_down": "Significant genes (significant_padj) with log2FoldChange < 0.",
+    "n_contrasts_significant": "Number of contrasts in which this lncRNA is significant_padj.",
+    "size_factor": "DESeq2 median-of-ratios size factor for the sample.",
+    "total_reads": "Sum of imported counts across genes (library-size proxy) for the sample.",
+    "n_genes_detected": "Genes with count > 0 in the sample (kept, filtered universe).",
+    "n_lncrna_detected": "lncRNAs (annotated + novel) with count > 0 in the sample.",
+    "lncRNA_type": "lncRNA type from lnc_position_class: lincRNA / antisense / intronic / "
+                   "overlapping (or unclassified/other).",
+    "n_detected": "Features of this type with TPM >= 1 in the sample.",
+    "fraction_detected": "Detected features of this type divided by all lncRNAs in the sample.",
+    "tpm_sum": "Summed TPM of this type in the sample.",
+    "fraction_tpm": "tpm_sum divided by the total lncRNA TPM in the sample.",
+    "collection": "Enrichment collection tested (here GO_BP).",
+    "input_set": "The exact gene list that entered the test (e.g. significant_cis_targets, "
+                 "all_cis_targets_expressed, all_protein_coding_ranked).",
+    "chrom": "Contig of the feature (de_full) or of the novel isoform (novel_isoforms.tsv).",
+    "chromosome": "Contig of the gene span (catalog tables).",
+    "host_gene_id": "novel_isoforms.tsv: reference parent gene the isoform was remapped to.",
+    "host_gene_name": "novel_isoforms.tsv: reference symbol of the parent gene.",
+    "host_biotype": "novel_isoforms.tsv: biotype of the reference parent gene.",
+    "mstrg_gene_id": "novel_isoforms.tsv: discovery gene id (MSTRG) the isoform came from.",
 }
 
 
@@ -211,17 +242,24 @@ def _start_here():
     lines.append("| I want to… | Open |")
     lines.append("|---|---|")
     lines.append("| see the novel lncRNAs discovered | `catalog/novel_lncrnas.tsv` |")
+    lines.append("| get one table with all lncRNAs (annotated + novel) | `catalog/lncrna_genes.tsv` |")
+    lines.append("| see reference-derived novel isoforms (class `j`) | `catalog/novel_isoforms.tsv` |")
     lines.append("| see every gene / transcript in the catalog | `catalog/catalog_genes.tsv`, `catalog/catalog_tx.tsv` |")
     lines.append("| see the candidates kept/filtered in discovery | `catalog/candidates_all.tsv` |")
     lines.append("| compare DE counts across contrasts | `contrasts/contrasts_overview.tsv` |")
+    lines.append("| ask if a lncRNA is DE across all contrasts | `contrasts/lncrna_across_contrasts.tsv` |")
     lines.append("| see what changed in one contrast | `contrasts/<group>__<contrast>/de_full.tsv` |")
     lines.append("| see only the significant genes | `contrasts/<group>__<contrast>/de_full_significant.tsv` |")
     lines.append("| get a complete lncRNA-only table for Excel | `contrasts/<group>__<contrast>/de_lncrna_full.tsv` |")
     lines.append("| see only the significant lncRNAs | `contrasts/<group>__<contrast>/de_lncrna_significant.tsv` |")
+    lines.append("| see significant lncRNAs that also pass |LFC| >= 1 | `contrasts/<group>__<contrast>/de_lncrna_significant_lfc1.tsv` |")
     lines.append("| read the narrative report of a contrast | `contrasts/<group>__<contrast>/<id>_report.html` |")
+    lines.append("| see the paper panels of a contrast | `contrasts/<group>__<contrast>/plots/` (PDF + PNG) |")
     lines.append("| see functional enrichment for a contrast | `contrasts/<group>__<contrast>/enrichment_ora.tsv`, `enrichment_gsea.tsv` |")
     lines.append("| check cis candidates of a group | `groups/<group>/cis_pairs_significant.tsv` |")
     lines.append("| get the expression matrix of a group | `groups/<group>/counts.tsv`, `groups/<group>/tpm.tsv` |")
+    lines.append("| get normalised / VST expression | `groups/<group>/normalized_counts.tsv`, `groups/<group>/vst.tsv` |")
+    lines.append("| see per-sample QC and lncRNA type composition | `groups/<group>/sample_metadata.tsv`, `groups/<group>/lncrna_type_composition.tsv` |")
     lines.append("| see run metadata and tool versions | `run_info/` |")
     lines.append("")
     lines.append("Each folder is computed at one level, so it never duplicates work:")
@@ -241,11 +279,13 @@ def _tiers_section():
     lines.append("## How to read the tiers")
     lines.append("")
     lines.append("- A tier is a **structural priority label**, not a confidence score: "
-                 "`1a` = class `u`/`x`/`i`, `1b` = class `j` whose reference host is an "
+                 "`1a` = class `u`/`x`/`i`, `1b` = a novel gene whose reference host is an "
                  "annotated lncRNA, `2` = mono-exonic or other overlaps. `i` (intronic) and "
                  "`x` (antisense) do overlap reference genes; `u`/`x`/`i` are grouped because "
                  "they cannot be a simple isoform of an annotated gene, not because they are "
-                 "cleaner.")
+                 "cleaner. Reference-derived novel isoforms (class `j`) are not catalog "
+                 "entities: their reads are remapped to the parent gene and they are listed "
+                 "in `catalog/novel_isoforms.tsv`.")
     lines.append("- Tier 1 is **not** confirmed. Class `i` on the same strand as its host is "
                  "often nascent pre-mRNA in total RNA without poly-A selection, and class `x` "
                  "depends on strand fidelity (see the strandedness fidelity in `run_info/`). "

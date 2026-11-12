@@ -331,6 +331,7 @@ workflow DISCOVERY {
     catalog_tx         = ASSIGN_CATALOG_IDS.out.catalog_tx
     catalog_gtf        = ASSIGN_CATALOG_IDS.out.catalog_gtf
     catalog_master     = BUILD_CATALOG_MASTER.out.master
+    candidates_all     = PUBLISH_CATALOG.out.candidates_all
     catalog_transcripts= BUILD_CATALOG_MASTER.out.transcripts
     thresholds         = DERIVE_THRESHOLDS.out.thresholds
     tier_sensitivity   = COMPUTE_TIER_FINAL.out.sensitivity_table

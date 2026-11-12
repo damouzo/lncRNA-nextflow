@@ -163,6 +163,7 @@ if (!is.null(shape_var)) {
   pca <- pca + ggplot2::labs(shape = tools::toTitleCase(shape_var))
 }
 ggsave(out(paste0(group, "_sample_qc_pca.png")), pca, width = 10, height = 8)
+ggsave(out(paste0(group, "_sample_qc_pca.pdf")), pca, width = 10, height = 8)
 
 keep_counts <- counts(dds)
 saveRDS(keep_counts, out(paste0(group, "_tximport_counts.rds")))
@@ -243,6 +244,152 @@ write_tsv(counts_df, out(paste0(group, "_counts.tsv")))
 tpm <- txi$abundance[rownames(keep_counts), , drop = FALSE]
 tpm_df <- with_annotation(data.frame(gene_id = rownames(tpm), tpm, check.names = FALSE))
 write_tsv(tpm_df, out(paste0(group, "_tpm.tsv")))
+
+# ---- 4b.6: normalized + VST matrices (same annotation layout as counts/TPM) ----
+# counts(normalized = TRUE) are DESeq2's median-of-ratios values; the VST matrix
+# is what the PCA/correlation/heatmaps use. Both mirror counts.tsv. Size factors
+# must exist before the normalized counts are read (vsd did not store them in dds).
+if (is.null(DESeq2::sizeFactors(dds))) dds <- DESeq2::estimateSizeFactors(dds)
+norm_counts <- DESeq2::counts(dds, normalized = TRUE)
+norm_df <- with_annotation(data.frame(gene_id = rownames(norm_counts), norm_counts,
+                                      check.names = FALSE))
+write_tsv(norm_df, out(paste0(group, "_normalized_counts.tsv")))
+
+vst_mat <- SummarizedExperiment::assay(vsd)
+vst_df <- with_annotation(data.frame(gene_id = rownames(vst_mat), vst_mat,
+                                     check.names = FALSE))
+write_tsv(vst_df, out(paste0(group, "_vst.tsv")))
+
+# ---- 4b.7: enriched sample metadata (size factors + per-sample detection) ----
+if (is.null(DESeq2::sizeFactors(dds))) dds <- DESeq2::estimateSizeFactors(dds)
+size_factors <- DESeq2::sizeFactors(dds)
+samples <- colnames(keep_counts)
+# lncRNA gene ids known to the annotation (novel + annotated), for the detection split
+lncrna_ids <- if (!is.null(ann_maps$gene_group)) {
+  names(ann_maps$gene_group)[ann_maps$gene_group %in% c("novel_lncRNA", "annotated_lncRNA")]
+} else character(0)
+lncrna_kept <- intersect(rownames(keep_counts), lncrna_ids)
+meta_col <- function(name) {
+  if (name %in% colnames(aligned_coldata)) as.character(aligned_coldata[[name]]) else NA_character_
+}
+sample_meta <- data.frame(
+  sample            = samples,
+  norm_group        = meta_col("norm_group"),
+  condition         = meta_col("condition"),
+  batch             = meta_col("batch"),
+  seq_batch         = meta_col("seq_batch"),
+  size_factor       = as.numeric(size_factors[samples]),
+  total_reads       = as.numeric(colSums(txi$counts)[samples]),
+  n_genes_detected  = as.integer(colSums(keep_counts > 0)),
+  n_lncrna_detected = as.integer(colSums(keep_counts[lncrna_kept, , drop = FALSE] > 0)),
+  stringsAsFactors  = FALSE, check.names = FALSE
+)
+write_tsv(sample_meta, out(paste0(group, "_sample_metadata.tsv")))
+
+# ---- 4b.8: lncRNA type composition per sample (annotated + novel pooled) ----
+# Type from lnc_position_class mapped to friendly names; detection at TPM >= 1.
+TYPE_MAP <- c(no_coding_overlap = "lincRNA", antisense = "antisense",
+              intronic = "intronic", overlapping = "overlapping")
+comp_cols <- c("sample", "condition", "lncRNA_type", "n_detected",
+               "fraction_detected", "tpm_sum", "fraction_tpm")
+comp <- if (length(lncrna_kept) > 0) {
+  tpm_lnc <- tpm[lncrna_kept, , drop = FALSE]
+  pos <- ann_maps$lnc_position_class[lncrna_kept]
+  ltype <- ifelse(is.na(pos) | pos %in% c("", "NA"), "unclassified",
+                  ifelse(pos %in% names(TYPE_MAP), unname(TYPE_MAP[pos]), "other"))
+  comp_rows <- list()
+  for (s in samples) {
+    v <- as.numeric(tpm_lnc[, s])
+    det <- v >= 1
+    total_tpm <- sum(v, na.rm = TRUE)
+    for (ty in sort(unique(ltype))) {
+      idx <- ltype == ty
+      comp_rows[[length(comp_rows) + 1L]] <- data.frame(
+        sample = s,
+        condition = sample_meta$condition[match(s, sample_meta$sample)],
+        lncRNA_type = ty,
+        n_detected = sum(det[idx], na.rm = TRUE),
+        fraction_detected = sum(det[idx], na.rm = TRUE) / length(v),
+        tpm_sum = sum(v[idx], na.rm = TRUE),
+        fraction_tpm = if (total_tpm > 0) sum(v[idx], na.rm = TRUE) / total_tpm else NA_real_,
+        stringsAsFactors = FALSE)
+    }
+  }
+  do.call(rbind, comp_rows)
+} else {
+  as.data.frame(setNames(
+    lapply(comp_cols, function(x) if (x == "n_detected") integer(0) else
+      if (x %in% c("fraction_detected", "tpm_sum", "fraction_tpm")) double(0) else character(0)),
+    comp_cols))
+}
+write_tsv(comp, out(paste0(group, "_lncrna_type_composition.tsv")))
+
+# ---- QC figures (dual format: PDF for print, PNG for slides) ----
+# Non-blocking: a plotting hiccup logs a warning and never fails the task.
+tryCatch({
+  save_panel <- function(name, plot, width, height) {
+    ggplot2::ggsave(out(paste0(group, "_", name, ".png")), plot,
+                    width = width, height = height, dpi = 150)
+    ggplot2::ggsave(out(paste0(group, "_", name, ".pdf")), plot,
+                    width = width, height = height)
+  }
+  lev <- sample_meta$sample[order(sample_meta$condition, sample_meta$sample)]
+
+  # Sample-to-sample correlation (VST), ordered by condition then sample.
+  cor_mat <- stats::cor(vst_mat)
+  cor_df <- as.data.frame(as.table(cor_mat), stringsAsFactors = FALSE)
+  colnames(cor_df) <- c("sample_x", "sample_y", "cor")
+  cor_df$sample_x <- factor(cor_df$sample_x, levels = lev)
+  cor_df$sample_y <- factor(cor_df$sample_y, levels = rev(lev))
+  p_cor <- ggplot2::ggplot(cor_df, ggplot2::aes(sample_x, sample_y, fill = cor)) +
+    ggplot2::geom_tile() +
+    ggplot2::scale_fill_gradient2(low = "#1565c0", mid = "white", high = "#b71c1c",
+                                  midpoint = stats::median(cor_mat)) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+    ggplot2::labs(title = sprintf("%s - sample correlation (VST)", group),
+                  x = NULL, y = NULL, fill = "rho")
+  save_panel("sample_correlation", p_cor, 8, 7)
+
+  # Features detected per sample (genes vs lncRNAs).
+  det_df <- data.frame(
+    sample = rep(sample_meta$sample, 2),
+    feature = rep(c("genes", "lncRNAs"), each = nrow(sample_meta)),
+    n = c(sample_meta$n_genes_detected, sample_meta$n_lncrna_detected),
+    stringsAsFactors = FALSE)
+  det_df$sample <- factor(det_df$sample, levels = lev)
+  p_det <- ggplot2::ggplot(det_df, ggplot2::aes(sample, n, fill = feature)) +
+    ggplot2::geom_col(position = "dodge") +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+    ggplot2::labs(title = sprintf("%s - features detected per sample", group),
+                  x = NULL, y = "n detected (count > 0)", fill = NULL)
+  save_panel("detected_features", p_det, 9, 5)
+
+  # TPM distribution per sample.
+  tpm_long <- do.call(rbind, lapply(samples, function(s) data.frame(
+    sample = s, log2tpm = log2(as.numeric(tpm[, s]) + 1), stringsAsFactors = FALSE)))
+  tpm_long$sample <- factor(tpm_long$sample, levels = lev)
+  p_tpm <- ggplot2::ggplot(tpm_long, ggplot2::aes(sample, log2tpm)) +
+    ggplot2::geom_violin(fill = "#4c72b0", alpha = 0.6, scale = "width") +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+    ggplot2::labs(title = sprintf("%s - TPM distribution per sample", group),
+                  x = NULL, y = "log2(TPM + 1)")
+  save_panel("tpm_distribution", p_tpm, 9, 5)
+
+  # lncRNA type composition (fraction of lncRNA TPM per type), samples by condition.
+  if (nrow(comp) > 0 && "fraction_tpm" %in% colnames(comp)) {
+    p_type <- ggplot2::ggplot(comp, ggplot2::aes(lncRNA_type, fraction_tpm, fill = condition)) +
+      ggplot2::geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+      ggplot2::geom_point(position = ggplot2::position_jitterdodge(jitter.width = 0.15),
+                          size = 1.2, alpha = 0.7) +
+      ggplot2::theme_minimal() +
+      labs(title = sprintf("%s - lncRNA type composition", group),
+           x = "lncRNA type", y = "fraction of lncRNA TPM", fill = "condition")
+    save_panel("lncrna_type_composition", p_type, 8, 5)
+  }
+}, error = function(e) cat("WARNING: QC figures skipped:", conditionMessage(e), "\n"))
 
 # Pre-filter universe with a reason per gene (nothing is lost)
 universe <- data.frame(

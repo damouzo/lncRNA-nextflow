@@ -17,6 +17,9 @@ knitr:
 params:
   contrast: ""
   group: ""
+  numerator: ""
+  denominator: ""
+  coldata: null
   de_summary: null
   cis_pairs: null
   cis_pairs_sig: null
@@ -52,6 +55,18 @@ library(ggridges)
 
 contrast <- params$contrast
 group    <- params$group
+
+# Write every static panel as both PNG (slides) and PDF (print/vector) under
+# plots/. A missing device/library never fails the render.
+save_fig <- function(name, plot, width = 8, height = 6, dpi = 150) {
+  dir.create("plots", showWarnings = FALSE)
+  tryCatch(ggplot2::ggsave(file.path("plots", paste0(name, ".png")), plot,
+                           width = width, height = height, dpi = dpi),
+           error = function(e) NULL)
+  tryCatch(ggplot2::ggsave(file.path("plots", paste0(name, ".pdf")), plot,
+                           width = width, height = height),
+           error = function(e) NULL)
+}
 
 ORIGIN_COLORS <- c(
   "novel"                = "#c2185b",
@@ -258,6 +273,17 @@ if (!is.null(het_ct) && nrow(het_ct) > 0 && !is.null(catalog) && nrow(catalog) >
 
 # Per-sample lncRNA detection from TPM matrix (QC)
 tpm <- tryCatch(readRDS(params$tpm), error = function(e) NULL)
+coldata <- tryCatch(read.csv(params$coldata, stringsAsFactors = FALSE), error = function(e) NULL)
+# Samples of THIS contrast (numerator/denominator) present in the TPM matrix,
+# ordered by condition so the heatmap columns group the two groups.
+contrast_samples <- if (!is.null(tpm)) colnames(tpm) else NULL
+if (!is.null(tpm) && !is.null(coldata) && all(c("sample", "condition") %in% colnames(coldata)) &&
+    nzchar(params$numerator) && nzchar(params$denominator)) {
+  keep <- intersect(coldata$sample[coldata$condition %in% c(params$numerator, params$denominator)],
+                    colnames(tpm))
+  cond <- coldata$condition[match(keep, coldata$sample)]
+  contrast_samples <- keep[order(cond, keep)]
+}
 lncrna_per_sample <- NULL
 if (!is.null(tpm) && !is.null(catalog) && nrow(catalog) > 0) {
   lncrna_ids <- catalog$gene_id[catalog$origin %in% c("novel", "annotated_lncrna")]
@@ -471,8 +497,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
       theme_void()
     print(p)
 
-    dir.create("plots", showWarnings = FALSE)
-    ggsave(file.path("plots", "novel_catalog_overlap.pdf"), p, width = 7, height = 6)
+    save_fig("novel_catalog_overlap", p, width = 7, height = 6)
 
     n_hit <- sum(vapply(hit_list, length, integer(1)) > 0)
     per_src <- data.frame(
@@ -576,7 +601,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
   render_volcano <- function(df, title, file) {
     p <- volcano_plot(df, title)
     print(p)
-    ggsave(file.path("plots", file), p, width = 8, height = 6)  # base pdf device
+    save_fig(sub("\\.pdf$", "", file), p, width = 8, height = 6)
   }
 }
 ```
@@ -654,14 +679,130 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
            color = "Origin", size = "Significance") +
       theme_minimal()
     print(p)
-    # Ship the MA plot as a PNG alongside the volcano (contrasts/<id>/plots/).
-    dir.create("plots", showWarnings = FALSE)
-    ggsave(file.path("plots", "ma.png"), p, width = 8, height = 6, dpi = 150)
+    # Ship the MA plot as both PNG and PDF (contrasts/<id>/plots/).
+    save_fig("ma", p, width = 8, height = 6)
   } else {
     cat("No genes with baseMean > 0 — MA plot skipped.\n")
   }
 } else {
   cat("No DE data for this contrast — MA plot skipped.\n")
+}
+```
+
+### Top DE genes and lncRNAs
+
+The panels most people expect from a DE analysis: a heatmap of the strongest
+changes and, for lncRNAs, per-sample expression. Selection is
+`significant_padj_lfc1` (`padj < FDR` **and** `|log2FoldChange| >= LFC`, default
+LFC 1.0), top N by padj. Rows are row z-scores of log2 TPM; columns are this
+contrast's samples, faceted by condition. Each panel is also written as
+`plots/heatmap_top.png|pdf`, `plots/heatmap_top_lncrna.png|pdf` and
+`plots/top_lncrna_expression.png|pdf`.
+
+```{r heatmap-helpers, include=FALSE}
+# Row z-score of log2 TPM for the given genes across the given samples.
+# Returns NULL when there is nothing to draw.
+build_expr_long <- function(ids, samples, value = "z") {
+  ids <- intersect(ids, rownames(tpm))
+  if (is.null(ids) || length(ids) == 0 || length(samples) == 0) return(NULL)
+  mat <- log2(tpm[ids, samples, drop = FALSE] + 1)
+  if (value == "z") {
+    z <- t(scale(t(mat)))
+    zdf <- as.data.frame(z, check.names = FALSE)
+  } else {
+    zdf <- as.data.frame(mat, check.names = FALSE)
+  }
+  zdf$gene_id <- rownames(zdf)
+  long <- tidyr::pivot_longer(zdf, -gene_id, names_to = "sample", values_to = value)
+  long$condition <- if (!is.null(coldata) && "condition" %in% colnames(coldata))
+    coldata$condition[match(long$sample, coldata$sample)] else "all"
+  lab <- NULL
+  if (!is.null(de_ann) && "gene_id" %in% colnames(de_ann)) {
+    id_cols <- intersect(c("gene_name", "gene_id_stable"), colnames(de_ann))
+    lab <- if (length(id_cols) > 0) {
+      do.call(dplyr::coalesce, c(unname(as.list(de_ann[, id_cols, drop = FALSE])),
+                                 list(de_ann$gene_id)))
+    } else {
+      de_ann$gene_id
+    }
+    lab <- setNames(lab, de_ann$gene_id)
+  }
+  long$label <- if (!is.null(lab)) dplyr::coalesce(unname(lab[long$gene_id]), long$gene_id) else long$gene_id
+  long$sample <- factor(long$sample, levels = samples)
+  long
+}
+
+plot_heatmap <- function(long, title) {
+  ggplot(long, aes(sample, label, fill = z)) +
+    geom_tile() +
+    facet_grid(~condition, scales = "free_x", space = "free_x") +
+    scale_fill_gradient2(low = "#1565c0", mid = "white", high = "#b71c1c",
+                         midpoint = 0, na.value = "grey90") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+          axis.text.y = element_text(size = 6)) +
+    labs(title = title, x = NULL, y = NULL, fill = "row z")
+}
+```
+
+```{r heatmap-top-genes, fig.width=9, fig.height=8}
+if (!is.null(tpm) && !is.null(de_ann) && nrow(de_ann) > 0 &&
+    "significant_padj_lfc1" %in% colnames(de_ann) &&
+    !is.null(contrast_samples) && length(contrast_samples) >= 2) {
+  top_genes <- de_ann %>% filter(significant_padj_lfc1) %>% arrange(padj) %>% slice_head(n = 50)
+  lg <- build_expr_long(top_genes$gene_id, contrast_samples)
+  if (!is.null(lg) && nrow(lg) > 0) {
+    p <- plot_heatmap(lg, sprintf("Top %d DE genes (row z-score)", dplyr::n_distinct(lg$gene_id)))
+    print(p)
+    save_fig("heatmap_top", p, 9, 8)
+  } else {
+    cat("No significant genes for the heatmap.\n")
+  }
+} else {
+  cat("No DE data / TPM matrix for the gene heatmap.\n")
+}
+```
+
+```{r heatmap-top-lncrna, fig.width=9, fig.height=8}
+top_lnc <- NULL
+if (!is.null(de_ann) && nrow(de_ann) > 0 && "gene_group" %in% colnames(de_ann)) {
+  top_lnc <- de_ann %>%
+    filter(gene_group %in% c("novel_lncRNA", "annotated_lncRNA"),
+           significant_padj_lfc1) %>%
+    arrange(padj)
+}
+if (!is.null(tpm) && !is.null(top_lnc) && nrow(top_lnc) > 0 &&
+    !is.null(contrast_samples) && length(contrast_samples) >= 2) {
+  lh <- build_expr_long(head(top_lnc$gene_id, 50), contrast_samples)
+  if (!is.null(lh) && nrow(lh) > 0) {
+    p <- plot_heatmap(lh, sprintf("Top %d DE lncRNAs (row z-score)", dplyr::n_distinct(lh$gene_id)))
+    print(p)
+    save_fig("heatmap_top_lncrna", p, 9, 8)
+  } else {
+    cat("No significant lncRNAs for the heatmap.\n")
+  }
+} else {
+  cat("No significant lncRNAs / TPM matrix for the lncRNA heatmap.\n")
+}
+```
+
+```{r top-lncrna-expression, fig.width=10, fig.height=8}
+if (!is.null(tpm) && !is.null(top_lnc) && nrow(top_lnc) > 0 &&
+    !is.null(contrast_samples) && length(contrast_samples) >= 2) {
+  ex <- build_expr_long(head(top_lnc$gene_id, 20), contrast_samples, value = "expr")
+  if (!is.null(ex) && nrow(ex) > 0) {
+    p <- ggplot(ex, aes(condition, expr)) +
+      geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+      geom_jitter(width = 0.15, size = 1, alpha = 0.7) +
+      facet_wrap(~label, scales = "free_y") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      labs(title = "Top DE lncRNAs per sample", x = NULL, y = "log2(TPM + 1)")
+    print(p)
+    save_fig("top_lncrna_expression", p, 10, 8)
+  } else {
+    cat("No expression data for the top lncRNAs.\n")
+  }
 }
 ```
 
@@ -701,8 +842,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
       labs(title = "Significant genes per chromosome", x = "chromosome",
            y = "genes / fraction", fill = NULL)
     print(p)
-    dir.create("plots", showWarnings = FALSE)
-    ggsave(file.path("plots", "sig_genes_by_chromosome.pdf"), p, width = 9, height = 9)
+    save_fig("sig_genes_by_chromosome", p, width = 9, height = 9)
   } else {
     cat("No canonical chromosomes in this contrast.\n")
   }
@@ -738,8 +878,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
            y = "lnc_position_class", fill = NULL) +
       theme_minimal()
     print(p)
-    dir.create("plots", showWarnings = FALSE)
-    ggsave(file.path("plots", "sig_lncrna_position_class.pdf"), p, width = 9, height = 6)
+    save_fig("sig_lncrna_position_class", p, width = 9, height = 6)
   } else {
     cat("No significant lncRNAs for this contrast.\n")
   }
@@ -1004,6 +1143,7 @@ if (!is.null(ora) && nrow(ora) > 0 && all(c("GeneRatio", "p.adjust", "Count") %i
          size = "Count", color = "p.adjust") +
     theme_minimal()
   print(p)
+  save_fig("enrichment_ora", p, 7, 5)
 }
 ```
 
@@ -1038,6 +1178,7 @@ if (!is.null(gsea) && nrow(gsea) > 0 && "core_enrichment" %in% colnames(gsea) &&
       labs(title = "Top 10 GSEA terms", x = rank_label, y = NULL) +
       theme_minimal()
     print(p)
+    save_fig("enrichment_gsea", p, 7, 5)
   } else {
     cat("Core-enrichment genes did not match the DE summary — ridgeplot skipped.\n")
   }

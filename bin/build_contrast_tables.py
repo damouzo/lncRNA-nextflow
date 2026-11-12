@@ -99,6 +99,62 @@ def _num(x):
         return None
 
 
+# Annotation columns the wide expression tables carry alongside the sample
+# columns (counts.tsv / tpm.tsv / normalized_counts.tsv / vst.tsv).
+EXPR_ANNOT_COLS = {"gene_id", "gene_group", "catalog_id", "origin", "class_code",
+                   "tier", "lnc_position_class"}
+
+
+def load_tpm(path):
+    """-> (samples, {gene_id: {sample: tpm}}). Annotation columns are excluded so
+    they can never be mistaken for a sample (same layout as counts.tsv)."""
+    header, rows = read_tsv(path)
+    samples = [c for c in header if c not in EXPR_ANNOT_COLS]
+    tpm = {}
+    for r in rows:
+        gid = r.get("gene_id")
+        if gid is None:
+            continue
+        tpm[gid] = {s: _num(r.get(s)) for s in samples}
+    return samples, tpm
+
+
+def load_conditions(path):
+    """-> {sample: condition} from the aligned coldata (CSV)."""
+    cond = {}
+    with open(path) as fh:
+        rdr = csv.DictReader(fh)
+        for row in rdr:
+            cond[row.get("sample")] = row.get("condition")
+    return cond
+
+
+def condition_samples(cond_by_sample):
+    """-> {condition: [samples]} preserving input order."""
+    out = {}
+    for s, c in cond_by_sample.items():
+        if c is None:
+            continue
+        out.setdefault(c, []).append(s)
+    return out
+
+
+def _fmt_num(v, digits=6):
+    return "" if v is None else ("%.*g" % (digits, v))
+
+
+def direction_label(sig_padj, lfc, numerator):
+    """up_in_<numerator> / down_in_<numerator> / ns. 'ns' = not significant_padj
+    (padj >= FDR); the |LFC| cutoff is NOT used here (that is significant_padj_lfc1)."""
+    if not sig_padj:
+        return "ns"
+    f = _num(lfc)
+    num = numerator or "numerator"
+    if f is None:
+        return "ns"
+    return ("up_in_%s" % num) if f > 0 else ("down_in_%s" % num)
+
+
 def gene_ids(path):
     """First column named gene_id, else the first column; order preserved, dups checked."""
     header, rows = read_tsv(path)
@@ -139,7 +195,21 @@ def is_significant_padj(padj, fdr):
 
 
 def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_threshold,
-                   extreme_basemean, genome_build):
+                   extreme_basemean, genome_build, tpm=None, cond_samples=None,
+                   numerator="", denominator=""):
+    tpm = tpm or {}
+    cond_samples = cond_samples or {}
+
+    def _cond_mean(vals, cond):
+        ss = cond_samples.get(cond, [])
+        vv = [vals.get(s) for s in ss]
+        vv = [x for x in vv if x is not None]
+        return (sum(vv) / len(vv)) if vv else None
+
+    def _cond_expressed(vals, cond):
+        ss = cond_samples.get(cond, [])
+        return sum(1 for s in ss if (vals.get(s) is not None and vals.get(s) >= 1))
+
     rows = []
     for gid in universe_ids:
         ann = catalog_by_id.get(gid, {})
@@ -163,6 +233,16 @@ def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_thr
             sig_padj = False
             reason = "filtered_low_expression"
         bm = _num(baseMean)
+        # 4b.9: per-condition TPM context (num = numerator condition, den =
+        # denominator). Only computed when the group TPM matrix + condition
+        # labels were provided; otherwise the columns stay NA.
+        vals = tpm.get(gid)
+        if vals is not None and cond_samples:
+            mt_num, mt_den = _cond_mean(vals, numerator), _cond_mean(vals, denominator)
+            ne_num, ne_den = _cond_expressed(vals, numerator), _cond_expressed(vals, denominator)
+        else:
+            mt_num = mt_den = None
+            ne_num = ne_den = None
         row = {
             "gene_id": gid, "contrast": contrast,
             "baseMean": baseMean, "log2FoldChange": lfc, "lfcSE": lfcse,
@@ -172,6 +252,11 @@ def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_thr
             "significant_padj_lfc1": "TRUE" if sig else "FALSE",
             "tested": "TRUE" if tested else "FALSE",
             "not_tested_reason": reason, "padj_na_reason": na_reason,
+            "direction": direction_label(sig_padj, lfc, numerator),
+            "mean_tpm_num": _fmt_num(mt_num),
+            "mean_tpm_den": _fmt_num(mt_den),
+            "n_expressed_num": "" if ne_num is None else str(ne_num),
+            "n_expressed_den": "" if ne_den is None else str(ne_den),
             **{c: ann.get(c, "") for c in ANNOT_COLS},
         }
         # 4b.1 / 4a.4: positions from the catalog + derived grouping and QC flags.
@@ -222,20 +307,36 @@ def main():
                     help="4b.4: unfiltered lncRNA-only table (annotated + novel)")
     ap.add_argument("--lncrna-significant-out",
                     help="4b.5: lncRNAs with significant_padj == TRUE (padj < FDR)")
+    ap.add_argument("--lncrna-significant-lfc1-out",
+                    help="4b.5: lncRNAs with significant_padj_lfc1 == TRUE (padj < FDR AND |LFC| >= lfc)")
     ap.add_argument("--summary-out")
+    ap.add_argument("--tpm", help="group TPM matrix (annotation + samples); adds mean_tpm_num/den")
+    ap.add_argument("--coldata", help="aligned coldata CSV (sample, condition); maps samples to conditions")
+    ap.add_argument("--numerator", default="", help="numerator condition label (for direction and mean_tpm_num)")
+    ap.add_argument("--denominator", default="", help="denominator condition label (for mean_tpm_den)")
     args = ap.parse_args()
 
     universe = gene_ids(args.universe)
     catalog = _index_unique(args.catalog, "gene_id")
     de = _index_unique(args.de, "gene_id")
 
+    tpm = None
+    cond_samples = None
+    if args.tpm and args.coldata and os.path.exists(args.tpm) and os.path.exists(args.coldata):
+        _, tpm = load_tpm(args.tpm)
+        cond_samples = condition_samples(load_conditions(args.coldata))
+
     rows = build_contrast(universe, catalog, de, args.contrast, args.fdr, args.lfc,
-                          args.extreme_basemean, args.genome_build)
+                          args.extreme_basemean, args.genome_build,
+                          tpm=tpm, cond_samples=cond_samples,
+                          numerator=args.numerator, denominator=args.denominator)
 
     cols = (["gene_id", "contrast", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj",
              "stat", "lfc_unshrunken", "shrink_type",
              "significant_padj", "significant_padj_lfc1",
-             "tested", "not_tested_reason", "padj_na_reason"] + ANNOT_COLS
+             "tested", "not_tested_reason", "padj_na_reason",
+             "direction", "mean_tpm_num", "mean_tpm_den",
+             "n_expressed_num", "n_expressed_den"] + ANNOT_COLS
             + POS_COLS + DERIVED_COLS)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", newline="") as fh:
@@ -276,6 +377,16 @@ def main():
             w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
             w.writeheader()
             w.writerows(lnc_sig)
+    if args.lncrna_significant_lfc1_out:
+        # 4b.5: significant lncRNAs that also pass |LFC| >= lfc (significant_padj_lfc1).
+        lnc_sig_lfc1 = [r for r in rows
+                        if r["gene_group"] in ("annotated_lncRNA", "novel_lncRNA")
+                        and r["significant_padj_lfc1"] == "TRUE"]
+        os.makedirs(os.path.dirname(os.path.abspath(args.lncrna_significant_lfc1_out)), exist_ok=True)
+        with open(args.lncrna_significant_lfc1_out, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t")
+            w.writeheader()
+            w.writerows(lnc_sig_lfc1)
     if args.summary_out:
         # One row indexing the row counts of every table shipped for this contrast:
         # n_universe -> de_full, n_significant -> de_full_significant,

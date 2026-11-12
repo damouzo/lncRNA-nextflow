@@ -107,7 +107,20 @@ process FUNCTIONAL_ENRICHMENT {
                 ego_df <- as.data.frame(ego)
                 ego_df\$contrast <- ct
                 ego_df\$foreground_type <- foreground_type
+                # collection/input_set: the ontology and the exact gene list that
+                # entered the test, so the table is self-describing in the deliverables.
+                ego_df\$collection <- "GO_BP"
+                ego_df\$input_set <- foreground_type
                 ora_all[[ct]] <- ego_df
+                # ORA dotplot, both formats (raw; the delivered plot is rendered by the report).
+                png(file.path("${group}_enrichment_plots", paste0(ct, "_ora_dotplot.png")),
+                    width = 900, height = 700)
+                print(dotplot(ego, showCategory = 20))
+                dev.off()
+                pdf(file.path("${group}_enrichment_plots", paste0(ct, "_ora_dotplot.pdf")),
+                    width = 9, height = 7)
+                print(dotplot(ego, showCategory = 20))
+                dev.off()
                 cat(sprintf("  ORA: %d GO-BP terms (full table, no cutoff)\n", nrow(ego_df)))
             } else {
                 cat(sprintf("  ORA: enrichGO returned 0 terms (foreground=%d, universe=%d)\n",
@@ -131,10 +144,16 @@ process FUNCTIONAL_ENRICHMENT {
         if (!is.null(gsea) && nrow(as.data.frame(gsea)) > 0) {
             gsea_df <- as.data.frame(gsea)
             gsea_df\$contrast <- ct
+            gsea_df\$collection <- "GO_BP"
+            gsea_df\$input_set <- "all_protein_coding_ranked"
             gsea_all[[ct]] <- gsea_df
 
             png(file.path("${group}_enrichment_plots", paste0(ct, "_gsea_dotplot.png")),
-                width = 800, height = 600)
+                width = 900, height = 700)
+            print(dotplot(gsea, showCategory = 20))
+            dev.off()
+            pdf(file.path("${group}_enrichment_plots", paste0(ct, "_gsea_dotplot.pdf")),
+                width = 9, height = 7)
             print(dotplot(gsea, showCategory = 20))
             dev.off()
         }
@@ -149,9 +168,11 @@ process FUNCTIONAL_ENRICHMENT {
         d
     }
     ora_cols <- c("ID", "Description", "GeneRatio", "BgRatio", "pvalue", "p.adjust",
-                  "qvalue", "geneID", "Count", "contrast", "foreground_type")
+                  "qvalue", "geneID", "Count", "contrast", "collection", "input_set",
+                  "foreground_type")
     gsea_cols <- c("ID", "Description", "setSize", "enrichmentScore", "NES", "pvalue",
-                   "p.adjust", "qvalue", "rank", "leading_edge", "core_enrichment", "contrast")
+                   "p.adjust", "qvalue", "rank", "leading_edge", "core_enrichment",
+                   "contrast", "collection", "input_set")
 
     ora_df <- if (length(ora_all) > 0) as.data.frame(do.call(rbind, ora_all)) else empty_frame(ora_cols)
     gsea_df <- if (length(gsea_all) > 0) as.data.frame(do.call(rbind, gsea_all)) else empty_frame(gsea_cols)

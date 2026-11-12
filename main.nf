@@ -167,6 +167,7 @@ workflow {
             .collect()
         FIGURES(DISCOVERY.out.catalog_genes, DISCOVERY.out.tier_by_class,
                 ch_fig_tpm, PUBLISH_RUN_INFO.out.sample_index,
-                validateInput.out.contrasts_csv)
+                validateInput.out.contrasts_csv,
+                DISCOVERY.out.coding_consensus, DISCOVERY.out.candidates_all)
     }
 }

@@ -26,7 +26,22 @@ process TXIMPORT_AND_FILTER {
     path "${group}_filter_stats.tsv",                       emit: filter_stats
     tuple val(group), path("${group}_counts.tsv"),          emit: counts_tsv
     tuple val(group), path("${group}_tpm.tsv"),             emit: tpm_tsv
+    tuple val(group), path("${group}_normalized_counts.tsv"), emit: normalized_counts_tsv
+    tuple val(group), path("${group}_vst.tsv"),             emit: vst_tsv
+    tuple val(group), path("${group}_sample_metadata.tsv"), emit: sample_metadata_tsv
+    tuple val(group), path("${group}_lncrna_type_composition.tsv"), emit: lncrna_type_composition
     tuple val(group), path("${group}_universe.tsv"),        emit: universe_tsv
+    // QC figures (dual format). Declared so publishDir can copy them; the extra
+    // panels are optional because a plotting hiccup only logs a warning.
+    path "${group}_sample_qc_pca.pdf"
+    path "${group}_sample_correlation.png", optional: true
+    path "${group}_sample_correlation.pdf", optional: true
+    path "${group}_detected_features.png", optional: true
+    path "${group}_detected_features.pdf", optional: true
+    path "${group}_tpm_distribution.png", optional: true
+    path "${group}_tpm_distribution.pdf", optional: true
+    path "${group}_lncrna_type_composition.png", optional: true
+    path "${group}_lncrna_type_composition.pdf", optional: true
     path "versions.yml",                                    emit: versions
 
     script:

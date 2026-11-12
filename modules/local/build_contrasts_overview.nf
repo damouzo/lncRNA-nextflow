@@ -9,10 +9,12 @@ process BUILD_CONTRASTS_OVERVIEW {
     input:
     path summaries        // collected <id>__summary.tsv
     path significants     // collected <id>__significant.tsv
+    path lncrna_fulls     // collected <id>__lncrna_full.tsv
     path catalog_genes
 
     output:
     path "contrasts_overview.tsv", emit: overview
+    path "lncrna_across_contrasts.tsv", emit: across
     path "versions.yml", emit: versions
 
     script:
@@ -20,7 +22,8 @@ process BUILD_CONTRASTS_OVERVIEW {
     build_contrasts_overview.py \\
         --summaries-dir . \\
         --catalog "${catalog_genes}" \\
-        --out contrasts_overview.tsv
+        --out contrasts_overview.tsv \\
+        --across-out lncrna_across_contrasts.tsv
 
     emit_versions.sh "${task.process}" "${task.container}" python3 python3 --version
     """

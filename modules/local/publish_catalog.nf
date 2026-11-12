@@ -22,8 +22,9 @@ process PUBLISH_CATALOG {
     output:
     path "catalog_genes.tsv", emit: catalog_genes
     path "catalog_tx.tsv"
-    path "candidates_all.tsv"
+    path "candidates_all.tsv", emit: candidates_all
     path "novel_lncrnas.tsv"
+    path "lncrna_genes.tsv"
     path "annotation/lncrna_catalog.gtf"
     path "annotation/lncrna_catalog.fa"
     path "annotation/README.md"

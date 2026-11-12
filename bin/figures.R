@@ -3,7 +3,8 @@
 # and every panel is wrapped in tryCatch so a missing package or an odd table
 # produces a manifest row instead of failing the run.
 #
-# Writes PNGs + figures_manifest.tsv (figure, path, description, status).
+# Writes each panel as PNG + PDF plus figures_manifest.tsv
+# (figure, path, description, status).
 #
 # gffcompare class codes (source: gffcompare manual) — only `x` is antisense:
 #   c contained in a reference transcript | k contains a reference transcript
@@ -18,7 +19,9 @@
 # usage:
 #   figures.R --catalog catalog_genes.tsv --by-class tier_final_by_class.tsv \
 #             [--tpm <group>_tpm.tsv ...] [--sample-metadata sample_index.tsv] \
-#             [--comparisons comparisons.csv] --outdir .
+#             [--comparisons comparisons.csv] [--coding-consensus coding_consensus.tsv] \
+#             [--candidates candidates_all.tsv] [--cpat-threshold 0.364] \
+#             [--cpc2-threshold 0.5] --outdir .
 
 suppressPackageStartupMessages({
   library(ggplot2)
@@ -41,6 +44,10 @@ by_class_path <- get_arg("--by-class")
 tpm_paths <- get_args_all("--tpm")
 sample_meta_path <- get_arg("--sample-metadata")
 comparisons_path <- get_arg("--comparisons")
+coding_consensus_path <- get_arg("--coding-consensus")
+candidates_path <- get_arg("--candidates")
+cpat_threshold <- suppressWarnings(as.numeric(get_arg("--cpat-threshold", "0.364")))
+cpc2_threshold <- suppressWarnings(as.numeric(get_arg("--cpc2-threshold", "0.5")))
 outdir <- get_arg("--outdir", ".")
 dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 
@@ -50,12 +57,18 @@ add <- function(figure, path, description, status) {
     figure = figure, path = path, description = description, status = status,
     stringsAsFactors = FALSE)
 }
+# Every panel is written as both PNG (slides) and PDF (print/vector). The
+# manifest keeps one row per figure, pointing at the PNG; a PDF failure only
+# logs and never drops the panel.
 land <- function(figure, description, expr, width = 8, height = 6) {
   tryCatch({
     p <- expr
-    f <- file.path(outdir, paste0(figure, ".png"))
-    ggsave(f, p, width = width, height = height, dpi = 150)
-    add(figure, basename(f), description, "ok")
+    png_file <- file.path(outdir, paste0(figure, ".png"))
+    ggsave(png_file, p, width = width, height = height, dpi = 150)
+    tryCatch(
+      ggsave(file.path(outdir, paste0(figure, ".pdf")), p, width = width, height = height),
+      error = function(e) cat("figure:", figure, "PDF skipped:", conditionMessage(e), "\n"))
+    add(figure, basename(png_file), description, "ok")
     cat("figure:", figure, "ok\n")
   }, error = function(e) {
     add(figure, NA_character_, description, paste0("skipped: ", conditionMessage(e)))
@@ -142,6 +155,51 @@ if (is.null(catalog) || nrow(catalog) == 0) {
       labs(title = "Catalog genes per chromosome", x = "chromosome",
            y = "genes / origin fraction")
   }, width = 8, height = 8)
+
+  # 4b.10: catalog characterization — length and exon count by origin. These are
+  # the "figure 1 of the paper" panels that describe what the catalog contains.
+  land("fig_catalog_length", "catalog gene span length by origin", {
+    if (!all(c("start", "end", "origin") %in% colnames(catalog))) stop("no start/end/origin")
+    len <- suppressWarnings(as.numeric(catalog$end) - as.numeric(catalog$start) + 1)
+    d <- data.frame(origin = catalog$origin, length = len)
+    d <- d[is.finite(d$length) & d$length > 0, , drop = FALSE]
+    if (nrow(d) == 0) stop("no valid coordinates")
+    ggplot(d, aes(x = length, fill = origin)) +
+      geom_histogram(bins = 60, position = "identity", alpha = 0.55) +
+      scale_x_log10() + theme_minimal() +
+      labs(title = "Catalog gene length by origin", x = "gene span (bp, log10)",
+           y = "genes", fill = "origin")
+  }, width = 8, height = 5)
+
+  land("fig_catalog_exons", "catalog exon count by origin", {
+    if (!all(c("n_exons", "origin") %in% colnames(catalog))) stop("no n_exons/origin")
+    d <- data.frame(origin = catalog$origin, n_exons = suppressWarnings(as.numeric(catalog$n_exons)))
+    d <- d[is.finite(d$n_exons) & d$n_exons > 0, , drop = FALSE]
+    if (nrow(d) == 0) stop("no valid n_exons")
+    d$n_exons[d$n_exons > 10] <- 10
+    d <- as.data.frame(table(origin = d$origin, n_exons = d$n_exons))
+    ggplot(d, aes(x = n_exons, y = Freq, fill = origin)) +
+      geom_col(position = "dodge") + theme_minimal() +
+      labs(title = "Catalog exon count by origin", subtitle = "n_exons capped at 10",
+           x = "n_exons", y = "genes", fill = "origin")
+  }, width = 8, height = 5)
+
+  # Conservation is only computed for novel lncRNAs and only when configured;
+  # the column exists but is all-NA otherwise, so guard on real values.
+  if ("conservation_mean" %in% colnames(catalog) &&
+      any(!is.na(suppressWarnings(as.numeric(catalog$conservation_mean))))) {
+    land("fig_catalog_conservation", "conservation score by origin", {
+      d <- data.frame(origin = catalog$origin,
+                      conservation_mean = suppressWarnings(as.numeric(catalog$conservation_mean)))
+      d <- d[is.finite(d$conservation_mean), , drop = FALSE]
+      if (nrow(d) == 0) stop("no conservation scores")
+      ggplot(d, aes(x = conservation_mean, fill = origin)) +
+        geom_histogram(bins = 40, position = "identity", alpha = 0.55) +
+        theme_minimal() +
+        labs(title = "Conservation score by origin", x = "mean conservation score",
+             y = "genes", fill = "origin")
+    }, width = 8, height = 5)
+  }
 
   # F5.4: lncRNAs vs reference protein-coding genes (gene span). Only lncRNAs
   # carry a class; reference_other rows are NA and are dropped here.
@@ -246,6 +304,50 @@ land("fig_tier_by_class", "Tier 1 composition by gffcompare class set", {
          subtitle = "Composition of the Tier 1 catalog by gffcompare class set of its transcripts",
          x = "class set", y = "n", fill = "unit")
 }, width = 12, height = 6)
+
+# Coding-potential classifier (CPAT x CPC2) over the candidate transcripts. The
+# thresholds default to the pipeline's cpat/cpc2 cutoffs; dashed lines mark them.
+if (!is.null(coding_consensus_path) && file.exists(coding_consensus_path)) {
+  land("fig_catalog_classifier", "CPAT vs CPC2 coding probability", {
+    cc <- read_tsv(coding_consensus_path, show_col_types = FALSE)
+    if (!all(c("mRNA", "coding_probability") %in% colnames(cc)))
+      stop("coding_consensus missing mRNA/coding_probability")
+    cc$mRNA <- suppressWarnings(as.numeric(cc$mRNA))
+    cc$coding_probability <- suppressWarnings(as.numeric(cc$coding_probability))
+    cc <- cc[is.finite(cc$mRNA) & is.finite(cc$coding_probability), , drop = FALSE]
+    if (nrow(cc) == 0) stop("no numeric coding probabilities")
+    if (!"consensus_noncoding" %in% colnames(cc)) cc$consensus_noncoding <- NA
+    cc$call <- ifelse(is.na(cc$consensus_noncoding), "unknown",
+                      ifelse(as.character(cc$consensus_noncoding) %in% c("TRUE", "true", "1"),
+                             "noncoding", "coding"))
+    ggplot(cc, aes(x = mRNA, y = coding_probability, color = call)) +
+      geom_point(alpha = 0.6, size = 1.4) +
+      geom_vline(xintercept = cpat_threshold, linetype = "dashed", alpha = 0.5) +
+      geom_hline(yintercept = cpc2_threshold, linetype = "dashed", alpha = 0.5) +
+      theme_minimal() +
+      labs(title = "CPAT vs CPC2 coding potential",
+           subtitle = sprintf("dashed: CPAT mRNA >= %.3f, CPC2 coding >= %.2f",
+                              cpat_threshold, cpc2_threshold),
+           x = "CPAT coding probability (mRNA)", y = "CPC2 coding probability",
+           color = "consensus")
+  }, width = 7, height = 6)
+}
+
+# Discovery funnel: candidate transcripts by filter outcome (frozen = kept).
+if (!is.null(candidates_path) && file.exists(candidates_path)) {
+  land("fig_catalog_funnel", "discovery funnel of candidate transcripts", {
+    ca <- read_tsv(candidates_path, show_col_types = FALSE)
+    if (!"filter_reason" %in% colnames(ca)) stop("candidates missing filter_reason")
+    reason <- ifelse(is.na(ca$filter_reason) | ca$filter_reason == "", "frozen", ca$filter_reason)
+    d <- as.data.frame(table(reason = reason))
+    d <- d[order(d$Freq, decreasing = TRUE), , drop = FALSE]
+    d$reason <- factor(d$reason, levels = d$reason)
+    ggplot(d, aes(x = reason, y = Freq)) +
+      geom_col(fill = "#6a1b9a") + coord_flip() + theme_minimal() +
+      labs(title = "Discovery funnel: candidate transcripts by outcome",
+           x = NULL, y = "transcripts")
+  }, width = 8, height = 6)
+}
 
 out <- if (length(manifest) > 0) do.call(rbind, manifest) else
   data.frame(figure = character(), path = character(), description = character(), status = character())

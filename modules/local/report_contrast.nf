@@ -70,12 +70,23 @@ process REPORT_CONTRAST {
     for (ct in contrasts) {
         fname <- paste0(gsub("[^A-Za-z0-9_.-]", "_", ct), "_report.html")
         if (file.exists(fname)) next
+        # numerator/denominator for the current contrast (for the heatmap panels).
+        ct_row <- tryCatch({
+            read_tsv("${contrasts_tsv}", show_col_types = FALSE,
+                     col_names = c("contrast_name", "numerator", "denominator", "batch")) %>%
+                filter(contrast_name == ct)
+        }, error = function(e) NULL)
+        ct_num <- if (!is.null(ct_row) && nrow(ct_row) > 0) ct_row$numerator[1] else ""
+        ct_den <- if (!is.null(ct_row) && nrow(ct_row) > 0) ct_row$denominator[1] else ""
         cmd <- paste(
             "quarto render ${template}",
             "-M", shQuote(paste0("title=lncRNA report - ", ct)),
             "-M", shQuote(paste0("subtitle=norm_group: ${group}")),
             "-P", shQuote(paste0("contrast=", ct)),
             "-P", shQuote(paste0("group=${group}")),
+            "-P", shQuote(paste0("numerator=", ct_num)),
+            "-P", shQuote(paste0("denominator=", ct_den)),
+            "-P", shQuote(paste0("coldata=${coldata}")),
             "-P", shQuote(paste0("de_summary=${de_summary}")),
             "-P", shQuote(paste0("cis_pairs=${cis_pairs}")),
             "-P", shQuote(paste0("cis_pairs_sig=${cis_pairs_sig}")),

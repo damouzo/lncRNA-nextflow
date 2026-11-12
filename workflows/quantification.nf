@@ -20,6 +20,7 @@ include { MAKE_XLSX }            from '../modules/local/make_xlsx'
 include { BUILD_CONTRAST_TABLES } from '../modules/local/build_contrast_tables'
 include { SPLIT_ENRICHMENT }     from '../modules/local/split_enrichment'
 include { BUILD_CONTRASTS_OVERVIEW } from '../modules/local/build_contrasts_overview'
+include { CONTRAST_SUMMARY_PLOTS } from '../modules/local/contrast_summary_plots'
 include { CHECK_DELIVERABLES }   from '../modules/local/check_deliverables'
 include { QC_CONTROLS }          from '../modules/local/qc_controls'
 
@@ -223,10 +224,16 @@ workflow QUANTIFICATION {
     // ch_de_ct is N items/group and the universe is 1/group, so this must be a
     // per-key product (combine), not a join (which would keep only the first).
     // The universe comes from TXIMPORT's pre-filter universe so nothing is lost.
+    // Attach the group-level matrices (universe, TPM, aligned coldata) to each
+    // (group, contrast) DE table with combine(by: 0). The numerator/denominator are
+    // derived from the contrast id inside the module, so no per-contrast file is
+    // needed and no contrast can be dropped by a join.
     ch_bt_in = ch_de_ct
         .combine(TXIMPORT_AND_FILTER.out.universe_tsv.map { g, u -> tuple(g, u) }, by: 0)
-        .map { g, ct, de_tsv, universe_tsv ->
-            tuple(g, ct, de_tsv, universe_tsv)
+        .combine(TXIMPORT_AND_FILTER.out.tpm_tsv.map { g, t -> tuple(g, t) }, by: 0)
+        .combine(TXIMPORT_AND_FILTER.out.aligned_coldata.map { g, c -> tuple(g, c) }, by: 0)
+        .map { g, ct, de_tsv, universe_tsv, tpm_tsv, coldata_csv ->
+            tuple(g, ct, de_tsv, universe_tsv, tpm_tsv, coldata_csv)
         }
     BUILD_CONTRAST_TABLES(ch_bt_in, catalog_genes.first(),
                           channel.value(file("${projectDir}/bin/build_contrast_tables.py")))
@@ -253,8 +260,17 @@ workflow QUANTIFICATION {
     ch_overview_significant = BUILD_CONTRAST_TABLES.out.overview_input
         .collectFile { id, _summary, sig -> ["${id}__significant.tsv", sig.text] }
         .collect()
+    ch_overview_lncrna = BUILD_CONTRAST_TABLES.out.lncrna_full
+        .collectFile { id, full -> ["${id}__lncrna_full.tsv", full.text] }
+        .collect()
     BUILD_CONTRASTS_OVERVIEW(ch_overview_summaries, ch_overview_significant,
-                             catalog_genes.first())
+                             ch_overview_lncrna, catalog_genes.first())
+
+    // Cross-contrast summary figures (significant counts up/down + UpSet). Non-blocking.
+    CONTRAST_SUMMARY_PLOTS(
+        BUILD_CONTRASTS_OVERVIEW.out.overview,
+        channel.value(file("${projectDir}/bin/contrast_summary_plots.R"))
+    )
 
     // Positive-control report, launched last: it depends on the overview so it
     // runs after every deliverables file (counts, DE tables, reports, overview)
@@ -294,6 +310,7 @@ workflow QUANTIFICATION {
         .mix(DESIGN_CHECK.out.versions)
         .mix(SPLIT_ENRICHMENT.out.versions)
         .mix(BUILD_CONTRASTS_OVERVIEW.out.versions)
+        .mix(CONTRAST_SUMMARY_PLOTS.out.versions)
         .mix(CHECK_DELIVERABLES.out.versions)
         .mix(QC_CONTROLS.out.versions)
 

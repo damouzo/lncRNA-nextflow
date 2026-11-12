@@ -1,7 +1,7 @@
 {
   "contract": "lncrna-deliverables",
-  "version": "1.6",
-  "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group.",
+  "version": "1.7",
+  "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group. 'significant' is always `significant_padj` (padj < FDR); the |log2FC| >= LFC cutoff lives only in `significant_padj_lfc1` and is named explicitly where used.",
   "files": [
     {
       "path": "README.md",
@@ -17,8 +17,8 @@
         {"name": "origin", "type": "string"},
         {"name": "class_code", "type": "string"},
         {"name": "tier", "type": "string"},
-        {"name": "tier_static", "type": "bool"},
-        {"name": "tier_final", "type": "bool"},
+        {"name": "tier_static", "type": "string"},
+        {"name": "tier_final", "type": "string"},
         {"name": "n_tier1_transcripts", "type": "int"},
         {"name": "single_exon_low_confidence", "type": "bool"},
         {"name": "antisense_status", "type": "string"},
@@ -46,8 +46,8 @@
         {"name": "gene_id", "type": "string"},
         {"name": "class_code", "type": "string"},
         {"name": "tier", "type": "string"},
-        {"name": "tier_static", "type": "bool"},
-        {"name": "tier_final", "type": "bool"},
+        {"name": "tier_static", "type": "string"},
+        {"name": "tier_final", "type": "string"},
         {"name": "origin", "type": "string"},
         {"name": "gene_group", "type": "string"},
         {"name": "lnc_position_class", "type": "string"},
@@ -84,8 +84,31 @@
         {"name": "gene_id", "type": "string"},
         {"name": "origin", "type": "string"},
         {"name": "class_code", "type": "string"},
-        {"name": "tier_final", "type": "bool"},
+        {"name": "tier_final", "type": "string"},
         {"name": "lnc_position_class", "type": "string"}
+      ]
+    },
+    {
+      "path": "catalog/lncrna_genes.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "description": "Master lncRNA-only table (annotated + novel), the lncRNA subset of catalog_genes.tsv. Same schema; use it instead of catalog_genes.tsv when only the lncRNAs are wanted (Excel, IP questions).",
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
+        {"name": "tier_final", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"},
+        {"name": "chromosome", "type": "string"},
+        {"name": "start", "type": "int"},
+        {"name": "end", "type": "int"},
+        {"name": "strand", "type": "string"},
+        {"name": "n_tx", "type": "int"},
+        {"name": "n_exons", "type": "int"},
+        {"name": "known_catalog_hit", "type": "bool"},
+        {"name": "novelty_class", "type": "string"}
       ]
     },
     {
@@ -163,11 +186,16 @@
         {"name": "tested", "type": "bool"},
         {"name": "not_tested_reason", "type": "string"},
         {"name": "padj_na_reason", "type": "string"},
+        {"name": "direction", "type": "string"},
+        {"name": "mean_tpm_num", "type": "float"},
+        {"name": "mean_tpm_den", "type": "float"},
+        {"name": "n_expressed_num", "type": "int"},
+        {"name": "n_expressed_den", "type": "int"},
         {"name": "origin", "type": "string"},
         {"name": "class_code", "type": "string"},
         {"name": "tier", "type": "string"},
-        {"name": "tier_static", "type": "bool"},
-        {"name": "tier_final", "type": "bool"},
+        {"name": "tier_static", "type": "string"},
+        {"name": "tier_final", "type": "string"},
         {"name": "single_exon_low_confidence", "type": "bool"},
         {"name": "gene_name", "type": "string"},
         {"name": "gene_biotype", "type": "string"},
@@ -265,6 +293,22 @@
       ]
     },
     {
+      "path": "contrasts/<id>/de_lncrna_significant_lfc1.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "description": "Convenience subset: significant lncRNAs that also pass |log2FoldChange| >= LFC (significant_padj_lfc1). Same columns as de_full.tsv. 'significant' alone (de_lncrna_significant.tsv) stays padj < FDR only.",
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_id_stable", "type": "string"},
+        {"name": "log2FoldChange", "type": "float"},
+        {"name": "padj", "type": "float"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "significant_padj_lfc1", "type": "bool"},
+        {"name": "known_catalog_hit", "type": "bool"},
+        {"name": "novelty_class", "type": "string"}
+      ]
+    },
+    {
       "path": "contrasts/<id>/summary.tsv",
       "kind": "table",
       "min_rows": 1,
@@ -291,6 +335,8 @@
         {"name": "n_universe", "type": "int"},
         {"name": "n_tested", "type": "int"},
         {"name": "n_significant", "type": "int"},
+        {"name": "n_sig_up", "type": "int"},
+        {"name": "n_sig_down", "type": "int"},
         {"name": "n_lncrna_full", "type": "int"},
         {"name": "n_lncrna_significant", "type": "int"},
         {"name": "n_novel_tier1_significant", "type": "int"},
@@ -298,22 +344,64 @@
       ]
     },
     {
+      "path": "contrasts/lncrna_across_contrasts.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "description": "One row per lncRNA (annotated + novel) with its annotation plus, per contrast, `<contrast>.log2FoldChange` and `<contrast>.padj` (dynamic columns, one block per contrast) and `n_contrasts_significant`. Answers 'is this lncRNA DE across all comparisons?'.",
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_id_stable", "type": "string"},
+        {"name": "gene_name", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "tier", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"},
+        {"name": "n_contrasts_significant", "type": "int"}
+      ]
+    },
+    {
       "path": "contrasts/<id>/enrichment_ora.tsv",
       "kind": "table",
       "min_rows": 0,
-      "columns": []
+      "columns": [
+        {"name": "ID", "type": "string"},
+        {"name": "Description", "type": "string"},
+        {"name": "pvalue", "type": "float"},
+        {"name": "p.adjust", "type": "float"},
+        {"name": "Count", "type": "int"},
+        {"name": "contrast", "type": "string"},
+        {"name": "collection", "type": "string"},
+        {"name": "input_set", "type": "string"}
+      ]
     },
     {
       "path": "contrasts/<id>/enrichment_gsea.tsv",
       "kind": "table",
       "min_rows": 0,
-      "columns": []
+      "columns": [
+        {"name": "ID", "type": "string"},
+        {"name": "Description", "type": "string"},
+        {"name": "setSize", "type": "int"},
+        {"name": "NES", "type": "float"},
+        {"name": "pvalue", "type": "float"},
+        {"name": "p.adjust", "type": "float"},
+        {"name": "contrast", "type": "string"},
+        {"name": "collection", "type": "string"},
+        {"name": "input_set", "type": "string"},
+        {"name": "core_enrichment", "type": "string"}
+      ]
     },
     {
       "path": "contrasts/<id>/plots/volcano.pdf",
       "kind": "file",
       "optional": true,
       "description": "Volcano panel (all lncRNAs: annotated + novel) as a standalone PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/volcano.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Same volcano panel as PNG (presentations)"
     },
     {
       "path": "contrasts/<id>/plots/volcano_annotated.pdf",
@@ -328,10 +416,46 @@
       "description": "Volcano panel, novel lncRNAs only (absent when none are tested)"
     },
     {
+      "path": "contrasts/<id>/plots/ma.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "MA panel as a standalone PDF (absent when the contrast has no DE data)"
+    },
+    {
       "path": "contrasts/<id>/plots/ma.png",
       "kind": "file",
       "optional": true,
-      "description": "MA panel as a standalone PNG (absent when the contrast has no DE data)"
+      "description": "MA panel as a standalone PNG"
+    },
+    {
+      "path": "contrasts/<id>/plots/heatmap_top.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Heatmap of the top DE genes (row z-score of VST/log2-TPM) with condition annotation"
+    },
+    {
+      "path": "contrasts/<id>/plots/heatmap_top_lncrna.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Heatmap of the top DE lncRNAs (row z-score) with condition annotation"
+    },
+    {
+      "path": "contrasts/<id>/plots/top_lncrna_expression.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Per-sample expression (points + boxplot) of the top DE lncRNAs — the panel used to pick qPCR targets"
+    },
+    {
+      "path": "contrasts/<id>/plots/enrichment_ora.png",
+      "kind": "file",
+      "optional": true,
+      "description": "ORA dotplot (top terms)"
+    },
+    {
+      "path": "contrasts/<id>/plots/enrichment_gsea.png",
+      "kind": "file",
+      "optional": true,
+      "description": "GSEA ridgeplot (top terms)"
     },
     {
       "path": "contrasts/<id>/plots/sig_genes_by_chromosome.pdf",
@@ -352,9 +476,42 @@
       "description": "Pie of novel significant lncRNAs by external-catalog membership (noncode/rnacentral; absent without significant novel lncRNAs)"
     },
     {
+      "path": "contrasts/plots/sig_counts_by_contrast.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant genes/lncRNAs per contrast (up vs down) as PNG"
+    },
+    {
+      "path": "contrasts/plots/sig_counts_by_contrast.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant genes/lncRNAs per contrast (up vs down) as PDF"
+    },
+    {
+      "path": "contrasts/plots/upset_lncrna.png",
+      "kind": "file",
+      "optional": true,
+      "description": "UpSet plot of lncRNAs significant across contrasts (skipped if UpSetR is unavailable)"
+    },
+    {
       "path": "groups/<group>/counts.tsv",
       "kind": "table",
       "min_rows": 1,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "catalog_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"}
+      ]
+    },
+    {
+      "path": "groups/<group>/normalized_counts.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "description": "DESeq2 median-of-ratios normalized counts (same layout as counts.tsv: annotation + one column per sample). Use for magnitude/size-factor-aware comparisons (counts.tsv are tximport ESTIMATED counts, not integers).",
       "columns": [
         {"name": "gene_id", "type": "string"},
         {"name": "gene_group", "type": "string"},
@@ -380,17 +537,84 @@
       ]
     },
     {
+      "path": "groups/<group>/vst.tsv",
+      "kind": "table",
+      "min_rows": 1,
+      "description": "Variance-stabilizing-transformed expression (same layout as counts.tsv). This is the matrix used for PCA, sample correlation and heatmaps.",
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "catalog_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "tier", "type": "string"},
+        {"name": "lnc_position_class", "type": "string"}
+      ]
+    },
+    {
       "path": "groups/<group>/sample_metadata.tsv",
       "kind": "table",
       "min_rows": 1,
       "columns": [
         {"name": "sample", "type": "string"},
-        {"name": "norm_group", "type": "string"}
+        {"name": "norm_group", "type": "string"},
+        {"name": "condition", "type": "string"},
+        {"name": "batch", "type": "string"},
+        {"name": "size_factor", "type": "float"},
+        {"name": "total_reads", "type": "float"},
+        {"name": "n_genes_detected", "type": "int"},
+        {"name": "n_lncrna_detected", "type": "int"}
       ]
     },
     {
-      "path": "groups/<group>/sample_qc_pca.png",
-      "kind": "file"
+      "path": "groups/<group>/lncrna_type_composition.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "description": "lncRNA composition per sample and type (lincRNA/antisense/intronic/overlapping from lnc_position_class + origin). Covers the '% lincRNA patients vs healthy' question. eRNA and circRNA are not produced by this pipeline.",
+      "columns": [
+        {"name": "sample", "type": "string"},
+        {"name": "condition", "type": "string"},
+        {"name": "lncRNA_type", "type": "string"},
+        {"name": "n_detected", "type": "int"},
+        {"name": "fraction_detected", "type": "float"},
+        {"name": "tpm_sum", "type": "float"},
+        {"name": "fraction_tpm", "type": "float"}
+      ]
+    },
+    {
+      "path": "groups/<group>/plots/sample_qc_pca.png",
+      "kind": "file",
+      "description": "VST PCA of the norm_group samples"
+    },
+    {
+      "path": "groups/<group>/plots/sample_qc_pca.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "VST PCA as PDF (vector)"
+    },
+    {
+      "path": "groups/<group>/plots/sample_correlation.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Sample-to-sample correlation heatmap (VST)"
+    },
+    {
+      "path": "groups/<group>/plots/detected_features.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Genes and lncRNAs detected per sample"
+    },
+    {
+      "path": "groups/<group>/plots/tpm_distribution.png",
+      "kind": "file",
+      "optional": true,
+      "description": "TPM distribution per sample"
+    },
+    {
+      "path": "groups/<group>/plots/lncrna_type_composition.png",
+      "kind": "file",
+      "optional": true,
+      "description": "lncRNA type composition per sample (fraction of lncRNA TPM) by condition"
     },
     {
       "path": "groups/<group>/cis_pairs.tsv",
@@ -415,6 +639,36 @@
       "kind": "table",
       "min_rows": 0,
       "columns": []
+    },
+    {
+      "path": "catalog/plots/fig_catalog_length.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Catalog length distribution by origin (catalog characterization)"
+    },
+    {
+      "path": "catalog/plots/fig_catalog_exons.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Exon-count distribution by origin"
+    },
+    {
+      "path": "catalog/plots/fig_catalog_classifier.png",
+      "kind": "file",
+      "optional": true,
+      "description": "CPAT coding probability vs CPC2 coding_probability with the thresholds (candidate transcripts)"
+    },
+    {
+      "path": "catalog/plots/fig_catalog_conservation.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Conservation score distribution by origin (skipped when not configured)"
+    },
+    {
+      "path": "catalog/plots/fig_catalog_funnel.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Discovery funnel: candidate transcripts by filter_reason"
     },
     {
       "path": "catalog/validation/recovery_reference.tsv",

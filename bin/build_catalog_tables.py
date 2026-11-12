@@ -189,6 +189,11 @@ def build_catalog_genes(gene_catalog, tier_final, out_dir):
     # no gene is dropped from catalog_genes.tsv, this is just the novel subset.
     novel = [r for r in out if r.get("origin") == "novel"]
     write_tsv(os.path.join(out_dir, "novel_lncrnas.tsv"), cols, novel)
+    # 4b.7: lncRNA-only master (annotated + novel). The table to open when only the
+    # lncRNAs are wanted (Excel, IP questions); a filter of catalog_genes.tsv, so
+    # the schema is identical and nothing is recomputed.
+    lncrna = [r for r in out if r.get("gene_group") in ("novel_lncRNA", "annotated_lncRNA")]
+    write_tsv(os.path.join(out_dir, "lncrna_genes.tsv"), cols, lncrna)
     n_tier1_genes = sum(1 for r in out if _truthy(r["tier_final"]))
     return n, n_tier1_genes
 

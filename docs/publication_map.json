@@ -242,10 +242,9 @@
     {
       "module": "SPLIT_BY_NORMGROUP",
       "dest": [
-        "raw/per_group_coldata",
-        "deliverables/groups"
+        "raw/per_group_coldata"
       ],
-      "level": "core_raw+core"
+      "level": "core_raw"
     },
     {
       "module": "BUILD_DECOY_INDEX",
@@ -330,6 +329,13 @@
       "module": "BUILD_CONTRASTS_OVERVIEW",
       "dest": [
         "deliverables/contrasts"
+      ],
+      "level": "core"
+    },
+    {
+      "module": "CONTRAST_SUMMARY_PLOTS",
+      "dest": [
+        "deliverables/contrasts/plots"
       ],
       "level": "core"
     },
