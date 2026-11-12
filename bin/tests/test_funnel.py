@@ -114,6 +114,26 @@ check(cls.get(("excluded_class", "o")) == "1", "o is reported as excluded_class"
 check(not any(s == "frozen_by_class" and rsn in ("k", "o") for s, rsn in cls),
       "no reference-derived class is reported as frozen")
 
+# isoform_classes: j stays in the index but is NOT catalogued (reported separately).
+out3 = os.path.join(d, "out3")
+proc3 = subprocess.run([sys.executable, SCRIPT,
+                        "--gene-catalog", os.path.join(d, "gene_catalog.tsv"),
+                        "--universe", os.path.join(d, "MNC_universe.tsv"),
+                        "--coding-consensus", os.path.join(d, "coding_consensus.tsv"),
+                        "--recurrence", os.path.join(d, "recurrence_cls.tsv"),
+                        "--novel-classes", "u,x,i,j",
+                        "--isoform-classes", "j",
+                        "--outdir", out3], capture_output=True, text=True)
+check(proc3.returncode == 0, "build_funnel.py with --isoform-classes exits 0")
+with open(os.path.join(out3, "funnel.tsv")) as fh:
+    h3 = fh.readline().rstrip("\n").split("\t")
+    rows3 = [dict(zip(h3, ln.rstrip("\n").split("\t"))) for ln in fh]
+cls3 = {(r["step"], r["reason"]): r["n"] for r in rows3
+        if r["step"] in ("frozen_by_class", "isoform_class")}
+check(cls3.get(("isoform_class", "j")) == "1", "j is reported as isoform_class")
+check(("frozen_by_class", "j") not in cls3, "j is not reported as frozen_by_class")
+check(cls3.get(("frozen_by_class", "u")) == "1", "u stays frozen_by_class")
+
 print()
 if fails:
     print("FAILED: %d" % fails)

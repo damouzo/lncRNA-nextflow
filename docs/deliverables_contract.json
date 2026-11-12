@@ -89,6 +89,25 @@
       ]
     },
     {
+      "path": "catalog/novel_isoforms.tsv",
+      "kind": "table",
+      "min_rows": 0,
+      "description": "Reference-derived novel isoforms (isoform_classes). Their reads are remapped to the reference parent gene and they are not catalog entities; published here for completeness.",
+      "columns": [
+        {"name": "transcript_id", "type": "string"},
+        {"name": "gene_id", "type": "string"},
+        {"name": "class_code", "type": "string"},
+        {"name": "host_gene_id", "type": "string"},
+        {"name": "host_gene_name", "type": "string"},
+        {"name": "host_biotype", "type": "string"},
+        {"name": "mstrg_gene_id", "type": "string"},
+        {"name": "chrom", "type": "string"},
+        {"name": "start", "type": "int"},
+        {"name": "end", "type": "int"},
+        {"name": "strand", "type": "string"}
+      ]
+    },
+    {
       "path": "catalog/tier_final_by_class.tsv",
       "kind": "table",
       "min_rows": 1,

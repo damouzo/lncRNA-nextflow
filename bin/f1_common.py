@@ -119,6 +119,26 @@ def host_gene_of(rec, tx2gene=None):
     return None
 
 
+def intronic_relation(class_code, tx_strand, host_gene_id, gene_loc):
+    """Sense/antisense split for a class-i transcript.
+
+    class i means "fully contained in a reference intron", and gffcompare does
+    NOT require the host to share the query strand: its own source
+    (gffcompare.cpp reclass_XStrand) assigns `i` for the opposite strand too. The
+    risk is therefore split by host strand:
+      i_sense      host on the same strand      -> host pre-mRNA risk
+      i_antisense  host on the opposite strand   -> strand resolves it; treat like x
+    Returns None for any other class. An unknown host strand is labelled the
+    conservative `i_sense` (never silently upgraded to the confident class).
+    """
+    if class_code != "i":
+        return None
+    loc = gene_loc.get(host_gene_id) if host_gene_id else None
+    if not loc or loc[3] not in ("+", "-"):
+        return "i_sense"
+    return "i_sense" if loc[3] == tx_strand else "i_antisense"
+
+
 def load_gtf(path, wanted):
     """Stream a GTF and return {feature_type: [record, ...]}.
 

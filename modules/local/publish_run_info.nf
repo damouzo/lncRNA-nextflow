@@ -109,6 +109,7 @@ process PUBLISH_RUN_INFO {
         --coding-consensus "${coding_consensus}" \\
         --recurrence "${recurrence}" \\
         --novel-classes '${params.novel_classes.join(",")}' \\
+        --isoform-classes '${params.isoform_classes.join(",")}' \\
         --outdir .
 
     build_deliverables_readme.py \\

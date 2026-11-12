@@ -43,7 +43,7 @@ workflow {
     // ── B1: Build decoy-aware Salmon index (shared across all groups) ─────
     ch_transcripts_fa = channel.value(params.gencode_transcripts_fa ?: "")
     BUILD_DECOY_INDEX(
-        DISCOVERY.out.frozen_gtf,
+        DISCOVERY.out.quant_universe,
         params.genome,
         ch_transcripts_fa
     )

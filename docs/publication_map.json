@@ -136,6 +136,14 @@
       "level": "core_raw"
     },
     {
+      "module": "BUILD_TX2GENE",
+      "dest": [
+        "raw/tx2gene",
+        "deliverables/catalog"
+      ],
+      "level": "core_raw+core"
+    },
+    {
       "module": "BUILD_GENE_CATALOG",
       "dest": [
         "raw/gene_catalog"

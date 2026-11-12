@@ -75,6 +75,39 @@ cat("Matched", length(shared), "samples\n")
 
 txi <- tximport(quant_files, type = "salmon", tx2gene = tx2gene, ignoreTxVersion = FALSE)
 
+# ---- D4 invariants: the quantified transcripts must match tx2gene exactly ----
+# tximport only `stop()`s when NOTHING matches; a partial mismatch (e.g. versioned
+# quant names vs stripped tx2gene ids, which the `--gencode` index flag does not
+# strip) is a message and a silent drop — the reference genes then vanish and the
+# DE universe is quietly wrong. Assert both directions here, before any filtering.
+if (!identical(txi$countsFromAbundance, "no")) {
+  stop(sprintf("expected countsFromAbundance='no', got '%s'", txi$countsFromAbundance))
+}
+quant_tx <- character(0)
+num_reads_total <- 0
+for (f in quant_files) {
+  q <- read_tsv(f, show_col_types = FALSE,
+                col_types = cols(Name = col_character(), .default = col_double()))
+  quant_tx <- c(quant_tx, q$Name)
+  num_reads_total <- num_reads_total + sum(q$NumReads, na.rm = TRUE)
+}
+quant_tx <- unique(quant_tx)
+unmatched <- setdiff(quant_tx, tx2gene$TXNAME)
+if (length(unmatched) > 0) {
+  stop(sprintf("%d of %d quantified transcripts are absent from tx2gene (e.g. %s). The index FASTA ids and tx2gene ids diverged (version suffixes?); check that BUILD_TX2GENE built tx2gene from the same universe as the index.",
+               length(unmatched), length(quant_tx), paste(head(unmatched, 5), collapse = ", ")))
+}
+if (length(tx2gene$TXNAME) != length(unique(tx2gene$TXNAME))) {
+  stop("tx2gene has duplicate transcript ids; tximport keeps only the first match, silently misassigning reads")
+}
+# Every gene count must equal the sum of its transcripts' NumReads (~sum over the
+# matched universe). Float counts need a tolerance, not an equality test.
+read_sum <- sum(txi$counts)
+if (abs(read_sum - num_reads_total) > 1e-3 * max(1, num_reads_total)) {
+  stop(sprintf("sum(gene counts)=%.3f != sum(NumReads)=%.3f: tx2gene aggregation lost or duplicated reads",
+               read_sum, num_reads_total))
+}
+
 # Condition-blind filter: >= min_count counts in >= max(3, floor(n/4)) samples
 min_n <- max(3, floor(ncol(txi$counts) / 4))
 all_counts <- txi$counts

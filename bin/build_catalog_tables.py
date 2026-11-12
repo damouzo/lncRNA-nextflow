@@ -322,7 +322,9 @@ def count_gtf_transcripts(path):
 
 
 def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir,
-                         length_filtered_gtf=None, gene_ann=None, novel_classes=None):
+                         length_filtered_gtf=None, gene_ann=None, novel_classes=None,
+                         isoform_classes=None):
+    isoform_classes = isoform_classes or set()
     tx_class, tx_len, tx_gene = parse_gtf_classes_lengths(gffcmp_gtf)
     gene_ann = gene_ann or {}
     rec = index_unique(recurrence, "ID") if recurrence else {}
@@ -355,6 +357,10 @@ def build_candidates_all(gffcmp_gtf, recurrence, frozen_gtf, min_length, out_dir
             status, reason = "filtered", "coding"
         elif not _truthy(rec[tid].get("passes_recurrence")):
             status, reason = "filtered", "low_recurrence"
+        elif code in isoform_classes:
+            # Reference-derived novel isoform: kept in the Salmon index (reads are
+            # remapped to the reference parent), but not a catalog entity.
+            status, reason = "filtered", "isoform"
         elif novel_classes is not None and code not in novel_classes:
             # Passed coding + recurrence but ANNOTATION_FREEZE only takes novel_classes
             # (reference-derived c/k/m/n, ambiguous o), so it is not frozen.
@@ -408,6 +414,8 @@ def main():
     ap.add_argument("--novel-classes", default=None,
                     help="comma-separated gffcompare classes ANNOTATION_FREEZE keeps; "
                          "others that pass every filter are tagged not_novel_class")
+    ap.add_argument("--isoform-classes", default=None,
+                    help="comma-separated novel-isoform classes kept in the index but not catalogued")
     ap.add_argument("--outdir", required=True)
     args = ap.parse_args()
 
@@ -424,10 +432,13 @@ def main():
     if args.gffcmp_gtf and args.recurrence:
         novel_classes = (set(x for x in args.novel_classes.split(",") if x)
                          if args.novel_classes else None)
+        isoform_classes = (set(x for x in args.isoform_classes.split(",") if x)
+                           if args.isoform_classes else set())
         n_cand, rows = build_candidates_all(args.gffcmp_gtf, args.recurrence,
                                             args.frozen_gtf, args.min_length, args.outdir,
                                             args.length_filtered_gtf, gene_ann,
-                                            novel_classes=novel_classes)
+                                            novel_classes=novel_classes,
+                                            isoform_classes=isoform_classes)
         by_status = {}
         by_reason = {}
         for r in rows:

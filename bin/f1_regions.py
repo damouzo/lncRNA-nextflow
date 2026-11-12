@@ -240,11 +240,22 @@ def build(ref, frozen, recurrence, outdir, args):
                     flank_saf.append(("%s|%s" % (eid, name), chrom, p[0], p[1], strand))
             n_neg += 1
 
-    # ---- Candidate antisense: class "x" overlap with coding host exons ----
+    # ---- Candidate antisense: class "x", plus class "i" on an antisense host ----
+    # class i sits fully inside a reference intron; when the host is on the OPPOSITE
+    # strand (i_antisense) the stranded protocol resolves it away from the host, so
+    # it is treated as an antisense candidate and gets the same exon-overlap leakage
+    # control as x. Note the control fires only where the candidate exons overlap the
+    # opposite-strand host EXONS (nested/overlapping genes); a purely intronic i has
+    # no such overlap and stays antisense_status=not_evaluable. i_sense (host on the
+    # same strand) is deliberately excluded: it carries host pre-mRNA risk, which the
+    # exon-overlap control cannot capture either.
     for t in frozen["transcript"]:
-        if t.get("class_code") != "x":
+        cc = t.get("class_code")
+        if cc not in ("x", "i"):
             continue
         host = C.host_gene_of(t, tx2gene_norm)
+        if cc == "i" and C.intronic_relation(cc, t["strand"], host, gene_loc) != "i_antisense":
+            continue
         host_iv = [(s, e) for _, s, e, _ in ref["gene_exons_coding"].get(host, [])]
         reg = antisense_region(frozen_exons.get(t["transcript_id"], []), host_iv)
         if not reg:

@@ -207,6 +207,21 @@ def test_metrics():
     check(arow[8] == 2, "antisense n = 2")
 
 
+def test_intronic_relation():
+    print("intronic relation (class i sense/antisense split)")
+    gene_loc = {"G1": ("1", 1000, 1500, "+"), "G2": ("1", 1000, 1500, "-")}
+    check(C.intronic_relation("i", "+", "G1", gene_loc) == "i_sense",
+          "same-strand host -> i_sense")
+    check(C.intronic_relation("i", "+", "G2", gene_loc) == "i_antisense",
+          "opposite-strand host -> i_antisense")
+    check(C.intronic_relation("i", "+", "GX", gene_loc) == "i_sense",
+          "unknown host -> conservative i_sense")
+    check(C.intronic_relation("i", "+", None, gene_loc) == "i_sense",
+          "no host -> conservative i_sense")
+    check(C.intronic_relation("x", "+", "G2", gene_loc) is None,
+          "non-i class -> None")
+
+
 def test_regions_host_fallback():
     print("regions host resolution (cmp_ref -> tx2gene) + host strand")
     d = tempfile.mkdtemp()
@@ -461,6 +476,7 @@ def test_cardinality_guard():
 
 def main():
     for fn in (test_intervals, test_stats, test_attrs, test_regions_pure,
+               test_intronic_relation,
                test_regions_integration, test_regions_host_fallback, test_metrics,
                test_merge_and_assignment,
                test_featurecounts_semicolon_fixture, test_merge_multi_sample_duplicate,

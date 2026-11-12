@@ -1,10 +1,19 @@
-// Annotation freezing — frozen novel GTF + full-universe tx2gene + checksum manifest
+// Annotation freezing — frozen novel catalog GTF + quantification universe + manifest
 // Strict barrier: Phase B only receives frozen artifacts.
-// tx2gene_detailed.tsv now spans the entire quantification universe
-// (all reference transcripts + novel lncRNAs) so DESeq2 normalizes and
-// corrects over the full transcriptome, matching the Salmon index.
-// The novel set is restricted to novel_classes so reference-derived classes
-// (c/k/m/n, ...) never enter the index as a competing second copy.
+//
+// Two GTFs come out of here, and they differ in exactly one way:
+//   frozen_lncrna.gtf    the CATALOG entity set: novel_classes minus isoform_classes.
+//                        Read by every catalog consumer (registry, gene catalog,
+//                        F1/tier, publish). A reference-derived novel isoform (`j`)
+//                        is not an independent locus, so it is absent here.
+//   quant_universe.gtf   the QUANTIFICATION set: the catalog set plus the isoforms.
+//                        Read only by BUILD_DECOY_INDEX, so transcript-level EM still
+//                        distributes reads between the reference isoforms and the
+//                        novel isoform. BUILD_TX2GENE remaps those isoform transcripts
+//                        to their reference parent gene, so the parent total is not
+//                        diluted and no isoform is ever counted as its own "lncRNA".
+//
+// tx2gene is NOT built here: BUILD_TX2GENE is its single producer.
 
 process ANNOTATION_FREEZE {
 
@@ -12,11 +21,11 @@ process ANNOTATION_FREEZE {
     path recurrence_table
     path source_gtf            // length-filtered GTF with all candidate transcripts
     path genome_fa
-    path reference_gtf         // reference annotation (full tx2gene universe)
+    path reference_gtf         // reference annotation (kept for the manifest provenance)
 
     output:
-    path "frozen_lncrna.gtf", emit: frozen_gtf
-    path "tx2gene_detailed.tsv", emit: tx2gene_detailed
+    path "frozen_lncrna.gtf",  emit: frozen_gtf         // catalog set (no isoforms)
+    path "quant_universe.gtf", emit: quant_universe     // catalog + isoforms (index set)
     path "frozen_manifest.json", emit: manifest
     path "frozen_checksums.sha256", emit: checksums
 
@@ -33,9 +42,11 @@ process ANNOTATION_FREEZE {
     # classes (c/k/m/n, and =, e, p, ...) are variants of an annotated transcript:
     # freezing them would put a second, near-identical sequence in the Salmon
     # index that competes with the reference gene for the same reads and dilutes
-    # its counts. `o` is left out as ambiguous. Those transcripts stay with the
-    # reference annotation, so the reference keeps its own reads.
+    # its counts. `o` is left out as ambiguous.
     NOVEL_CLASSES <- c(${params.novel_classes.collect { cc -> "\"${cc}\"" } .join(", ")})
+    # isoform_classes are kept in the index but NOT catalogued; their reads are
+    # remapped to the reference parent gene downstream (BUILD_TX2GENE).
+    ISO_CLASSES   <- c(${params.isoform_classes.collect { cc -> "\"${cc}\"" } .join(", ")})
     if (!("class_code" %in% colnames(rec))) {
         stop("recurrence table lacks class_code — cannot restrict the freeze to novel classes")
     }
@@ -49,9 +60,9 @@ process ANNOTATION_FREEZE {
         stop("No non-coding transcripts passed all filters. Check your inputs.")
     }
 
-    # Keep these two helpers in sync with BUILD_GENE_CATALOG: both must strip
-    # Ensembl versions but leave MSTRG IDs verbatim, or downstream gene_id
-    # joins (tx2gene / catalog / DE / report) break silently.
+    # Keep these two helpers in sync with BUILD_GENE_CATALOG and BUILD_TX2GENE:
+    # both must strip Ensembl versions but leave MSTRG IDs verbatim, or downstream
+    # gene_id joins (tx2gene / catalog / DE / report) break silently.
     extract_attr <- function(attrs, key) {
         pat <- paste0('(?:^|; )', key, ' "([^"]+)"')
         m <- regexpr(pat, attrs, perl = TRUE)
@@ -64,7 +75,7 @@ process ANNOTATION_FREEZE {
 
     # Frozen transcript ID set (noncoding consensus that pass recurrence)
     nc_ids_requested <- unique(nc\$ID)
-    cat("Frozen lncRNAs:", length(nc_ids_requested), "\\n")
+    cat("Eligible novel transcripts:", length(nc_ids_requested), "\\n")
 
     # Extract from the source GTF by EXACT transcript_id attribute. Bare-id
     # `grep -F -f` matches any attribute containing an id as a substring: an
@@ -76,10 +87,10 @@ process ANNOTATION_FREEZE {
     pat <- paste0('transcript_id "', nc_ids_requested, '"')
     writeLines(pat, "frozen_ids.txt")
     system(paste("grep -F -f frozen_ids.txt", shQuote("${source_gtf}"),
-                 "> frozen_lncrna.gtf"))
+                 "> quant_universe.gtf"))
 
     # Fail loudly instead of silently substituting the full candidate set
-    if (file.info("frozen_lncrna.gtf")\$size < 100) {
+    if (file.info("quant_universe.gtf")\$size < 100) {
         stop("No frozen transcripts matched in source GTF. Check transcript ID consistency between CPAT/CPC2 and the assembly.")
     }
 
@@ -88,7 +99,7 @@ process ANNOTATION_FREEZE {
     # transcript_id; the transcript then has no structural fingerprint and would
     # leak catalog_id = NA into DE/report tables. Exclude them here (counted)
     # so frozen, tx2gene and the catalog stay aligned.
-    fz_lines <- readLines("frozen_lncrna.gtf")
+    fz_lines <- readLines("quant_universe.gtf")
     fz_parts <- strsplit(fz_lines, "\\t", fixed = TRUE)
     fz_ok    <- lengths(fz_parts) >= 9L
     fz_feat  <- vapply(fz_parts[fz_ok], function(p) p[[3L]], character(1))
@@ -109,7 +120,7 @@ process ANNOTATION_FREEZE {
     }
     drop <- !is.na(fz_txid) & fz_txid %in% no_exons
     fz_lines <- fz_lines[fz_ok][!drop]
-    writeLines(fz_lines, "frozen_lncrna.gtf")
+    writeLines(fz_lines, "quant_universe.gtf")
     nc_ids <- setdiff(nc_ids_requested, no_exons)
     if (length(nc_ids) == 0) {
         stop("All frozen transcripts lacked exon structure under their own id — check source GTF consistency")
@@ -120,34 +131,16 @@ process ANNOTATION_FREEZE {
         stop("Frozen GTF does not match the eligible transcript set exactly — extraction regression")
     }
 
-    # ---- Reference tx2gene: one transcript per line, same universe as the index ----
-    system(paste("grep -P '\\ttranscript\\t'", shQuote("${reference_gtf}"),
-                 "> ref_transcript_lines.txt"))
-    ref_lines <- readLines("ref_transcript_lines.txt")
-    ref_parts <- strsplit(ref_lines, "\\t", fixed = TRUE)
-    ref_ok    <- lengths(ref_parts) >= 9L
-    ref_attrs <- vapply(ref_parts[ref_ok], function(p) p[[9L]], character(1))
-    ref_txg <- unique(data.frame(
-        transcript_id = strip_version(extract_attr(ref_attrs, "transcript_id")),
-        gene_id       = strip_version(extract_attr(ref_attrs, "gene_id")),
-        stringsAsFactors = FALSE
-    ))
-    ref_txg <- ref_txg[!is.na(ref_txg\$transcript_id) & !is.na(ref_txg\$gene_id), ]
-    ref_txg\$category <- "reference"
-
-    # ---- Novel tx2gene from the frozen GTF ----
-    # MSTRG IDs are not versioned like Ensembl — keep them verbatim
-    gtf_lines <- readLines("frozen_lncrna.gtf")
-    gtf_parts <- strsplit(gtf_lines, "\\t", fixed = TRUE)
-    gtf_ok    <- lengths(gtf_parts) >= 9L
-
+    # ---- Disambiguate IDs reused from the reference ----
     # `stringtie --merge -G` reuses the reference transcript_id for transcripts
     # that only partially match it (class_code != "=", e.g. containment "c"/"k"),
-    # which then collides with the same ID in ref_txg above. tximport keeps only
+    # which then collides with the same ID in the reference. tximport keeps only
     # the first tx2gene match per transcript, so every read for that transcript
     # silently gets attributed to the reference gene and the novel gene ends up
     # with zero counts everywhere. Disambiguate those IDs before they're used
     # for quantification or tx2gene; exact matches ("=") keep the real accession.
+    gtf_lines <- readLines("quant_universe.gtf")
+    gtf_ok    <- lengths(strsplit(gtf_lines, "\\t", fixed = TRUE)) >= 9L
     ok_lines  <- gtf_lines[gtf_ok]
     ok_parts  <- strsplit(ok_lines, "\\t", fixed = TRUE)
     feature   <- vapply(ok_parts, function(p) p[[3L]], character(1))
@@ -157,7 +150,15 @@ process ANNOTATION_FREEZE {
     tx_ids     <- extract_attr(attrs_all[tx_mask], "transcript_id")
     tx_genes   <- extract_attr(attrs_all[tx_mask], "gene_id")
     tx_class   <- extract_attr(attrs_all[tx_mask], "class_code")
-    ref_id_set <- unique(ref_txg\$transcript_id)
+
+    # Reference transcript id set (version-stripped), for the collision check.
+    system(paste("grep -P '\\ttranscript\\t'", shQuote("${reference_gtf}"),
+                 "> ref_transcript_lines.txt"))
+    ref_lines  <- readLines("ref_transcript_lines.txt")
+    ref_parts  <- strsplit(ref_lines, "\\t", fixed = TRUE)
+    ref_ok     <- lengths(ref_parts) >= 9L
+    ref_attrs  <- vapply(ref_parts[ref_ok], function(p) p[[9L]], character(1))
+    ref_id_set <- unique(na.omit(strip_version(extract_attr(ref_attrs, "transcript_id"))))
 
     needs_rename <- !is.na(tx_class) & tx_class != "=" & strip_version(tx_ids) %in% ref_id_set
     if (any(needs_rename)) {
@@ -183,44 +184,55 @@ process ANNOTATION_FREEZE {
         cat(sprintf("INFO: disambiguated %d transcript IDs reused from the reference (class_code != '=')\\n",
                     length(old_ids)))
         gtf_lines[gtf_ok] <- ok_lines
-        writeLines(gtf_lines, "frozen_lncrna.gtf")
+        writeLines(gtf_lines, "quant_universe.gtf")
     }
 
-    gtf_attrs <- vapply(strsplit(ok_lines, "\\t", fixed = TRUE), function(p) p[[9L]], character(1))
-    has_tx <- grepl("transcript_id", gtf_attrs, fixed = TRUE)
-    gtf_attrs <- gtf_attrs[has_tx]
-    nv_tx2gene <- unique(data.frame(
-        transcript_id = extract_attr(gtf_attrs, "transcript_id"),
-        gene_id       = extract_attr(gtf_attrs, "gene_id"),
-        stringsAsFactors = FALSE
-    ))
-    nv_tx2gene <- nv_tx2gene[!is.na(nv_tx2gene\$transcript_id) & !is.na(nv_tx2gene\$gene_id), ]
-    nv_tx2gene\$category <- "novel_lncRNA"
+    # ---- Split the catalog set from the isoform set ----
+    # The quant universe keeps the isoforms (index); the frozen catalog drops
+    # them entirely (no transcript/exon lines) so every catalog consumer sees a
+    # locus set with no reference-derived isoform in it.
+    all_lines <- readLines("quant_universe.gtf")
+    parts <- strsplit(all_lines, "\\t", fixed = TRUE)
+    okp   <- lengths(parts) >= 9L
+    feature <- vapply(parts[okp], function(p) p[[3L]], character(1))
+    attrs   <- vapply(parts[okp], function(p) p[[9L]], character(1))
+    line_tx <- extract_attr(attrs, "transcript_id")
+    line_cl <- extract_attr(attrs, "class_code")
+    iso_txids <- unique(na.omit(line_tx[feature == "transcript" &
+                                         !is.na(line_cl) & line_cl %in% ISO_CLASSES]))
+    is_iso_line <- !is.na(line_tx) & line_tx %in% iso_txids
+    writeLines(all_lines[okp][!is_iso_line], "frozen_lncrna.gtf")
 
-    tx2gene <- unique(rbind(ref_txg, nv_tx2gene))
-
-    write_tsv(tx2gene, "tx2gene_detailed.tsv")
+    catalog_txids <- setdiff(unique(na.omit(line_tx[feature == "transcript"])), iso_txids)
+    n_catalog <- length(catalog_txids)
+    n_iso     <- length(iso_txids)
+    if (n_catalog == 0) {
+        stop("Catalog set is empty after removing isoform_classes — check novel_classes/isoform_classes")
+    }
+    cat(sprintf("Catalog transcripts: %d; isoforms kept in the index only: %d\\n", n_catalog, n_iso))
 
     # Checksums
-    sha_gtf <- system("sha256sum frozen_lncrna.gtf | cut -d' ' -f1", intern = TRUE)
-    sha_tsv <- system("sha256sum tx2gene_detailed.tsv | cut -d' ' -f1", intern = TRUE)
+    sha_frozen <- system("sha256sum frozen_lncrna.gtf | cut -d' ' -f1", intern = TRUE)
+    sha_quant  <- system("sha256sum quant_universe.gtf | cut -d' ' -f1", intern = TRUE)
 
     sink("frozen_manifest.json")
     cat(sprintf('{
   "pipeline_version": "0.1.0",
   "freeze_date": "%s",
   "n_novel_lncrna": %d,
-  "n_reference_transcripts": %d,
-  "n_total_transcripts": %d,
+  "n_isoform_only": %d,
+  "n_quant_universe_transcripts": %d,
+  "isoform_classes": [%s],
   "sha256": {
     "frozen_gtf": "%s",
-    "tx2gene_detailed": "%s"
+    "quant_universe_gtf": "%s"
   }
 }
-', Sys.time(), length(nc_ids), nrow(ref_txg), nrow(tx2gene),
-         trimws(sha_gtf), trimws(sha_tsv)))
+', Sys.time(), n_catalog, n_iso, n_catalog + n_iso,
+         paste(sprintf('"%s"', ISO_CLASSES), collapse = ", "),
+         trimws(sha_frozen), trimws(sha_quant)))
     sink()
 
-    writeLines(c(trimws(sha_gtf), trimws(sha_tsv)), "frozen_checksums.sha256")
+    writeLines(c(trimws(sha_frozen), trimws(sha_quant)), "frozen_checksums.sha256")
     """
 }

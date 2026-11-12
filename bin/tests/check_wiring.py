@@ -241,6 +241,34 @@ def check_script_flags():
                                                                script, unknown))
 
 
+def check_tx2gene_single_source():
+    """tx2gene_detailed.tsv has exactly one producer (BUILD_TX2GENE) and one consumer.
+
+    The isoform remap (novel isoform transcripts -> reference parent gene) lives in
+    BUILD_TX2GENE. If any other process builds tx2gene, or a module references a
+    pre-remap tx2gene, the DE universe silently diverges from the catalog — the
+    exact class of bug this project keeps hitting.
+    """
+    mod_dir = os.path.join(ROOT, "modules", "local")
+    producers, consumers = [], []
+    for f in sorted(os.listdir(mod_dir)):
+        if not f.endswith(".nf"):
+            continue
+        text = read(os.path.join(mod_dir, f))
+        if re.search(r"tx2gene_detailed\.tsv", text):
+            producers.append(f)
+        if re.search(r"--tx2gene\b", text):
+            consumers.append(f)
+    check(producers == ["build_tx2gene.nf"],
+          "tx2gene_detailed.tsv produced only by BUILD_TX2GENE (found: %s)" % producers)
+    check(consumers == ["tximport_filter.nf"],
+          "--tx2gene consumed only by TXIMPORT_AND_FILTER (found: %s)" % consumers)
+    # ANNOTATION_FREEZE must not emit tx2gene any more (it moved to BUILD_TX2GENE).
+    af = read(os.path.join(mod_dir, "annotation_freeze.nf"))
+    check("tx2gene_detailed" not in af,
+          "ANNOTATION_FREEZE no longer emits tx2gene (pre-remap map removed)")
+
+
 def main():
     cfg_text = read(MODULES_CONFIG)
     cfg = parse_modules_config(cfg_text)
@@ -255,6 +283,7 @@ def main():
     check_containers()
     check_audit_set(cfg)
     check_script_flags()
+    check_tx2gene_single_source()
     print()
     if FAILS:
         print("WIRING FAILED: %d" % len(FAILS))

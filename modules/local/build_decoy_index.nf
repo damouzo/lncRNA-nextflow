@@ -1,11 +1,15 @@
-// Build decoy-aware Salmon index combining frozen lncRNAs + reference transcriptome
+// Build decoy-aware Salmon index combining the quantification universe + reference
+// transcriptome. The universe carries the catalog transcripts AND the reference-
+// derived novel isoforms (isoform_classes), so transcript-level EM can split reads
+// between the reference isoforms and the novel isoform; BUILD_TX2GENE then sums
+// those reads back under the reference parent gene.
 // If gencode_transcripts_fa is not provided, derives the reference transcriptome
 // from the GTF annotation + genome FASTA via gffread.
 
 process BUILD_DECOY_INDEX {
 
     input:
-    path frozen_gtf
+    path quant_universe_gtf    // ANNOTATION_FREEZE quant_universe.gtf (catalog + isoforms)
     path genome_fa
     val  gencode_transcripts_fa
 
@@ -16,8 +20,8 @@ process BUILD_DECOY_INDEX {
     """
     mkdir -p salmon_index
 
-    # Extract novel lncRNA sequences from frozen GTF
-    gffread -w lncrna_transcripts.fa -g "${genome_fa}" "${frozen_gtf}"
+    # Extract the novel (catalog + isoform) sequences from the quantification universe
+    gffread -w lncrna_transcripts.fa -g "${genome_fa}" "${quant_universe_gtf}"
 
     # Determine reference transcriptome source
     # gencode_transcripts_fa is a `val` input, so it must be interpolated here

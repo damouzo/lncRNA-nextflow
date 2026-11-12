@@ -42,6 +42,7 @@ process PUBLISH_CATALOG {
         --frozen-gtf "${frozen_gtf}" \\
         --min-length ${params.min_transcript_length} \\
         --novel-classes '${params.novel_classes.join(",")}' \\
+        --isoform-classes '${params.isoform_classes.join(",")}' \\
         --outdir .
 
     mkdir -p annotation

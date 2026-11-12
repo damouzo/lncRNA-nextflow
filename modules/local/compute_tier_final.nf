@@ -31,6 +31,7 @@ process COMPUTE_TIER_FINAL {
         --tier1-classes '${params.tier1_classes.join(",")}' \\
         --tier1a-classes '${params.tier1a_classes.join(",")}' \\
         --tier1-parent-biotypes '${params.tier1_parent_biotypes.join(",")}' \\
+        --annotated-lncrna-biotypes '${params.annotated_lncrna_biotypes.join(",")}' \\
         ${allow_single_exon}
     """
 }

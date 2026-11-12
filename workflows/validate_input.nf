@@ -98,6 +98,17 @@ workflow validateInput {
     if (tier1_outside) {
         error("tier1_classes ${tier1_outside} are not in novel_classes ${novel_cls}: they would never be frozen")
     }
+    // isoform_classes stay in the index but are never catalogued; they must be a
+    // subset of novel_classes and must never be a tier1 class (a catalog entity).
+    def iso_cls = (params.isoform_classes ?: []) as List
+    def iso_outside = iso_cls.findAll { !(it in novel_cls) }
+    if (iso_outside) {
+        error("isoform_classes ${iso_outside} are not in novel_classes ${novel_cls}")
+    }
+    def iso_as_tier1 = iso_cls.findAll { it in (params.tier1_classes as List) }
+    if (iso_as_tier1) {
+        error("isoform_classes ${iso_as_tier1} are also tier1_classes: an isoform is not a catalog entity")
+    }
 
     emit:
     ch_samplesheet  = ch_parsed

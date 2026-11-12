@@ -17,6 +17,7 @@ include { CHECK_NOVELTY }           from '../modules/local/check_novelty'
 include { FEATURECOUNTS_EXPRESSION } from '../modules/local/featurecounts_expression'
 include { EXPRESSION_RECURRENCE }   from '../modules/local/expression_recurrence'
 include { ANNOTATION_FREEZE }       from '../modules/local/annotation_freeze'
+include { BUILD_TX2GENE }           from '../modules/local/build_tx2gene'
 include { BUILD_GENE_CATALOG }      from '../modules/local/build_gene_catalog'
 include { CHECK_REFERENCE_COMPATIBILITY } from '../modules/local/check_reference_compatibility'
 include { CONSERVATION_SCORE }      from '../modules/local/conservation_score'
@@ -164,6 +165,14 @@ workflow DISCOVERY {
         reference_gtf
     )
 
+    // Single producer of tx2gene (reference + novel catalog + isoforms remapped to
+    // their reference parent). Must run before QUANTIFICATION; the reference
+    // transcriptome for the index is the quant universe, not the catalog set.
+    BUILD_TX2GENE(
+        ANNOTATION_FREEZE.out.quant_universe,
+        reference_gtf
+    )
+
     // Conservation & synteny (reporting-only, optional). Gated so disabled
     // runs produce identical output; a header-only placeholder keeps
     // BUILD_GENE_CATALOG's join total (all-NA new columns) when skipped.
@@ -304,10 +313,13 @@ workflow DISCOVERY {
     // Heavy tool version probes run once in VERSION_DISCOVERY (main.nf) so the tool
     // processes keep their script blocks untouched; only PUBLISH_CATALOG emits here.
     emit:
-    versions          = PUBLISH_CATALOG.out.versions.mix(CHECK_NOVELTY.out.versions)
+    versions          = PUBLISH_CATALOG.out.versions
+                            .mix(CHECK_NOVELTY.out.versions, BUILD_TX2GENE.out.versions)
     novelty           = CHECK_NOVELTY.out.novelty
     frozen_gtf        = ANNOTATION_FREEZE.out.frozen_gtf
-    tx2gene_detailed   = ANNOTATION_FREEZE.out.tx2gene_detailed
+    quant_universe    = ANNOTATION_FREEZE.out.quant_universe
+    tx2gene_detailed   = BUILD_TX2GENE.out.tx2gene_detailed
+    novel_isoforms     = BUILD_TX2GENE.out.novel_isoforms
     gene_catalog       = BUILD_GENE_CATALOG.out.gene_catalog
     catalog_genes      = PUBLISH_CATALOG.out.catalog_genes
     strand_consensus   = ch_strand_files

@@ -129,9 +129,10 @@ def main():
     ap.add_argument("--thresholds", required=True)
     ap.add_argument("--sensitivity-thresholds", default="")
     ap.add_argument("--outdir", required=True)
-    ap.add_argument("--tier1-classes", default="u,x,i,j")
+    ap.add_argument("--tier1-classes", default="u,x,i")
     ap.add_argument("--tier1a-classes", default="u,x,i")
     ap.add_argument("--tier1-parent-biotypes", default="lncRNA")
+    ap.add_argument("--annotated-lncrna-biotypes", default="lncRNA")
     ap.add_argument("--tier1-allow-single-exon", action="store_true")
     args = ap.parse_args()
     tier1 = set(C.parse_list(args.tier1_classes))
@@ -157,11 +158,15 @@ def main():
     _, anti_rows = C.read_tsv(args.antisense_metrics)
     anti_vals = values_by_element(anti_rows, "ratio_median")
 
-    reference = C.load_gtf(args.reference_gtf, {"gene"})
-    # Strip versions so the key matches the version-stripped parent from
-    # C.ref_gene_of (consistent with load_reference and the R implementation).
-    gene_biotype = {C.strip_version(g["gene_id"]): g.get("gene_biotype")
-                    for g in reference["gene"]}
+    # load_reference version-strips keys, so gene_biotype/tx2gene/gene_loc line up
+    # with the version-stripped parent from C.ref_gene_of. The class-i sense/
+    # antisense split needs the reference host gene: resolve it through
+    # cmp_ref -> reference tx2gene (class i carries no ref_gene_id), the same route
+    # F1 regions uses.
+    ref = C.load_reference(args.reference_gtf, C.parse_list(args.annotated_lncrna_biotypes))
+    gene_biotype = ref["gene_biotype"]
+    ref_tx2gene = ref["tx2gene"]
+    gene_loc = ref["gene_loc"]
     frozen = C.load_gtf(args.frozen_gtf, {"transcript", "exon"})
     frozen_exons = C.exon_map(frozen)
 
@@ -172,6 +177,8 @@ def main():
         tid = t["transcript_id"]
         parent = C.ref_gene_of(t)
         pb = gene_biotype.get(parent) if parent else None
+        i_rel = C.intronic_relation(t.get("class_code"), t["strand"],
+                                    C.host_gene_of(t, ref_tx2gene), gene_loc)
         mono = len(frozen_exons.get(tid, [])) == 1
         nt, single_exon, fpass, arisk, static, final = evaluate_tx(
             tid, t.get("class_code"), pb, mono, flank_vals, anti_vals,
@@ -200,7 +207,8 @@ def main():
                         _fmt(C.median(avals)), len(avals),
                         "TRUE" if arisk else "FALSE", status,
                         "TRUE" if static else "FALSE",
-                        "TRUE" if final else "FALSE"))
+                        "TRUE" if final else "FALSE",
+                        i_rel or "NA"))
 
     C.write_tsv(tx_rows, os.path.join(args.outdir, "tier_final_transcripts.tsv"),
                 ["transcript_id", "gene_id", "class_code", "parent_biotype",
@@ -208,7 +216,7 @@ def main():
                  "flank_ratio_median", "flank_pass", "antisense_status",
                  "antisense_ratio_median", "n_groups_evaluated",
                  "x_host_leak_suspect", "thresholds_status",
-                 "tier_static", "tier_final"])
+                 "tier_static", "tier_final", "i_relation"])
 
     gene_rows = []
     for gene in sorted(set(gene_static) | set(gene_final)):

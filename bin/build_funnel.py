@@ -46,12 +46,14 @@ def unique_genes(rows, col):
 REFERENCE_DERIVED = {"c", "k", "m", "n", "="}
 
 
-def freeze_class_steps(rec, pcol, ccol, kcol, novel_classes):
+def freeze_class_steps(rec, pcol, ccol, kcol, novel_classes, isoform_classes):
     """Transcripts that pass coding + recurrence, split by what the freeze does.
 
-    frozen_by_class: kept (class in novel_classes). reference_derived_class and
-    excluded_class: passed every filter but left out of the freeze; the reason is
-    the class code, so the funnel shows which classes were dropped and how many.
+    frozen_by_class: kept as a catalog entity (class in novel_classes, minus
+    isoform_classes). isoform_class: kept in the Salmon index but NOT catalogued
+    (class in isoform_classes); its reads are remapped to the reference parent.
+    reference_derived_class and excluded_class: passed every filter but left out
+    of the freeze; the reason is the class code.
     """
     counts = {}
     for r in rec:
@@ -63,7 +65,9 @@ def freeze_class_steps(rec, pcol, ccol, kcol, novel_classes):
         counts[code] = counts.get(code, 0) + 1
     out = []
     for code in sorted(counts):
-        if code in novel_classes:
+        if code in isoform_classes:
+            step = "isoform_class"
+        elif code in novel_classes:
             step = "frozen_by_class"
         elif code in REFERENCE_DERIVED:
             step = "reference_derived_class"
@@ -82,9 +86,12 @@ def main():
     ap.add_argument("--recurrence", default=None)
     ap.add_argument("--novel-classes", default=None,
                     help="comma-separated classes ANNOTATION_FREEZE keeps")
+    ap.add_argument("--isoform-classes", default=None,
+                    help="comma-separated novel-isoform classes kept in the index but not catalogued")
     ap.add_argument("--outdir", default=".")
     args = ap.parse_args()
     novel_classes = {x for x in (args.novel_classes or "").split(",") if x}
+    isoform_classes = {x for x in (args.isoform_classes or "").split(",") if x}
 
     catalog = read_tsv(args.gene_catalog)
     if catalog:
@@ -101,7 +108,10 @@ def main():
 
     universe_genes = set()
     kept_genes = set()
-    filtered_low = 0
+    # Count distinct genes dropped for low expression over the UNION of groups, so
+    # the number is on the same scale as de_universe (also a union). Summing the
+    # per-group drops inflates it by the number of groups a gene is low in.
+    filtered_low_genes = set()
     for path in args.universe:
         rows = read_tsv(path)
         if not rows:
@@ -117,7 +127,7 @@ def main():
             if kcol and str(r.get(kcol, "")).strip() in IS_TRUE:
                 kept_genes.add(gid)
             elif rcol and str(r.get(rcol, "")).strip() == "low_expression":
-                filtered_low += 1
+                filtered_low_genes.add(gid)
 
     steps = []
     steps.append(("catalog", "", len(catalog_genes), ""))
@@ -153,11 +163,11 @@ def main():
             if pcol and ccol and novel_classes:
                 steps.extend(freeze_class_steps(rec, pcol, ccol,
                                                 find_col(h, ["consensus_noncoding"]),
-                                                novel_classes))
+                                                novel_classes, isoform_classes))
 
     steps.append(("de_universe", "", len(universe_genes), ""))
     steps.append(("universe_kept", "", len(kept_genes), ""))
-    steps.append(("universe_filtered_low_expression", "", filtered_low, "low_expression"))
+    steps.append(("universe_filtered_low_expression", "", len(filtered_low_genes), "low_expression"))
     steps.append(("quantified_catalog", "", len(catalog_genes & universe_genes), ""))
 
     missing = sorted(catalog_genes - universe_genes)

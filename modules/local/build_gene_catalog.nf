@@ -87,6 +87,15 @@ process BUILD_GENE_CATALOG {
         select(gene_id, gene_name, chromosome, start, end, strand,
                gene_biotype, origin, class_code)
 
+    # Fail fast: an empty annotated-lncRNA set means the biotype list does not
+    # match this reference (e.g. an Ensembl ['lncRNA'] list against a GENCODE
+    # annotation, which also uses lincRNA/antisense/sense_intronic/...). Silently
+    # emptying it would break the annotated-lncRNA recovery controls downstream.
+    if (sum(ref_cat\$origin == "annotated_lncrna", na.rm = TRUE) == 0) {
+        stop(sprintf("No reference genes match annotated_lncrna_biotypes (%s) — check the biotype list for this reference (GENCODE needs lincRNA/antisense/sense_intronic/...).",
+                     paste(ANNOT_BIOTYPES, collapse = ", ")))
+    }
+
     # ---- Novel lncRNAs (transcript-level, aggregated to gene) ----
     # MSTRG IDs are not versioned like Ensembl — keep them verbatim
     system(paste("grep -P '\\ttranscript\\t'", shQuote("${frozen_gtf}"),
