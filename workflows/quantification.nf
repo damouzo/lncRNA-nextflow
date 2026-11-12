@@ -269,6 +269,7 @@ workflow QUANTIFICATION {
     // Cross-contrast summary figures (significant counts up/down + UpSet). Non-blocking.
     CONTRAST_SUMMARY_PLOTS(
         BUILD_CONTRASTS_OVERVIEW.out.overview,
+        BUILD_CONTRASTS_OVERVIEW.out.across,
         channel.value(file("${projectDir}/bin/contrast_summary_plots.R"))
     )
 
