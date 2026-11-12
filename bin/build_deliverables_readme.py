@@ -94,7 +94,9 @@ COLUMN_MEANINGS = {
                   "isoform reported in novel_isoforms.tsv; the reference-derived =/c/k/m/n and "
                   "the ambiguous o stay with the reference annotation "
                   "(seen in candidates_all.tsv as filter_reason=not_novel_class).",
-    "tier_static": "Categorical tier from class code + parent biotype + exon count.",
+    "tier_static": "TRUE when the gene has at least one Tier-1 transcript (structural "
+                   "priority label; a label, never a filter). Use `tier` for the "
+                   "categorical 1a/1b/2 value.",
     "tier_final": "Tier after flags; equals tier_static in this version.",
     "single_exon_low_confidence": "TRUE when a mono-exonic candidate is demoted to Tier 2.",
     "antisense_status": "Antisense-leakage flag; annotates, never filters.",

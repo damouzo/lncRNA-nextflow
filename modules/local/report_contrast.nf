@@ -86,6 +86,7 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("group=${group}")),
             "-P", shQuote(paste0("numerator=", ct_num)),
             "-P", shQuote(paste0("denominator=", ct_den)),
+            "-P", shQuote(paste0("design_formula=${params.design_formula ?: ''}")),
             "-P", shQuote(paste0("coldata=${coldata}")),
             "-P", shQuote(paste0("de_summary=${de_summary}")),
             "-P", shQuote(paste0("cis_pairs=${cis_pairs}")),
