@@ -111,11 +111,11 @@ workflow {
     // ── F4.6 / F4.7: run metadata + generated READMEs ──────────────────────
     // Samples index keyed by sample (norm_group comes from the covariates).
     ch_sample_rows = ch_samples.map { sample, cond, batch, _fq1, _fq2, _bam, extra ->
-        "${sample}\t${extra.norm_group ?: 'NA'}\t${cond}\t${batch ?: 'NA'}"
+        "${sample}\t${extra.norm_group ?: 'NA'}\t${cond}\t${batch ?: 'NA'}\t${extra.seq_batch ?: 'NA'}"
     }
     ch_sample_index = ch_sample_rows
         .collectFile(name: 'sample_index.tsv', newLine: true,
-                     seed: 'sample\tnorm_group\tcondition\tbatch\n')
+                     seed: 'sample\tnorm_group\tcondition\tbatch\tseq_batch\n')
         .first()
 
     // Version probes: one task per heavy image, once, so tool scripts stay cached.

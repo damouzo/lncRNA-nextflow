@@ -28,6 +28,8 @@ check("condition differs across lanes" in SRC,
       "lanes must agree on condition")
 check("batch differs across lanes" in SRC,
       "lanes must agree on batch")
+check("norm_group differs across lanes" in SRC,
+      "lanes must agree on norm_group")
 check("numerator" in SRC and "is not a condition in the samplesheet" in SRC,
       "contrast numerator must exist in the samplesheet")
 check("denominator" in SRC and SRC.count("is not a condition in the samplesheet") == 2,

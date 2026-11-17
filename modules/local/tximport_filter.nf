@@ -42,6 +42,13 @@ process TXIMPORT_AND_FILTER {
     path "${group}_tpm_distribution.pdf", optional: true
     path "${group}_lncrna_type_composition.png", optional: true
     path "${group}_lncrna_type_composition.pdf", optional: true
+    // Extra PCA panels: per annotation column and per sample colour. Optional so
+    // a plotting hiccup (e.g. a shape column with too many levels) never fails
+    // the quantification step.
+    path "${group}_pca_by_*.png", optional: true
+    path "${group}_pca_by_*.pdf", optional: true
+    path "${group}_pca_batch_corrected.png", optional: true
+    path "${group}_pca_batch_corrected.pdf", optional: true
     path "versions.yml",                                    emit: versions
 
     script:
@@ -52,9 +59,11 @@ process TXIMPORT_AND_FILTER {
         --tx2gene "${tx2gene_detailed}" \\
         --catalog "${catalog_genes}" \\
         --min-count ${params.tximport_min_count} \\
+        --pca-annotations "${params.pca_annotations.join(',')}" \\
+        --pca-palette "${params.pca_palette}" \\
         --outdir .
 
     emit_versions.sh "${task.process}" "${task.container}" R R --version
-    emit_r_versions.sh "${task.process}" "${task.container}" DESeq2 tximport
+    emit_r_versions.sh "${task.process}" "${task.container}" DESeq2 tximport limma
     """
 }

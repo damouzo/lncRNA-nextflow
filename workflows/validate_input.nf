@@ -34,13 +34,20 @@ workflow validateInput {
         // Group lanes by sample: FASTQ lists aggregated, metadata taken from first lane
         .groupTuple(by: 0)
         .map { sample, conds, batches, fq1s, fq2s, bams, extras ->
-            // Every lane of a sample must agree on condition and batch: a mismatch
-            // means the samplesheet is wrong and the design would silently use lane 1.
+            // Every lane of a sample must agree on condition, batch and norm_group:
+            // a mismatch means the samplesheet is wrong and downstream would
+            // silently use lane 1's value for the whole sample.
             if (conds.unique().size() > 1) {
                 error("sample '${sample}': condition differs across lanes (${conds.unique().join(', ')})")
             }
             if (batches.unique().size() > 1) {
                 error("sample '${sample}': batch differs across lanes (${batches.unique().join(', ')})")
+            }
+            // seq_batch is omitted on purpose: a multi-lane sample legitimately
+            // spans several flowcells, so it is derived per sample, not checked.
+            def ngs = extras.collect { it.norm_group }.unique()
+            if (ngs.size() > 1) {
+                error("sample '${sample}': norm_group differs across lanes (${ngs.join(', ')})")
             }
             tuple(
                 sample,

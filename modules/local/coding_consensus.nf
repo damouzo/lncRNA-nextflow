@@ -23,16 +23,18 @@ process CODING_CONSENSUS {
                        stringsAsFactors = FALSE, comment.char = "")
 
     colnames(cpc2)[1] <- "ID"
-    cpc2_noncode <- subset(cpc2, coding_probability < ${params.cpc2_coding_threshold})
 
-    merged <- merge(
-        cpat[, c("ID", "mRNA")],
-        cpc2_noncode[, c("ID", "coding_probability")],
-        by = "ID",
-        all = TRUE
-    )
+    # Keep every CPC2 call (not only the non-coding subset) so the CPAT-vs-CPC2
+    # classifier figure has a numeric probability per transcript. The non-coding
+    # call is still the threshold comparison, as before.
+    cpc2 <- cpc2[, intersect(c("ID", "coding_probability"), colnames(cpc2)), drop = FALSE]
+    cpc2\$coding_probability <- suppressWarnings(as.numeric(cpc2\$coding_probability))
+
+    cpat_cols <- intersect(c("ID", "mRNA", "cpat_coding_prob"), colnames(cpat))
+    merged <- merge(cpat[, cpat_cols, drop = FALSE], cpc2, by = "ID", all = TRUE)
     merged\$CPAT_noncoding <- ifelse(is.na(merged\$mRNA), FALSE, merged\$mRNA == "no")
-    merged\$CPC2_noncoding <- !is.na(merged\$coding_probability)
+    merged\$CPC2_noncoding <- !is.na(merged\$coding_probability) &
+        merged\$coding_probability < ${params.cpc2_coding_threshold}
     merged\$consensus_noncoding <- merged\$CPAT_noncoding & merged\$CPC2_noncoding
 
     write_tsv(merged, "coding_consensus.tsv")

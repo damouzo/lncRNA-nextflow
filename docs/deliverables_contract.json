@@ -452,6 +452,18 @@
       "description": "ORA dotplot (top terms)"
     },
     {
+      "path": "contrasts/<id>/plots/contrast_pca_by_sample.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Visual PCA (log2 TPM+1) of this contrast's samples, one colour per sample (QC panel)"
+    },
+    {
+      "path": "contrasts/<id>/plots/contrast_pca_condition.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Visual PCA (log2 TPM+1) of this contrast's samples, coloured by condition (QC panel)"
+    },
+    {
       "path": "contrasts/<id>/plots/enrichment_gsea.png",
       "kind": "file",
       "optional": true,
@@ -609,6 +621,18 @@
       "kind": "file",
       "optional": true,
       "description": "TPM distribution per sample"
+    },
+    {
+      "path": "groups/<group>/plots/pca_by_*.png",
+      "kind": "file",
+      "optional": true,
+      "description": "One VST PCA per requested annotation (colour = condition, shape = column) and one colour-per-sample PCA"
+    },
+    {
+      "path": "groups/<group>/plots/pca_batch_corrected.png",
+      "kind": "file",
+      "optional": true,
+      "description": "VST PCA after limma::removeBatchEffect(batch, design=~condition); visual-only, drawn when a group has more than one batch level"
     },
     {
       "path": "groups/<group>/plots/lncrna_type_composition.png",

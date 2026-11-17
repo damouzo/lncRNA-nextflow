@@ -82,6 +82,22 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Write catalog figures to deliverables/plots (non-blocking)"
+                },
+                "pca_annotations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "batch",
+                        "seq_batch"
+                    ],
+                    "description": "Coldata columns to draw one per-group PCA each (colour = condition, shape = column); absent or constant columns are skipped"
+                },
+                "pca_palette": {
+                    "type": "string",
+                    "default": "corona+Set1+Dark2",
+                    "description": "Discrete palette for the one-colour-per-sample PCA: named palettes joined by '+' (corona = BuenColors, Set1/Dark2 = ColorBrewer, topped up with hcl.colors)"
                 }
             },
             "required": [

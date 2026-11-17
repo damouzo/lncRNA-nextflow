@@ -68,8 +68,19 @@ check(status == 0, "tximport_filter.R exits 0")
 
 for (f in c("MNC_counts.tsv", "MNC_tpm.tsv", "MNC_universe.tsv",
             "MNC_filter_stats.tsv", "MNC_tximport_counts.rds",
-            "coldata_aligned_MNC.csv")) {
+            "MNC_sample_metadata.tsv", "coldata_aligned_MNC.csv")) {
   check(file.exists(file.path(work, f)), paste("wrote", f))
+}
+
+# A tximport dds is normalised through the avgTxLength offset, so DESeq2 keeps a
+# per-gene normalizationFactors matrix and sizeFactors() stays NULL. The metadata
+# table must still carry one finite, positive size_factor per sample.
+if (file.exists(file.path(work, "MNC_sample_metadata.tsv"))) {
+  sm <- read_tsv(file.path(work, "MNC_sample_metadata.tsv"), show_col_types = FALSE)
+  check(nrow(sm) == length(samples), "sample_metadata has one row per sample")
+  check("size_factor" %in% colnames(sm) && all(is.finite(sm$size_factor)),
+        "sample_metadata carries a finite size_factor per sample")
+  check(all(sm$size_factor > 0), "sample_metadata size_factor is positive")
 }
 
 if (file.exists(file.path(work, "MNC_universe.tsv"))) {
@@ -111,6 +122,27 @@ if (file.exists(file.path(work, "coldata_aligned_MNC.csv"))) {
 check(file.exists(file.path(work, "MNC_sample_qc_pca.png")),
       "sample QC PCA written with colour = condition")
 
+# New panels: one colour per sample is always written; a per-annotation panel only
+# for a column present with >1 level (this coldata has neither batch nor seq_batch).
+check(file.exists(file.path(work, "MNC_pca_by_sample.png")),
+      "one-colour-per-sample PCA written")
+check(file.exists(file.path(work, "MNC_pca_by_sample.pdf")),
+      "one-colour-per-sample PCA written as PDF too")
+check(!file.exists(file.path(work, "MNC_pca_by_batch.png")),
+      "no pca_by_batch panel when the column is absent")
+
+# --pca-annotations selects which columns get a panel (default: batch,seq_batch).
+setwd(work)
+st_pa <- system2("Rscript",
+                 c(script, "--group", "PA", "--coldata", "coldata_MNC.csv",
+                   "--tx2gene", "tx2gene.tsv", "--pca-annotations", "norm_group",
+                   "--outdir", "out_pa"),
+                 stdout = FALSE, stderr = FALSE)
+setwd(old)
+check(st_pa == 0, "custom --pca-annotations runs (constant column skipped)")
+check(!file.exists(file.path(work, "out_pa", "PA_pca_by_norm_group.png")),
+      "constant annotation column produces no panel but does not fail")
+
 # A seq_batch column must switch the shape aesthetic without breaking rendering.
 sb_coldata <- coldata
 sb_coldata$seq_batch <- c("RunA", "RunA", "RunB", "RunB")
@@ -124,6 +156,10 @@ setwd(old)
 check(st_sb == 0, "tximport_filter.R renders a PCA with seq_batch shape")
 check(file.exists(file.path(work, "out_sb", "SB_sample_qc_pca.png")),
       "sample QC PCA written with shape = seq_batch")
+check(file.exists(file.path(work, "out_sb", "SB_pca_by_seq_batch.png")),
+      "per-annotation PCA written for seq_batch")
+check(file.exists(file.path(work, "out_sb", "SB_pca_by_seq_batch.pdf")),
+      "per-annotation PCA written as PDF too")
 
 # 2.3: a coldata sample without a quant dir must fail, not be silently dropped.
 write.csv(data.frame(sample = c(samples, "S5"),

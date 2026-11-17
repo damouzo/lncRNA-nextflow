@@ -310,25 +310,25 @@ land("fig_tier_by_class", "Tier 1 composition by gffcompare class set", {
 if (!is.null(coding_consensus_path) && file.exists(coding_consensus_path)) {
   land("fig_catalog_classifier", "CPAT vs CPC2 coding probability", {
     cc <- read_tsv(coding_consensus_path, show_col_types = FALSE)
-    if (!all(c("mRNA", "coding_probability") %in% colnames(cc)))
-      stop("coding_consensus missing mRNA/coding_probability")
-    cc$mRNA <- suppressWarnings(as.numeric(cc$mRNA))
+    if (!all(c("cpat_coding_prob", "coding_probability") %in% colnames(cc)))
+      stop("coding_consensus missing cpat_coding_prob/coding_probability")
+    cc$cpat_coding_prob <- suppressWarnings(as.numeric(cc$cpat_coding_prob))
     cc$coding_probability <- suppressWarnings(as.numeric(cc$coding_probability))
-    cc <- cc[is.finite(cc$mRNA) & is.finite(cc$coding_probability), , drop = FALSE]
+    cc <- cc[is.finite(cc$cpat_coding_prob) & is.finite(cc$coding_probability), , drop = FALSE]
     if (nrow(cc) == 0) stop("no numeric coding probabilities")
     if (!"consensus_noncoding" %in% colnames(cc)) cc$consensus_noncoding <- NA
     cc$call <- ifelse(is.na(cc$consensus_noncoding), "unknown",
                       ifelse(as.character(cc$consensus_noncoding) %in% c("TRUE", "true", "1"),
                              "noncoding", "coding"))
-    ggplot(cc, aes(x = mRNA, y = coding_probability, color = call)) +
+    ggplot(cc, aes(x = cpat_coding_prob, y = coding_probability, color = call)) +
       geom_point(alpha = 0.6, size = 1.4) +
       geom_vline(xintercept = cpat_threshold, linetype = "dashed", alpha = 0.5) +
       geom_hline(yintercept = cpc2_threshold, linetype = "dashed", alpha = 0.5) +
       theme_minimal() +
       labs(title = "CPAT vs CPC2 coding potential",
-           subtitle = sprintf("dashed: CPAT mRNA >= %.3f, CPC2 coding >= %.2f",
+           subtitle = sprintf("dashed: CPAT coding >= %.3f, CPC2 coding >= %.2f",
                               cpat_threshold, cpc2_threshold),
-           x = "CPAT coding probability (mRNA)", y = "CPC2 coding probability",
+           x = "CPAT coding probability", y = "CPC2 coding probability",
            color = "consensus")
   }, width = 7, height = 6)
 }

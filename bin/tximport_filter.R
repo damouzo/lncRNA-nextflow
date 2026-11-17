@@ -20,6 +20,11 @@
 # usage:
 #   tximport_filter.R --group MNC --coldata coldata_MNC.csv --tx2gene tx2gene.tsv
 #                     [--catalog catalog_genes.tsv] [--quant-pattern "_quant$"] [--min-count 10]
+#                     [--pca-annotations "batch,seq_batch"] [--pca-palette "corona+Set1+Dark2"]
+#
+# QC figures emitted per group: sample_qc_pca (colour = condition, shape = first
+# technical column), one pca_by_<annotation> per requested column, pca_by_sample
+# (one distinct colour per sample) and pca_batch_corrected (visual-only, limma).
 
 suppressPackageStartupMessages({
   library(tximport)
@@ -40,6 +45,12 @@ tx2gene_path <- get_arg("--tx2gene")
 catalog_path <- get_arg("--catalog")
 quant_pattern <- get_arg("--quant-pattern", "_quant$")
 min_count <- as.integer(get_arg("--min-count", "10"))
+# Annotation columns to draw one PCA each (colour = condition, shape = column).
+# A column absent from the coldata or constant within the group is skipped.
+pca_annotations <- trimws(strsplit(get_arg("--pca-annotations", "batch,seq_batch"), ",")[[1]])
+pca_annotations <- pca_annotations[nzchar(pca_annotations)]
+# Discrete palette for the per-sample PCA: named palettes joined by "+".
+pca_palette <- get_arg("--pca-palette", "corona+Set1+Dark2")
 outdir <- get_arg("--outdir", ".")
 if (is.null(group) || is.null(coldata_path) || is.null(tx2gene_path)) {
   stop("usage: tximport_filter.R --group G --coldata coldata.csv --tx2gene tx2gene.tsv")
@@ -118,16 +129,65 @@ dds <- DESeqDataSetFromTximport(txi, coldata, ~1)
 dds <- dds[keep, ]
 
 vsd <- varianceStabilizingTransformation(dds, blind = TRUE)
-# H/2.2: colour the PCA by the biological metadata, never by `sample`. `seq_batch`
-# (sequencing configuration: flowcell/lane) is drawn as shape so a technical
-# structure is visible without hiding the condition split; `batch` is the fallback
-# shape for cell-line experiments. A column that is empty/NA for the whole group
-# (single level) is dropped, and with no shape column left the plot is colour-only.
+
+# ---- PCA panels --------------------------------------------------------------
+# The QC PCA and the per-annotation PCAs share one projection (VST, top-500
+# variable genes via plotPCA); only the aesthetics change. `seq_batch`/`batch` are
+# drawn as shape so a technical structure is visible without hiding the condition
+# split. A column that is empty/NA for the whole group (single level) is dropped,
+# and with no shape column left the plot is colour-only.
 has_levels <- function(x) {
   x <- as.character(x)
   length(unique(x[!is.na(x) & nzchar(x)])) > 1
 }
+
 color_var <- if ("condition" %in% colnames(coldata)) "condition" else colnames(coldata)[1]
+
+# Discrete palette for the per-sample PCA. "corona" is BuenColors' 30-colour
+# palette (jdb_palette("corona")); joined with ColorBrewer Set1 + Dark2 to clear
+# the sample count of a typical group, then topped up with hcl.colors so it never
+# runs out. Hardcoded to keep BuenColors out of the container dependencies.
+CORONA <- c(
+  "#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2",
+  "#7f7f7f", "#bcbd22", "#17becf", "#ad494a", "#e7ba52", "#8ca252", "#756bb1",
+  "#636363", "#aec7e8", "#ff9896", "#98df8a", "#ffbb78", "#c5b0d5", "#c49c94",
+  "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5", "#e7969c", "#e7cb94", "#c7e9c0",
+  "#de9ed6", "#d9d9d9")
+BREWER_MAX <- c(Set1 = 9L, Dark2 = 8L, Set2 = 8L, Paired = 12L, Accent = 8L)
+big_palette <- function(n, names_str = "corona+Set1+Dark2") {
+  cols <- character(0)
+  for (nm in strsplit(names_str, "\\+")[[1]]) {
+    if (identical(nm, "corona")) {
+      cols <- c(cols, CORONA)
+    } else if (nm %in% names(BREWER_MAX) && requireNamespace("RColorBrewer", quietly = TRUE)) {
+      cols <- c(cols, RColorBrewer::brewer.pal(BREWER_MAX[[nm]], nm))
+    }
+  }
+  cols <- unique(cols)
+  if (length(cols) < n) cols <- c(cols, grDevices::hcl.colors(n - length(cols), "Dark 3"))
+  unique(cols)[seq_len(n)]
+}
+
+# Projection coordinates (plotPCA) -> the plot, colour and shape kept separate
+# because plotPCA collapses several intgroup into a single colour.
+pca_scatter <- function(dat, pct, mapping, title, subtitle, color_lab, shape_lab = NULL) {
+  p <- ggplot2::ggplot(dat, mapping) +
+    ggplot2::geom_point(size = 3) +
+    ggplot2::geom_text(ggplot2::aes(label = name), size = 2.5, vjust = -0.8,
+                       check_overlap = TRUE) +
+    ggplot2::labs(title = title, subtitle = subtitle,
+                  color = color_lab,
+                  x = sprintf("PC1: %d%% variance", pct[1]),
+                  y = sprintf("PC2: %d%% variance", pct[2]))
+  if (!is.null(shape_lab)) p <- p + ggplot2::labs(shape = shape_lab)
+  p
+}
+write_pca <- function(p, stem) {
+  ggsave(out(paste0(group, "_", stem, ".png")), p, width = 10, height = 8)
+  ggsave(out(paste0(group, "_", stem, ".pdf")), p, width = 10, height = 8)
+}
+
+# Default QC PCA: colour = condition, shape = first available technical column.
 shape_var <- NULL
 for (cand in c("seq_batch", "batch")) {
   if (cand %in% colnames(coldata) && has_levels(coldata[[cand]])) {
@@ -135,10 +195,6 @@ for (cand in c("seq_batch", "batch")) {
     break
   }
 }
-
-# plotPCA maps a single aesthetic (several intgroup collapse into one colour), so
-# take the projected coordinates and build the plot here to keep colour and shape
-# separate.
 pca_data <- plotPCA(vsd, intgroup = unique(c(color_var, shape_var)), returnData = TRUE)
 percentVar <- round(100 * attr(pca_data, "percentVar"))
 pca_data$.color_group <- factor(pca_data[[color_var]])
@@ -147,23 +203,86 @@ if (!is.null(shape_var)) {
   pca_data$.shape_group <- factor(pca_data[[shape_var]])
   mapping <- ggplot2::aes(x = PC1, y = PC2, color = .color_group, shape = .shape_group)
 }
-pca <- ggplot2::ggplot(pca_data, mapping) +
-  ggplot2::geom_point(size = 3) +
-  ggplot2::geom_text(ggplot2::aes(label = name), size = 2.5, vjust = -0.8,
-                     check_overlap = TRUE) +
-  ggplot2::labs(
-    title    = sprintf("%s — variance-stabilized PCA (VST)", group),
-    subtitle = sprintf("%d samples; colour = %s%s", ncol(vsd), color_var,
-                       if (is.null(shape_var)) "" else paste0("; shape = ", shape_var)),
-    color    = tools::toTitleCase(color_var),
-    x        = sprintf("PC1: %d%% variance", percentVar[1]),
-    y        = sprintf("PC2: %d%% variance", percentVar[2])
-  )
-if (!is.null(shape_var)) {
-  pca <- pca + ggplot2::labs(shape = tools::toTitleCase(shape_var))
+pca <- pca_scatter(
+  pca_data, percentVar, mapping,
+  title    = sprintf("%s — variance-stabilized PCA (VST)", group),
+  subtitle = sprintf("%d samples; colour = %s%s", ncol(vsd), color_var,
+                     if (is.null(shape_var)) "" else paste0("; shape = ", shape_var)),
+  color_lab = tools::toTitleCase(color_var),
+  shape_lab = if (is.null(shape_var)) NULL else tools::toTitleCase(shape_var)
+)
+write_pca(pca, "sample_qc_pca")
+
+# One PCA per requested annotation: colour = condition, shape = that column, so
+# each technical/biological axis can be read on its own.
+for (ann in pca_annotations) {
+  if (!(ann %in% colnames(coldata))) {
+    cat("pca_by:", ann, "not in coldata, skipped\n"); next
+  }
+  if (!has_levels(coldata[[ann]])) {
+    cat("pca_by:", ann, "is constant within the group, skipped\n"); next
+  }
+  ad <- plotPCA(vsd, intgroup = unique(c(color_var, ann)), returnData = TRUE)
+  ap <- round(100 * attr(ad, "percentVar"))
+  ad$.color_group <- factor(ad[[color_var]])
+  ad$.shape_group <- factor(ad[[ann]])
+  write_pca(pca_scatter(
+    ad, ap,
+    ggplot2::aes(x = PC1, y = PC2, color = .color_group, shape = .shape_group),
+    title    = sprintf("%s — VST PCA by %s", group, ann),
+    subtitle = sprintf("%d samples; colour = %s; shape = %s", ncol(vsd), color_var, ann),
+    color_lab = tools::toTitleCase(color_var),
+    shape_lab = tools::toTitleCase(ann)
+  ), paste0("pca_by_", ann))
 }
-ggsave(out(paste0(group, "_sample_qc_pca.png")), pca, width = 10, height = 8)
-ggsave(out(paste0(group, "_sample_qc_pca.pdf")), pca, width = 10, height = 8)
+
+# One distinct colour per sample (colour only + labels): easiest way to spot a
+# single outlier sample by name. Past ~24 samples the legend is dropped because it
+# would dominate the panel; the point labels still identify every sample.
+sample_data <- plotPCA(vsd, intgroup = "sample", returnData = TRUE)
+sample_pct <- round(100 * attr(sample_data, "percentVar"))
+sample_data$.color_group <- factor(sample_data[["sample"]])
+p_sample <- pca_scatter(
+  sample_data, sample_pct,
+  ggplot2::aes(x = PC1, y = PC2, color = .color_group),
+  title    = sprintf("%s — VST PCA, one colour per sample", group),
+  subtitle = sprintf("%d samples (palette: %s)", ncol(vsd), pca_palette),
+  color_lab = "Sample"
+) +
+  ggplot2::scale_color_manual(values = big_palette(ncol(vsd), pca_palette)) +
+  ggplot2::theme(legend.position = if (ncol(vsd) > 24) "none" else "right")
+write_pca(p_sample, "pca_by_sample")
+
+# Visual-only batch correction: removeBatchEffect(batch, design=~condition) takes
+# the technical shift out before the PCA so the panels above can be compared with
+# it removed. Only meaningful with >1 batch level and >1 condition; flagged as
+# visual-only because a confounded batch/condition makes the correction invalid.
+if ("batch" %in% colnames(coldata) && has_levels(coldata[["batch"]])) {
+  if (!requireNamespace("limma", quietly = TRUE)) {
+    cat("pca_batch_corrected: skipped (limma not available in the container)\n")
+  } else if (!has_levels(coldata[[color_var]])) {
+    cat("pca_batch_corrected: skipped (no condition with >1 level)\n")
+  } else {
+    mat <- SummarizedExperiment::assay(vsd)
+    rv <- apply(mat, 1, stats::var)
+    sel <- order(rv, decreasing = TRUE)[seq_len(min(500, length(rv)))]
+    design <- stats::model.matrix(stats::as.formula(paste0("~ ", color_var)), data = coldata)
+    corrected <- limma::removeBatchEffect(mat, batch = coldata[["batch"]], design = design)
+    pc <- stats::prcomp(t(corrected[sel, , drop = FALSE]))
+    pct <- round(100 * pc$sdev^2 / sum(pc$sdev^2))
+    cd <- data.frame(PC1 = pc$x[, 1], PC2 = pc$x[, 2], name = rownames(pc$x),
+                     check.names = FALSE, stringsAsFactors = FALSE)
+    cd$.color_group <- factor(coldata[rownames(pc$x), color_var])
+    write_pca(pca_scatter(
+      cd, pct,
+      ggplot2::aes(x = PC1, y = PC2, color = .color_group),
+      title    = sprintf("%s — VST PCA, batch effect removed (visual only)", group),
+      subtitle = sprintf("%d samples; colour = %s; removeBatchEffect(batch=%s)",
+                         ncol(vsd), color_var, "batch"),
+      color_lab = tools::toTitleCase(color_var)
+    ), "pca_batch_corrected")
+  }
+}
 
 keep_counts <- counts(dds)
 saveRDS(keep_counts, out(paste0(group, "_tximport_counts.rds")))
@@ -261,8 +380,14 @@ vst_df <- with_annotation(data.frame(gene_id = rownames(vst_mat), vst_mat,
 write_tsv(vst_df, out(paste0(group, "_vst.tsv")))
 
 # ---- 4b.7: enriched sample metadata (size factors + per-sample detection) ----
-if (is.null(DESeq2::sizeFactors(dds))) dds <- DESeq2::estimateSizeFactors(dds)
+# A tximport dds carries an `avgTxLength` offset, so estimateSizeFactors() stores a
+# per-gene normalizationFactors matrix and never fills colData$sizeFactor: sizeFactors()
+# stays NULL even after (re)estimating. Report the median-of-ratios factor instead, the
+# per-sample scalar this table documents.
 size_factors <- DESeq2::sizeFactors(dds)
+if (is.null(size_factors)) {
+  size_factors <- DESeq2::estimateSizeFactorsForMatrix(DESeq2::counts(dds))
+}
 samples <- colnames(keep_counts)
 # lncRNA gene ids known to the annotation (novel + annotated), for the detection split
 lncrna_ids <- if (!is.null(ann_maps$gene_group)) {

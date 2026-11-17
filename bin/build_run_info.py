@@ -6,7 +6,7 @@ Stdlib only. Writes (flat, into --outdir):
   params_used.tsv       key/value of the parameters that shape the run
   versions.tsv          process, tool, version, container — from the versions.yml each
                         tool process emits (reflects the real container, not a probe)
-  sample_index.tsv      sample, norm_group, condition, batch
+  sample_index.tsv      sample, norm_group, condition, batch, seq_batch
   run_manifest.tsv      key/value provenance (date, pipeline, publish_level, outdir)
   qa_report.tsv         headline QC for reviewers
   external_catalogs.tsv one row per configured external catalog (present true/false)
@@ -199,9 +199,9 @@ def main():
     # sample_index.tsv
     header, rows = read_tsv(args.samples)
     srows = [[r.get("sample", ""), r.get("norm_group", ""), r.get("condition", ""),
-              r.get("batch", "")] for r in rows]
+              r.get("batch", ""), r.get("seq_batch", "")] for r in rows]
     write_tsv(out("sample_index.tsv"),
-              ["sample", "norm_group", "condition", "batch"], srows)
+              ["sample", "norm_group", "condition", "batch", "seq_batch"], srows)
 
     # run_manifest.tsv
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

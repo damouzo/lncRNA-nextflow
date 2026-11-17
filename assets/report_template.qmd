@@ -492,6 +492,62 @@ if (!is.null(lncrna_per_sample) && nrow(lncrna_per_sample) > 0) {
 }
 ```
 
+### PCA of this contrast's samples
+
+Visual PCA (log2(TPM+1), top-500 variable genes) over only the samples this
+contrast tested, so a single odd sample is easy to spot. The colour-per-sample
+panel uses BuenColors' "corona" palette (joined with ColorBrewer Set1/Dark2 and
+topped up with `hcl.colors`). This is a QC panel, not a model output.
+
+```{r contrast-pca, fig.width=8, fig.height=6}
+if (!is.null(tpm) && length(contrast_samples) >= 3) {
+  mat <- log2(tpm[, contrast_samples, drop = FALSE] + 1)
+  rv <- apply(mat, 1, var)
+  sel <- order(rv, decreasing = TRUE)[seq_len(min(500, length(rv)))]
+  pc <- prcomp(t(mat[sel, , drop = FALSE]))
+  pct <- round(100 * pc$sdev^2 / sum(pc$sdev^2))
+  cs <- data.frame(PC1 = pc$x[, 1], PC2 = pc$x[, 2], sample = rownames(pc$x),
+                   stringsAsFactors = FALSE)
+  cs$condition <- if (!is.null(coldata))
+    as.character(coldata$condition[match(cs$sample, coldata$sample)]) else "all"
+  CORONA <- c("#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b",
+    "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#ad494a", "#e7ba52", "#8ca252",
+    "#756bb1", "#636363", "#aec7e8", "#ff9896", "#98df8a", "#ffbb78", "#c5b0d5",
+    "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5", "#e7969c", "#e7cb94",
+    "#c7e9c0", "#de9ed6", "#d9d9d9")
+  pal <- CORONA
+  if (requireNamespace("RColorBrewer", quietly = TRUE))
+    pal <- c(pal, RColorBrewer::brewer.pal(9, "Set1"), RColorBrewer::brewer.pal(8, "Dark2"))
+  pal <- unique(pal)
+  n <- nrow(cs)
+  if (n > length(pal)) pal <- c(pal, grDevices::hcl.colors(n - length(pal), "Dark 3"))
+
+  p_s <- ggplot(cs, aes(PC1, PC2, color = sample)) +
+    geom_point(size = 3) +
+    geom_text(aes(label = sample), size = 2.2, vjust = -0.8, check_overlap = TRUE) +
+    scale_color_manual(values = pal[seq_len(n)]) +
+    theme_minimal() + theme(legend.position = "none") +
+    labs(title = sprintf("PCA of this contrast (log2 TPM+1), one colour per sample"),
+         subtitle = sprintf("%s vs %s", params$numerator, params$denominator),
+         x = sprintf("PC1: %d%% variance", pct[1]),
+         y = sprintf("PC2: %d%% variance", pct[2]))
+  print(p_s)
+  save_fig("contrast_pca_by_sample", p_s, 8, 6)
+
+  p_c <- ggplot(cs, aes(PC1, PC2, color = condition)) +
+    geom_point(size = 3) +
+    geom_text(aes(label = sample), size = 2.2, vjust = -0.8, check_overlap = TRUE) +
+    theme_minimal() +
+    labs(title = "PCA of this contrast (log2 TPM+1), coloured by condition",
+         x = sprintf("PC1: %d%% variance", pct[1]),
+         y = sprintf("PC2: %d%% variance", pct[2]), color = "Condition")
+  print(p_c)
+  save_fig("contrast_pca_condition", p_c, 8, 6)
+} else {
+  cat("PCA skipped: fewer than three samples in this contrast.\n")
+}
+```
+
 ### lncRNA position relative to protein-coding genes
 
 Tested and significant lncRNAs (novel + annotated) by where they sit relative to
@@ -1327,6 +1383,24 @@ if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
 ```
 
 ## Functional enrichment — ORA
+
+```{r ora-caveat, results='asis'}
+# The ORA foreground is the significant cis targets when there are enough of them;
+# otherwise the enrichment step falls back to every expressed cis target, which can
+# be a handful of genes and makes the terms exploratory rather than conclusive.
+if (!is.null(ora) && nrow(ora) > 0 && "GeneRatio" %in% colnames(ora)) {
+  fg_type <- if ("foreground_type" %in% colnames(ora)) as.character(ora$foreground_type)[1] else NA
+  fg_n <- suppressWarnings(max(
+    as.numeric(sapply(strsplit(as.character(ora$GeneRatio), "/"),
+                      function(x) if (length(x) > 1) x[2] else NA)), na.rm = TRUE))
+  if (!is.na(fg_type) && grepl("all_cis_targets", fg_type)) {
+    cat(sprintf("_Note: ORA ran on the full set of expressed cis targets (n = %s), not the significant ones — the terms below are exploratory._\n",
+                if (is.finite(fg_n)) fg_n else "?"))
+  } else if (is.finite(fg_n) && fg_n < 15) {
+    cat(sprintf("_Note: ORA foreground is small (n = %s); read the terms below as exploratory._\n", fg_n))
+  }
+}
+```
 
 ```{r ora-dotplot, fig.width=7, fig.height=5}
 if (!is.null(ora) && nrow(ora) > 0 && all(c("GeneRatio", "p.adjust", "Count") %in% colnames(ora))) {

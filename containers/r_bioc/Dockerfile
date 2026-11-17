@@ -3,6 +3,7 @@
 #
 # Packages:
 #   - tximport, DESeq2, apeglm, ashr (core DE stack)
+#   - limma (removeBatchEffect for the visual batch-corrected PCA + cis normalization)
 #   - GenomicRanges, rtracklayer, GenomicFeatures (cis-association)
 #   - clusterProfiler, org.Hs.eg.db, enrichplot, fgsea (functional enrichment)
 #   - ggplot2, dplyr, readr, tibble (data wrangling & plotting)
@@ -19,6 +20,7 @@ RUN R -e " \
         'DESeq2', \
         'apeglm', \
         'ashr', \
+        'limma', \
         'GenomicRanges', \
         'rtracklayer', \
         'GenomicFeatures', \
@@ -38,7 +40,7 @@ RUN R -e " \
 
 # Verify core packages load
 RUN R -e " \
-    library(tximport); library(DESeq2); library(apeglm); \
+    library(tximport); library(DESeq2); library(apeglm); library(limma); \
     library(GenomicRanges); library(rtracklayer); library(clusterProfiler); \
     library(ggplot2); library(dplyr); library(readr); \
     sessionInfo() \

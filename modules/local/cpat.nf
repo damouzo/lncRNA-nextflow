@@ -24,16 +24,18 @@ process CPAT {
         -x "${cpat_hexamer}" \\
         --antisense
 
-    # Build ID/mRNA (yes/no) table consumed by CODING_CONSENSUS.
-    # CPAT reports ORFs per transcript; a transcript is non-coding when it has
-    # no ORF, or when its best-ORF coding probability is below the threshold.
+    # Build ID/mRNA (yes/no) + best-ORF coding probability table consumed by
+    # CODING_CONSENSUS. CPAT reports ORFs per transcript; a transcript is
+    # non-coding when it has no ORF, or when its best-ORF coding probability is
+    # below the threshold. The numeric probability is kept so the CPAT-vs-CPC2
+    # classifier figure has a real x axis (no-ORF transcripts get NA).
     awk -F'\\t' -v thr=${params.cpat_coding_threshold} \
         'NR == 1 { next }
-         { print \$1 "\\t" (\$11 < thr ? "no" : "yes") }' \
+         { print \$1 "\\t" (\$11 < thr ? "no" : "yes") "\\t" \$11 }' \
         cpat.ORF_prob.best.tsv > cpat_mrna.tsv
-    awk '{ print \$1 "\\tno" }' cpat.no_ORF.txt >> cpat_mrna.tsv
+    awk '{ print \$1 "\\tno\\tNA" }' cpat.no_ORF.txt >> cpat_mrna.tsv
     sort -u cpat_mrna.tsv > cpat_results.tmp
-    printf 'ID\\tmRNA\\n' > cpat_results.tsv
+    printf 'ID\\tmRNA\\tcpat_coding_prob\\n' > cpat_results.tsv
     cat cpat_results.tmp >> cpat_results.tsv
     """
 }

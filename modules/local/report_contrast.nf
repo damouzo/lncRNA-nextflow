@@ -76,8 +76,8 @@ process REPORT_CONTRAST {
                      col_names = c("contrast_name", "numerator", "denominator", "batch")) %>%
                 filter(contrast_name == ct)
         }, error = function(e) NULL)
-        ct_num <- if (!is.null(ct_row) && nrow(ct_row) > 0) ct_row$numerator[1] else ""
-        ct_den <- if (!is.null(ct_row) && nrow(ct_row) > 0) ct_row$denominator[1] else ""
+        ct_num <- if (!is.null(ct_row) && nrow(ct_row) > 0) ct_row\$numerator[1] else ""
+        ct_den <- if (!is.null(ct_row) && nrow(ct_row) > 0) ct_row\$denominator[1] else ""
         cmd <- paste(
             "quarto render ${template}",
             "-M", shQuote(paste0("title=lncRNA report - ", ct)),
