@@ -10,7 +10,7 @@ process DESIGN_CHECK {
     val design_formula
 
     output:
-    path "${group}_design_check.tsv", emit: design_check
+    tuple val(group), path("${group}_design_check.tsv"), emit: design_check
     path "versions.yml", emit: versions
 
     script:

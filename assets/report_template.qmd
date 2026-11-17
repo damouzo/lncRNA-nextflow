@@ -19,6 +19,7 @@ params:
   numerator: ""
   denominator: ""
   design_formula: ""
+  design_check_tsv: null
   coldata: null
   de_summary: null
   cis_pairs: null
@@ -36,6 +37,7 @@ params:
   genome_build: ""
   fdr: 0.05
   lfc: 1.0
+  extreme_basemean: 100000
   conservation_metric: "phastCons"
   conservation_configured: false
   synteny_configured: false
@@ -392,10 +394,24 @@ n_by_cond <- function(lvl) {
   if (is.null(coldata) || !("condition" %in% colnames(coldata))) return(NA_integer_)
   sum(as.character(coldata$condition) == lvl, na.rm = TRUE)
 }
-design_txt <- if (!is.null(params$design_formula) && nzchar(params$design_formula))
-  params$design_formula else "not recorded"
+design_txt <- local({
+  # Print the formula DESeq2 actually used. The requested one may have dropped
+  # batch when the group has a single level; design_check.tsv records the effective
+  # formula per contrast (design_check.R collapse rule, same as deseq2_contrasts.R).
+  dc <- tryCatch(read_tsv(params$design_check_tsv, show_col_types = FALSE),
+                 error = function(e) NULL)
+  eff <- NULL
+  if (!is.null(dc) && nrow(dc) > 0 && "design" %in% colnames(dc)) {
+    d <- unique(as.character(dc$design))
+    d <- d[!is.na(d) & nzchar(d)]
+    if (length(d) > 0) eff <- paste(d, collapse = "; ")
+  }
+  if (!is.null(eff)) return(eff)
+  if (!is.null(params$design_formula) && nzchar(params$design_formula)) return(params$design_formula)
+  "not recorded"
+})
 ov <- data.frame(
-  Item = c("Contrast", "Higher in", "Design formula", "Batch used",
+  Item = c("Contrast", "Higher in", "Design formula (used)", "Batch used",
            "Samples (numerator)", "Samples (denominator)",
            "Significance (FDR)", "LFC reference", "Genome build", "Species"),
   Value = c(
@@ -414,6 +430,29 @@ ov <- data.frame(
   stringsAsFactors = FALSE
 )
 kable(ov, format = "html", col.names = c("", ""))
+```
+
+```{r condition-seqbatch, results='asis'}
+# seq_batch is a library/lane identifier recorded for traceability only; it is not
+# a model term. Cross-tabulate it against condition so any confounding is visible
+# in the report rather than buried in the metadata.
+if (!is.null(coldata) && has_condition_cols && "seq_batch" %in% colnames(coldata)) {
+  sb <- as.character(coldata$seq_batch)
+  sb[is.na(sb) | !nzchar(sb)] <- "(none)"
+  sb_tab <- as.data.frame.matrix(table(condition = as.character(coldata$condition), seq_batch = sb))
+  sb_tab <- cbind(condition = rownames(sb_tab), sb_tab)
+  rownames(sb_tab) <- NULL
+  cat("**Condition x seq_batch**\n\n")
+  cat(knitr::kable(sb_tab, format = "html", row.names = FALSE), "\n\n")
+  cat("::: {.callout-note}\n",
+      "`seq_batch` (sequencing flowcell/lane) is confounded with `condition` in this group. ",
+      "It is **not modelled** in the design formula above and is documented here as a limitation.\n:::\n",
+      sep = "")
+} else if (!is.null(coldata) && has_condition_cols) {
+  cat("::: {.callout-note}\n",
+      "No `seq_batch` column in the sample metadata; sequencing batch could not be tabulated.\n:::\n",
+      sep = "")
+}
 ```
 
 ```{r de-banner, results='asis'}
@@ -1303,7 +1342,12 @@ rm(render_de_table)
 
 One row per **significant** lncRNA (`padj < ` `r params$fdr`), ordered by padj. The
 expression context (`mean_tpm_*`, `n_expressed_*`) is the group mean and the number
-of samples at TPM >= 1 per condition. Tier is a structural priority label, not a
+of samples at TPM >= 1 per condition. `expressed` flags genes whose group mean
+reaches 1 TPM in **both** conditions (the rest are candidates to drop before qPCR).
+`contig_type` (canonical vs `KI270733.1`-style unplaced contigs), `span_bp`/`span_kb`
+and `baseMean_extreme` flag loci whose combination of odd contig, huge span and
+extreme expression is typical of multimapping/repeats rather than a lncRNA.
+Tier is a structural priority label, not a
 confidence score. Conservation and cis columns appear only when those modules ran.
 
 ```{r shortlist}
@@ -1312,6 +1356,24 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
     filter(origin %in% c("novel", "annotated_lncrna"), significant_padj) %>%
     mutate(class_code = fmt_class_label(class_code)) %>%
     arrange(padj)
+
+  # Genomic-context flags for triage. Non-canonical contigs and very large spans
+  # (combined with extreme expression) are typical of multimapping/repeats rather
+  # than genuine lncRNAs. "expressed" is a minimal expression flag parallel to the
+  # report's own significant_padj: both group means must reach 1 TPM.
+  CANONICAL_CONTIGS <- c(as.character(1:22), "X", "Y", "MT", "M")
+  sl <- sl %>%
+    mutate(
+      contig_type = if ("chromosome" %in% colnames(sl))
+        ifelse(sl$chromosome %in% CANONICAL_CONTIGS, "canonical", "noncanonical") else NA_character_,
+      span_bp = if (all(c("start", "end") %in% colnames(sl))) abs(sl$end - sl$start) else NA_real_,
+      span_kb = span_bp / 1000,
+      baseMean_extreme = if ("baseMean" %in% colnames(sl))
+        !is.na(sl$baseMean) & sl$baseMean >= params$extreme_basemean else NA,
+      expressed = if (all(c("mean_tpm_num", "mean_tpm_den") %in% colnames(sl)))
+        !is.na(sl$mean_tpm_num) & !is.na(sl$mean_tpm_den) &
+          sl$mean_tpm_num >= 1 & sl$mean_tpm_den >= 1 else NA
+    )
 
   # Best cis partner per lncRNA (lowest padj), only if cis was computed.
   cs <- NULL
@@ -1329,6 +1391,8 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
             "lnc_position_class", "ref_gene_name",
             "log2FoldChange", "padj", "direction", "baseMean",
             "mean_tpm_num", "mean_tpm_den", "n_expressed_num", "n_expressed_den",
+            "expressed",
+            "contig_type", "span_bp", "span_kb", "n_tx", "baseMean_extreme",
             "known_catalog_hit",
             "single_exon_low_confidence", "antisense_status", "x_host_leak_suspect")
   if (has_conservation) cols <- c(cols, "conservation_mean")
@@ -1361,6 +1425,10 @@ low-powered, and a correlation can be driven by a single influential sample or b
 ties in a low-expression vector. `loo_sign_stable` (does the sign survive dropping any
 one sample?) and `loo_min_abs_rho` (weakest `|rho|` across those drops) flag that:
 prefer candidates with `loo_sign_stable == TRUE` and a `loo_min_abs_rho` well away from 0.
+`degenerate` marks pairs with `|rho| >= 0.999`, a saturated rank correlation at this
+sample size that reflects rank ties in a low-expression vector rather than a real
+association; `lncrna_n_nonzero` and `target_n_nonzero` give the number of samples with
+non-zero counts on each side, so pairs supported by very few samples can be spotted.
 The lncRNA side is described by `lncrna_origin` (novel/annotated), `lncrna_class_code`
 (GFFCOMPARE code, novel only) and `lncrna_position_class`
 (antisense/intronic/overlapping/no_coding_overlap, defined for every lncRNA).
@@ -1374,6 +1442,7 @@ if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
       "lncrna_class_code", "lncrna_position_class",
       "target_gene_id", "target_gene_name",
       "spearman_rho", "spearman_pvalue", "padj", "p_method", "df_effective", "n_samples",
+      "degenerate", "lncrna_n_nonzero", "target_n_nonzero",
       "loo_min_abs_rho", "loo_sign_stable", "loo_max_delta",
       "lncrna_DE_log2FC", "lncrna_DE_padj")))
   datatable(cis_tab, options = list(pageLength = 20))
@@ -1498,6 +1567,11 @@ if (!is.null(het_cv_ct) && nrow(het_cv_ct) > 0) {
     theme(legend.position = "none")
   print(p)
 
+  # t.test can underflow p to 0 with very large t; show the floor instead of "0".
+  cv_p <- unique(het_cv_ct$p_value)[1]
+  cv_p_txt <- if (is.na(cv_p)) "NA"
+    else if (cv_p == 0 || cv_p < .Machine$double.xmin) "< 2.2e-16"
+    else sprintf("%.3g", cv_p)
   cv_stats <- data.frame(
     Metric = c("lncRNA CV", "Coding CV", "Welch t-test"),
     Value = c(
@@ -1507,9 +1581,9 @@ if (!is.null(het_cv_ct) && nrow(het_cv_ct) > 0) {
       sprintf("mean = %.3f (n = %d)",
               unique(het_cv_ct$mean_cv_coding)[1],
               unique(het_cv_ct$n_coding_genes)[1]),
-      sprintf("t = %.3f, p = %.3g",
+      sprintf("t = %.3f, p %s",
               unique(het_cv_ct$t_statistic)[1],
-              unique(het_cv_ct$p_value)[1])
+              if (grepl("^<", cv_p_txt)) cv_p_txt else paste0("= ", cv_p_txt))
     ),
     stringsAsFactors = FALSE
   )
@@ -1528,18 +1602,34 @@ were **not** already significant (`padj < ` `r params$fdr`) in the main
 DESeq2 contrast — the actual
 value-add of this diagnostic.
 
-```{r heterogeneity-table}
+```{r heterogeneity-prep, include=FALSE}
+het_missed_tab <- NULL
+het_n_tested <- NA_integer_
 if (show_heterogeneity) {
   de_sig_ids <- if (!is.null(de_ct) && all(c("gene_id", "padj") %in% colnames(de_ct))) {
     de_ct$gene_id[!is.na(de_ct$padj) & de_ct$padj < params$fdr]
   } else character()
 
-  tab <- het_ct %>%
+  het_missed_tab <- het_ct %>%
     filter(altered_call == "altered", !(gene_id %in% de_sig_ids)) %>%
     select(any_of(c("gene_id", "catalog_id", "gene_name", "class_code", "direction",
                     "concordant_frac", "discordant_frac", "n_case", "n_control")))
-  if (nrow(tab) > 0) {
-    datatable(round_numeric_cols(tab), filter = "top", options = list(pageLength = 20))
+  het_n_tested <- nrow(het_ct)
+}
+```
+
+```{r heterogeneity-fraction, results='asis'}
+if (show_heterogeneity) {
+  cat(sprintf("%d of %d lncRNAs tested by this diagnostic (%.1f%%) were called altered and missed by the DE test.\n\n",
+              nrow(het_missed_tab), het_n_tested,
+              if (het_n_tested > 0) 100 * nrow(het_missed_tab) / het_n_tested else NA_real_))
+}
+```
+
+```{r heterogeneity-table}
+if (show_heterogeneity) {
+  if (nrow(het_missed_tab) > 0) {
+    datatable(round_numeric_cols(het_missed_tab), filter = "top", options = list(pageLength = 20))
   } else {
     cat("No additional altered lncRNAs found beyond the standard DESeq2 result.\n")
   }

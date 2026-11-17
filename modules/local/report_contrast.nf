@@ -21,7 +21,7 @@ process REPORT_CONTRAST {
     tuple val(group), val(ct), path(de_summary), path(cis_pairs),
           path(cis_pairs_sig), path(ora), path(gsea),
           path(heterogeneity), path(heterogeneity_cv),
-          path(coldata), path(contrasts_tsv), path(tpm_rds)
+          path(coldata), path(contrasts_tsv), path(tpm_rds), path(design_check_tsv)
     path template         // report_template.qmd
     path gene_catalog     // gene_catalog.tsv (origin/class_code/biotype annotations)
 
@@ -87,6 +87,7 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("numerator=", ct_num)),
             "-P", shQuote(paste0("denominator=", ct_den)),
             "-P", shQuote(paste0("design_formula=${params.design_formula ?: ''}")),
+            "-P", shQuote(paste0("design_check_tsv=${design_check_tsv}")),
             "-P", shQuote(paste0("coldata=${coldata}")),
             "-P", shQuote(paste0("de_summary=${de_summary}")),
             "-P", shQuote(paste0("cis_pairs=${cis_pairs}")),
@@ -101,6 +102,7 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("gene_catalog=${gene_catalog}")),
             "-P", shQuote(paste0("fdr=${params.fdr_threshold}")),
             "-P", shQuote(paste0("lfc=${params.lfc_threshold}")),
+            "-P", shQuote(paste0("extreme_basemean=${params.extreme_basemean}")),
             "-P", shQuote(paste0("species=${params.species}")),
             "-P", shQuote(paste0("genome_build=${params.genome_build ?: ''}")),
             "-P", shQuote(paste0("conservation_metric=${params.conservation_metric}")),

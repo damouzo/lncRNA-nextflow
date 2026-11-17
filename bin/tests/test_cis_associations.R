@@ -63,6 +63,8 @@ for (norm in c("false", "true")) {
           sprintf("4a.1 p_method/df_effective columns present (normalize=%s)", norm))
     check(all(c("loo_min_abs_rho", "loo_sign_stable", "loo_max_delta") %in% colnames(p)),
           sprintf("4a.1b leave-one-out stability columns present (normalize=%s)", norm))
+    check(all(c("degenerate", "lncrna_n_nonzero", "target_n_nonzero") %in% colnames(p)),
+          sprintf("4a.5 degenerate/n_nonzero columns present (normalize=%s)", norm))
     if (nrow(p) > 0) {
       check(!any(is.finite(p$spearman_pvalue) & p$spearman_pvalue <= .Machine$double.xmin),
             sprintf("4a.1 no p-value clamped to double.xmin (normalize=%s)", norm))

@@ -277,6 +277,14 @@ for (i in seq_len(nrow(pairs))) {
     n_samples = length(lnc_expr),
     df_effective = df_effective,
     p_method = sp$method,
+    # 4a.5: a saturated rank correlation (|rho| >= 0.999) is degenerate at this
+    # sample size — it signals rank ties in a low-expression vector, not a strong
+    # association. Flag it (nothing is filtered) so the report can mark the pair.
+    degenerate = abs(rho) >= 0.999,
+    # Raw-expression support: samples with count > 0. Many non-zero samples make a
+    # rank correlation meaningful; a handful of them make it fragile.
+    lncrna_n_nonzero = sum(counts[lnc, ] > 0),
+    target_n_nonzero = sum(counts[gene, ] > 0),
     loo_min_abs_rho = loo$min_abs,
     loo_sign_stable = loo$sign_stable,
     loo_max_delta = loo$max_delta,

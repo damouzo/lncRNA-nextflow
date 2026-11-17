@@ -190,6 +190,8 @@ workflow QUANTIFICATION {
         }
 
     // All phase-B outputs carry group as a tuple key, so every join is exact.
+    // DESIGN_CHECK rides along so the report can print the design formula that was
+    // actually used (the requested one may drop batch when the group has one level).
     ch_rpt_base = ch_deseq_summary
         .join(CIS_ASSOCIATIONS.out.cis_pairs)
         .join(CIS_ASSOCIATIONS.out.cis_pairs_sig)
@@ -199,8 +201,9 @@ workflow QUANTIFICATION {
         .join(ch_het_cv_summary_all)
         .join(TXIMPORT_AND_FILTER.out.aligned_coldata)
         .join(TXIMPORT_AND_FILTER.out.tpm_rds)
-        .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm ->
-            tuple(g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm)
+        .join(DESIGN_CHECK.out.design_check)
+        .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm, design_tsv ->
+            tuple(g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm, design_tsv)
         }
 
     // combine(by: 0), NOT join: ch_rpt_base is 1 item/group while ch_ct_keyed is
@@ -210,8 +213,8 @@ workflow QUANTIFICATION {
     // independent of which side emits first.
     ch_rpt = ch_rpt_base
         .combine(ch_ct_keyed, by: 0)
-        .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm, ct, ct_tsv ->
-            tuple(g, ct, de, cisp, cissig, ora, gsea, het, hetcv, coldata, ct_tsv, tpm)
+        .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm, design_tsv, ct, ct_tsv ->
+            tuple(g, ct, de, cisp, cissig, ora, gsea, het, hetcv, coldata, ct_tsv, tpm, design_tsv)
         }
 
     REPORT_CONTRAST(
@@ -288,7 +291,7 @@ workflow QUANTIFICATION {
         .map { g, ct, _tsv -> "${g}__${ct}" }
         .collect()
     ch_delivered_contrast_ids = ch_rpt
-        .map { g, ct, _de, _cisp, _cissig, _ora, _gsea, _het, _hetcv, _coldata, _ct_tsv, _tpm ->
+        .map { g, ct, _de, _cisp, _cissig, _ora, _gsea, _het, _hetcv, _coldata, _ct_tsv, _tpm, _design ->
             "${g}__${ct}"
         }
         .collect()
