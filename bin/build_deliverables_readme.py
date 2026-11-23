@@ -174,6 +174,15 @@ COLUMN_MEANINGS = {
                        "Same-strand overlapping pairs are excluded from the cis family "
                        "(their reads are shared); antisense overlap is kept.",
     "distance_bp": "Gap between the lncRNA and target spans (0 when they overlap).",
+    "antisense_ratio_median": "cis only: for an antisense-overlapping pair, the median of the "
+                              "lncRNA/host raw-count ratio across samples. NA for non-overlapping "
+                              "pairs. Read it next to `leak_suspect`. Not comparable to the "
+                              "discovery F1.4 `antisense_ratio` (region-based, per transcript).",
+    "leak_suspect": "cis only: a **suspicion label** (not a test) for an antisense-overlapping "
+                    "pair whose `antisense_ratio_median` is at or below the configured "
+                    "`cis_leak_ratio_max` (default 0.15, i.e. the lncRNA is <= 15% of its "
+                    "overlapping gene), consistent with strandedness read leakage. Annotates, "
+                    "never filters.",
     "correlation_input": "What the cis correlation used: residuals_intra_condition "
                          "(within-condition residuals) or expression.",
     "spearman_rho": "Spearman correlation (on intra-condition residuals by default).",
@@ -182,8 +191,25 @@ COLUMN_MEANINGS = {
                  "The |LFC| cutoff is not used here.",
     "mean_tpm_num": "Mean TPM across the samples of the numerator condition.",
     "mean_tpm_den": "Mean TPM across the samples of the denominator condition.",
-    "n_expressed_num": "Samples in the numerator condition with TPM >= 1.",
-    "n_expressed_den": "Samples in the denominator condition with TPM >= 1.",
+    "n_expressed_num": "Samples in the numerator condition with TPM >= the configured "
+                       "`expression_tpm_min` (default 1).",
+    "n_expressed_den": "Samples in the denominator condition with TPM >= the configured "
+                       "`expression_tpm_min` (default 1).",
+    "expressed": "TRUE when the group mean reaches the configured `expression_tpm_min` "
+                 "(default 1 TPM) in at least one condition; `NA` when the TPM context was "
+                 "unavailable. A qPCR triage flag, never a filter.",
+    "span_bp": "Gene span length in bp (end - start + 1) from the catalog coordinates.",
+    "span_kb": "`span_bp` / 1000.",
+    "ref_gene_id": "Reference gene the novel/annotated lncRNA is related to (catalog `ref_gene_id`).",
+    "ref_gene_name": "Reference symbol of the related gene; `NA` when none.",
+    "ref_gene_relation": "How the lncRNA relates to the reference gene (e.g. antisense, intronic).",
+    "x_host_leak_suspect": "TRUE when the antisense signal may be host-gene leakage; annotates, "
+                           "never filters.",
+    "conservation_mean": "Mean conservation score over the locus (module-dependent; `NA` when "
+                         "the conservation module did not run).",
+    "conservation_pct": "Locus conservation percentile (module-dependent; `NA` when it did not run).",
+    "syntenic_locus": "Syntenic locus in the target species (module-dependent; `NA` when it did not run).",
+    "syntenic_target_gene_id": "Target-species gene id at the syntenic locus.",
     "n_sig_up": "Significant genes (significant_padj) with log2FoldChange > 0.",
     "n_sig_down": "Significant genes (significant_padj) with log2FoldChange < 0.",
     "n_contrasts_significant": "Number of contrasts in which this lncRNA is significant_padj.",
@@ -198,8 +224,8 @@ COLUMN_MEANINGS = {
     "tpm_sum": "Summed TPM of this type in the sample.",
     "fraction_tpm": "tpm_sum divided by the total lncRNA TPM in the sample.",
     "collection": "Enrichment collection tested (here GO_BP).",
-    "input_set": "The exact gene list that entered the test (e.g. significant_cis_targets, "
-                 "all_cis_targets_expressed, all_protein_coding_ranked).",
+    "input_set": "The gene list that entered the ORA test: here `de_lncrna_neighbours` "
+                 "(coding neighbours of the DE-significant lncRNAs).",
     "chrom": "Contig of the feature (de_full) or of the novel isoform (novel_isoforms.tsv).",
     "chromosome": "Contig of the gene span (catalog tables).",
     "host_gene_id": "novel_isoforms.tsv: reference parent gene the isoform was remapped to.",
@@ -257,7 +283,7 @@ def _start_here():
     lines.append("| see significant lncRNAs that also pass |LFC| >= 1 | `contrasts/<group>__<contrast>/de_lncrna_significant_lfc1.tsv` |")
     lines.append("| read the narrative report of a contrast | `contrasts/<group>__<contrast>/<id>_report.html` |")
     lines.append("| see the paper panels of a contrast | `contrasts/<group>__<contrast>/plots/` (PDF + PNG) |")
-    lines.append("| see functional enrichment for a contrast | `contrasts/<group>__<contrast>/enrichment_ora.tsv`, `enrichment_gsea.tsv` |")
+    lines.append("| see functional enrichment for a contrast | `contrasts/<group>__<contrast>/enrichment_ora.tsv` |")
     lines.append("| check cis candidates of a group | `groups/<group>/cis_pairs_significant.tsv` |")
     lines.append("| get the expression matrix of a group | `groups/<group>/counts.tsv`, `groups/<group>/tpm.tsv` |")
     lines.append("| get normalised / VST expression | `groups/<group>/normalized_counts.tsv`, `groups/<group>/vst.tsv` |")
@@ -359,6 +385,18 @@ def build_deliverables_readme(contract, qa_rows, publish_level, fdr=None, lfc=No
     lines.append("- `tier_final` equals `tier_static` in this version (the antisense flag "
                  "annotates but does not demote).")
     lines.append("- `NA` means *not evaluated*, never *clean*.")
+    lines.append("- cis `leak_suspect` is a **suspicion label, not a test**: it marks an "
+                 "antisense-overlapping pair whose lncRNA is at or below `cis_leak_ratio_max` "
+                 "(default 15%) of its overlapping gene, where the antisense signal is "
+                 "indistinguishable from strandedness read leakage. Always read it next to "
+                 "`antisense_ratio_median`.")
+    lines.append("- Two leakage ratios coexist and are **not comparable**: the cis "
+                 "`antisense_ratio_median` (per cis pair, whole-gene counts) and the discovery "
+                 "F1.4 `antisense_ratio` (`run_info/`, catalog; overlap region, per transcript, "
+                 "capped controls). They are deliberately kept as separate measures.")
+    lines.append("- The leakage flags have **different scope**: catalog `x_host_leak_suspect` "
+                 "covers novel candidates only, while cis `leak_suspect` also covers annotated "
+                 "lncRNAs.")
     lines.append("")
     lines.extend(_tiers_section())
     qa = {r[0]: r[1] for r in (qa_rows or []) if len(r) >= 2}
@@ -465,7 +503,7 @@ def build_raw_readme(publish_level):
     lines.append("|---|---|")
     lines.append("| `deseq2/` | DESeq2 results per group (`*_DE.tsv`, `dds.rds`) |")
     lines.append("| `tximport_filter/` | tximport counts/TPM, filter stats, pre-filter universe |")
-    lines.append("| `enrichment/` | group-level ORA/GSEA tables (repartitioned per contrast in deliverables) |")
+    lines.append("| `enrichment/` | group-level ORA tables (repartitioned per contrast in deliverables) |")
     lines.append("| `cis_associations/` | cis pair tables per group |")
     lines.append("| `stringtie/`, `stringtie_merge/`, `gffcompare/` | assembly and merge |")
     lines.append("| `salmon_quant/`, `decoy_index/` | quantification |")

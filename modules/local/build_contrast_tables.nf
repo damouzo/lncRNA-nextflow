@@ -8,7 +8,8 @@ process BUILD_CONTRAST_TABLES {
     label 'process_single'
 
     input:
-    tuple val(group), val(ct), path(de_tsv), path(universe_tsv), path(tpm_tsv), path(coldata_csv)
+    tuple val(group), val(ct), path(de_tsv), path(universe_tsv), path(tpm_tsv),
+          path(coldata_csv), path(contrasts_tsv)
     path catalog_genes      // deliverables/catalog catalog_genes.tsv (annotation)
     // bin/build_contrast_tables.py staged as an input so its content is part of the
     // task hash: Nextflow does not track bin/, so without this an edit to the script
@@ -26,16 +27,15 @@ process BUILD_CONTRAST_TABLES {
     // the work-dir filenames, and the downstream task collects several of these.
     tuple val("${group}__${ct}"), path("summary.tsv"), path("de_full_significant.tsv"), emit: overview_input
     tuple val("${group}__${ct}"), path("de_lncrna_full.tsv"), emit: lncrna_full
+    // Keyed (group, contrast) copy for the report's qPCR shortlist: the report reads
+    // the built table instead of recomputing the triage columns.
+    tuple val(group), val(ct), path("de_lncrna_significant.tsv"), emit: lncrna_significant
     path "versions.yml", emit: versions
 
     script:
     """
     # The contrast id is <numerator>_vs_<denominator> (e.g. MSC_DDX41_vs_Healthy).
-    # Build it as a shell variable and split it in bash: no per-contrast file is
-    # needed and no contrast can be dropped by a join further upstream.
     CID="${group}__${ct}"
-    NUM="\${CID%%_vs_*}"
-    DEN="\${CID#*_vs_}"
 
     build_contrast_tables.py \\
         --universe "${universe_tsv}" \\
@@ -45,11 +45,11 @@ process BUILD_CONTRAST_TABLES {
         --fdr ${params.fdr_threshold} \\
         --lfc ${params.lfc_threshold} \\
         --extreme-basemean ${params.extreme_basemean} \\
+        --expression-tpm-min ${params.expression_tpm_min} \\
         --genome-build "${params.genome_build ?: ''}" \\
         --tpm "${tpm_tsv}" \\
         --coldata "${coldata_csv}" \\
-        --numerator "\$NUM" \\
-        --denominator "\$DEN" \\
+        --contrasts "${contrasts_tsv}" \\
         --out de_full.tsv \\
         --significant-out de_full_significant.tsv \\
         --lncrna-out de_lncrna_full.tsv \\

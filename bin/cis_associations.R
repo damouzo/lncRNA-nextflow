@@ -11,6 +11,13 @@
 #   cis_normalize = false: log2(counts + 1) (previous behaviour).
 # Outputs keep their format (contrast/n_pairs/n_significant/median_cor summary).
 #
+# Antisense-overlapping pairs also get antisense_ratio_median (median lncRNA/host
+# raw-count ratio) and leak_suspect (ratio <= --leak-ratio-max). With a stranded
+# protocol that still leaks ~12-18% wrong-strand reads, an overlapping antisense
+# lncRNA sitting at that fraction of its host is indistinguishable from leakage;
+# the flag annotates such pairs so they are not read as independent cis signal.
+# It never filters: the pair keeps its rho/p and only gains the two columns.
+#
 # usage:
 #   cis_associations.R --group MNC --gene-catalog gene_catalog.tsv --counts counts.rds \
 #       --coldata coldata_MNC.csv --cis-window 100000 --fdr 0.05 \
@@ -36,6 +43,7 @@ fdr_cutoff <- as.numeric(get_arg("--fdr", "0.05"))
 normalize <- tolower(get_arg("--normalize", "true")) %in% c("true", "t", "1", "yes")
 min_samples <- as.integer(get_arg("--min-samples", "4"))
 min_abs_rho <- as.numeric(get_arg("--min-abs-rho", "0"))
+leak_ratio_max <- as.numeric(get_arg("--leak-ratio-max", "0.15"))
 outdir <- get_arg("--outdir", ".")
 if (is.null(group) || is.null(gene_catalog_path) || is.null(counts_rds)) {
   stop("usage: cis_associations.R --group G --gene-catalog catalog.tsv --counts counts.rds --coldata coldata.csv")
@@ -262,6 +270,20 @@ for (i in seq_len(nrow(pairs))) {
   } else {
     list(min_abs = NA_real_, sign_stable = NA, max_delta = NA_real_)
   }
+  # Strandedness leakage: only antisense-overlapping pairs can leak (same-strand
+  # overlaps are dropped upstream). Ratio on raw counts, so it is a read fraction
+  # independent of the normalization above.
+  leak_ratio <- NA_real_
+  leak_suspect <- FALSE
+  if (isTRUE(pairs$overlaps_target[i])) {
+    tc <- as.numeric(counts[gene, ])
+    lc <- as.numeric(counts[lnc, ])
+    ok <- is.finite(tc) & tc > 0
+    if (any(ok)) {
+      leak_ratio <- stats::median(lc[ok] / tc[ok])
+      leak_suspect <- is.finite(leak_ratio) && leak_ratio <= leak_ratio_max
+    }
+  }
   cis_list[[length(cis_list) + 1L]] <- data.frame(
     lncrna_id = lnc,
     lncrna_catalog_id = pairs$lncrna_catalog_id[i],
@@ -272,6 +294,8 @@ for (i in seq_len(nrow(pairs))) {
     target_gene_name = pairs$target_gene_name[i],
     overlaps_target = pairs$overlaps_target[i],
     distance_bp = pairs$distance_bp[i],
+    antisense_ratio_median = leak_ratio,
+    leak_suspect = leak_suspect,
     spearman_rho = rho,
     spearman_pvalue = sp$p,
     n_samples = length(lnc_expr),

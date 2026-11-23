@@ -1,18 +1,21 @@
-// B6: Functional enrichment (ORA + GSEA via clusterProfiler)
-// Runs over protein-coding targets of significant cis pairs (guilt-by-association).
-// MSTRG genes have no functional annotation, so the lncRNA signal is mapped
-// through the coding neighbors they are correlated with.
-// Background = experiment's expressed protein-coding universe (per contrast).
+// B6: Functional enrichment (ORA via clusterProfiler).
+// One over-representation analysis on coding genes (GO-BP): the coding neighbours
+// of the lncRNAs that are DE-significant in the contrast, using every cis pair
+// (significant or not). MSTRG genes have no functional annotation, so the lncRNA
+// signal is read through the coding neighbours they are associated with.
+// Background = coding genes in the window of any tested lncRNA (the cis family),
+// not the whole transcriptome. No direction is assumed, so it answers "which
+// processes do the neighbours of the changing lncRNAs fall in?".
+// Fewer than 5 usable genes: the analysis is not run (the report says so).
 
 process FUNCTIONAL_ENRICHMENT {
 
     input:
-    tuple val(group), path(cis_pairs_sig), path(deseq2_summary)  // keyed: no positional pairing downstream
+    tuple val(group), path(cis_pairs_all), path(deseq2_summary)
     path gene_catalog
 
     output:
-    tuple val(group), path("${group}_enrichment_ora.tsv"),  emit: ora_results
-    tuple val(group), path("${group}_enrichment_gsea.tsv"), emit: gsea_results
+    tuple val(group), path("${group}_enrichment_ora.tsv"), emit: ora_results
     path "${group}_enrichment_plots/*", optional: true, emit: plots
     path "versions.yml", emit: versions
 
@@ -24,139 +27,88 @@ process FUNCTIONAL_ENRICHMENT {
     library(enrichplot)
     library(readr)
     library(dplyr)
-    library(ggplot2)
 
     dir.create("${group}_enrichment_plots", showWarnings = FALSE)
 
     catalog <- read_tsv("${gene_catalog}", show_col_types = FALSE)
-    pc_ids <- unique(catalog\$gene_id[catalog\$gene_biotype == "protein_coding"])
+    pc_ids     <- unique(catalog\$gene_id[catalog\$gene_biotype == "protein_coding"])
+    lncrna_ids <- unique(catalog\$gene_id[catalog\$origin %in% c("novel", "annotated_lncrna")])
 
-    cis_sig <- tryCatch({
-        read_tsv("${cis_pairs_sig}", show_col_types = FALSE)
-    }, error = function(e) NULL)
-    if (is.null(cis_sig) || nrow(cis_sig) == 0 ||
-        !("target_gene_id" %in% colnames(cis_sig))) {
-        cis_sig <- NULL
+    # The cis family: every coding gene in the window of a tested lncRNA. Feeds both
+    # the neighbourhood foreground and its background.
+    cis_all <- read_tsv("${cis_pairs_all}", show_col_types = FALSE)
+    neigh_universe <- unique(cis_all\$target_gene_id[!is.na(cis_all\$target_gene_id)])
+
+    # An antisense-overlapping lncRNA can be DE only because its host leaks reads, so
+    # its host would enter the foreground and the ORA would just echo the host's DE.
+    # Drop leak-suspect pairs from the foreground (the background keeps the full
+    # family). leak_suspect is present in the full cis_pairs table.
+    cis_fg <- if ("leak_suspect" %in% colnames(cis_all)) {
+        cis_all[!(cis_all\$leak_suspect %in% TRUE), , drop = FALSE]
     } else {
-        cis_sig <- cis_sig[!is.na(cis_sig\$target_gene_id), ]
+        cis_all
     }
-    targets <- if (!is.null(cis_sig)) unique(cis_sig\$target_gene_id) else character()
 
     de_results <- read_tsv("${deseq2_summary}", show_col_types = FALSE)
-    contrasts <- if ("contrast" %in% colnames(de_results)) {
-        unique(de_results\$contrast)
-    } else {
-        "all"
-    }
+    contrasts <- if ("contrast" %in% colnames(de_results)) unique(de_results\$contrast) else "all"
+    fdr_cut <- ${params.fdr_threshold}
 
+    label <- "de_lncrna_neighbours"
     ora_all <- list()
-    gsea_all <- list()
 
     for (ct in contrasts) {
-        ct_data <- de_results
-        if (ct != "all") {
-            ct_data <- subset(de_results, contrast == ct)
-        }
+        ct_data <- if (ct == "all") de_results else subset(de_results, contrast == ct)
         if (nrow(ct_data) == 0) next
 
-        # Restrict to protein-coding genes tested in this contrast (universe)
-        pc_data <- ct_data[ct_data\$gene_id %in% pc_ids, ]
+        # Universe = protein-coding genes tested in this contrast.
+        pc_data  <- ct_data[ct_data\$gene_id %in% pc_ids, ]
         universe <- unique(pc_data\$gene_id)
         if (length(universe) < 10) {
             cat("Contrast", ct, ": too few protein-coding genes tested, skipping\\n")
             next
         }
 
-        # Ranked list for GSEA (protein-coding only)
-        stat_col <- if ("stat" %in% colnames(pc_data)) "stat" else "log2FoldChange"
-        gene_list <- as.numeric(pc_data[[stat_col]])
-        names(gene_list) <- pc_data\$gene_id
-        gene_list <- sort(gene_list[is.finite(gene_list)], decreasing = TRUE)
-
-        # ---- ORA: DE-significant cis targets (guilt by association) ----
-        # "significant" = padj < FDR only (no |LFC| cutoff), matching the default
-        # significance used everywhere else; the foreground is the FDR-significant
-        # cis targets.
-        fdr_cut <- ${params.fdr_threshold}
-        de_sig <- ct_data\$gene_id[!is.na(ct_data\$padj) & ct_data\$padj < fdr_cut]
-        foreground <- unique(intersect(targets, de_sig))
-        foreground_type <- "significant_cis_targets"
-        if (length(foreground) < 5) {
-            # fallback: all cis targets expressed in this contrast
-            foreground <- unique(intersect(targets, universe))
-            foreground_type <- "all_cis_targets_expressed"
-        }
-        cat("Contrast", ct, ": ORA foreground =", length(foreground),
-            "cis targets (", foreground_type, ")\\n")
-
-        if (length(foreground) >= 5) {
-            # pvalueCutoff/qvalueCutoff = 1: keep every tested term, the researcher
-            # filters by p.adjust downstream. Nothing is dropped here.
-            ego <- tryCatch({
-                enrichGO(gene = foreground,
-                         universe = universe,
-                         OrgDb = org.Hs.eg.db,
-                         keyType = "ENSEMBL",
-                         ont = "BP",
-                         pAdjustMethod = "BH",
-                         pvalueCutoff = 1,
-                         qvalueCutoff = 1,
-                         minGSSize = 5)
-            }, error = function(e) NULL)
-            if (!is.null(ego) && nrow(as.data.frame(ego)) > 0) {
-                ego_df <- as.data.frame(ego)
-                ego_df\$contrast <- ct
-                ego_df\$foreground_type <- foreground_type
-                # collection/input_set: the ontology and the exact gene list that
-                # entered the test, so the table is self-describing in the deliverables.
-                ego_df\$collection <- "GO_BP"
-                ego_df\$input_set <- foreground_type
-                ora_all[[ct]] <- ego_df
-                # ORA dotplot, both formats (raw; the delivered plot is rendered by the report).
-                png(file.path("${group}_enrichment_plots", paste0(ct, "_ora_dotplot.png")),
-                    width = 900, height = 700)
-                print(dotplot(ego, showCategory = 20))
-                dev.off()
-                pdf(file.path("${group}_enrichment_plots", paste0(ct, "_ora_dotplot.pdf")),
-                    width = 9, height = 7)
-                print(dotplot(ego, showCategory = 20))
-                dev.off()
-                cat(sprintf("  ORA: %d GO-BP terms (full table, no cutoff)\n", nrow(ego_df)))
-            } else {
-                cat(sprintf("  ORA: enrichGO returned 0 terms (foreground=%d, universe=%d)\n",
-                            length(foreground), length(universe)))
-            }
-        } else {
-            cat(sprintf("  ORA: insufficient foreground (%d genes, need >= 5)\n",
-                        length(foreground)))
+        # Foreground: coding neighbours of the DE-significant lncRNAs (any cis pair,
+        # leak-suspect pairs dropped).
+        de_lnc <- ct_data\$gene_id[!is.na(ct_data\$padj) & ct_data\$padj < fdr_cut &
+                                   ct_data\$gene_id %in% lncrna_ids]
+        fg <- intersect(unique(cis_fg\$target_gene_id[cis_fg\$lncrna_id %in% de_lnc]),
+                        universe)
+        bg <- intersect(neigh_universe, universe)
+        if (length(fg) < 5) {
+            cat(sprintf("Contrast %s: ORA skipped, %d usable neighbours (need >= 5)\\n",
+                        ct, length(fg)))
+            next
         }
 
-        # ---- GSEA: all protein-coding genes ranked by the unshrunken DE stat ----
-        gsea <- tryCatch({
-            gseGO(geneList = gene_list,
-                  OrgDb = org.Hs.eg.db,
-                  keyType = "ENSEMBL",
-                  ont = "BP",
-                  pAdjustMethod = "BH",
-                  pvalueCutoff = 1)
+        # pvalueCutoff/qvalueCutoff = 1: keep every tested term, the researcher
+        # filters by p.adjust downstream. Nothing is dropped here.
+        ego <- tryCatch({
+            enrichGO(gene = fg, universe = bg, OrgDb = org.Hs.eg.db, keyType = "ENSEMBL",
+                     ont = "BP", pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1,
+                     minGSSize = 5)
         }, error = function(e) NULL)
-
-        if (!is.null(gsea) && nrow(as.data.frame(gsea)) > 0) {
-            gsea_df <- as.data.frame(gsea)
-            gsea_df\$contrast <- ct
-            gsea_df\$collection <- "GO_BP"
-            gsea_df\$input_set <- "all_protein_coding_ranked"
-            gsea_all[[ct]] <- gsea_df
-
-            png(file.path("${group}_enrichment_plots", paste0(ct, "_gsea_dotplot.png")),
-                width = 900, height = 700)
-            print(dotplot(gsea, showCategory = 20))
-            dev.off()
-            pdf(file.path("${group}_enrichment_plots", paste0(ct, "_gsea_dotplot.pdf")),
-                width = 9, height = 7)
-            print(dotplot(gsea, showCategory = 20))
-            dev.off()
+        if (is.null(ego) || nrow(as.data.frame(ego)) == 0) {
+            cat(sprintf("  ORA: enrichGO returned 0 terms (fg=%d, bg=%d)\\n", length(fg), length(bg)))
+            next
         }
+        d <- as.data.frame(ego)
+        d\$contrast <- ct
+        d\$collection <- "GO_BP"
+        # input_set/foreground_type: the exact gene list that entered the test, so
+        # the table is self-describing in the deliverables and the report.
+        d\$input_set <- label
+        d\$foreground_type <- label
+        png(file.path("${group}_enrichment_plots", paste0(ct, "_ora_dotplot.png")),
+            width = 900, height = 700)
+        print(dotplot(ego, showCategory = 20))
+        dev.off()
+        pdf(file.path("${group}_enrichment_plots", paste0(ct, "_ora_dotplot.pdf")),
+            width = 9, height = 7)
+        print(dotplot(ego, showCategory = 20))
+        dev.off()
+        cat(sprintf("  ORA: %d GO-BP terms (full table, no cutoff)\\n", nrow(d)))
+        ora_all[[ct]] <- d
     }
 
     # write_tsv() on a 0-column data.frame writes a 0-byte file (no header), which
@@ -167,18 +119,12 @@ process FUNCTIONAL_ENRICHMENT {
         for (col in cols) d[[col]] <- character(0)
         d
     }
-    ora_cols <- c("ID", "Description", "GeneRatio", "BgRatio", "pvalue", "p.adjust",
-                  "qvalue", "geneID", "Count", "contrast", "collection", "input_set",
-                  "foreground_type")
-    gsea_cols <- c("ID", "Description", "setSize", "enrichmentScore", "NES", "pvalue",
-                   "p.adjust", "qvalue", "rank", "leading_edge", "core_enrichment",
-                   "contrast", "collection", "input_set")
-
+    ora_cols <- c("ID", "Description", "GeneRatio", "BgRatio", "RichFactor", "FoldEnrichment",
+                  "zScore", "pvalue", "p.adjust", "qvalue", "geneID", "Count",
+                  "contrast", "collection", "input_set", "foreground_type")
     ora_df <- if (length(ora_all) > 0) as.data.frame(do.call(rbind, ora_all)) else empty_frame(ora_cols)
-    gsea_df <- if (length(gsea_all) > 0) as.data.frame(do.call(rbind, gsea_all)) else empty_frame(gsea_cols)
 
     write_tsv(ora_df, "${group}_enrichment_ora.tsv")
-    write_tsv(gsea_df, "${group}_enrichment_gsea.tsv")
 
     ver <- paste0("R ", paste(R.version\$major, R.version\$minor, sep = "."))
     for (pkg in c("clusterProfiler", "org.Hs.eg.db")) {

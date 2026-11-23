@@ -22,11 +22,12 @@ params:
   design_check_tsv: null
   coldata: null
   de_summary: null
+  lncrna_sig: null
   cis_pairs: null
   cis_pairs_sig: null
   cis_window: 100000
+  cis_leak_ratio_max: 0.15
   ora: null
-  gsea: null
   heterogeneity: null
   heterogeneity_cv: null
   heterogeneity_concordant_frac: 0.50
@@ -252,6 +253,12 @@ has_synteny <- isTRUE(params$synteny_configured) &&
   !is.null(catalog) && "syntenic_locus" %in% colnames(catalog) &&
   any(!is.na(catalog$syntenic_locus))
 
+# Section visibility follows the run configuration, not the data: a resource
+# left null/false in params hides the whole section (title included), while a
+# configured run that found no scores keeps the section and reports "no data".
+conservation_on <- isTRUE(params$conservation_configured)
+synteny_on      <- isTRUE(params$synteny_configured)
+
 cis <- tryCatch(read_tsv(params$cis_pairs, show_col_types = FALSE),
                 error = function(e) NULL)
 cis_sig <- tryCatch(read_tsv(params$cis_pairs_sig, show_col_types = FALSE),
@@ -269,15 +276,15 @@ if (!is.null(cis_sig) && nrow(cis_sig) > 0 && !is.null(de_ct) && nrow(de_ct) > 0
 
 ora <- tryCatch(read_tsv(params$ora, show_col_types = FALSE),
                 error = function(e) NULL)
-gsea <- tryCatch(read_tsv(params$gsea, show_col_types = FALSE),
-                 error = function(e) NULL)
 
-# Restrict enrichment tables to the current contrast
+# Built per-contrast lncRNA-significant table: the qPCR shortlist reads this instead
+# of recomputing the triage columns (single source of truth with the deliverable).
+lncrna_sig <- tryCatch(read_tsv(params$lncrna_sig, show_col_types = FALSE),
+                       error = function(e) NULL)
+
+# Restrict the enrichment table to the current contrast
 if (!is.null(ora) && "contrast" %in% colnames(ora)) {
   ora <- filter(ora, contrast == !!contrast)
-}
-if (!is.null(gsea) && "contrast" %in% colnames(gsea)) {
-  gsea <- filter(gsea, contrast == !!contrast)
 }
 
 # Heterogeneity diagnostic (optional feature, off by default): the group-level table is
@@ -330,45 +337,6 @@ if (!is.null(tpm) && has_condition_cols &&
   contrast_samples <- keep[order(cond_lvl, keep)]
 }
 
-# Per-condition sample sets (whole group) for the shortlist expression context.
-cond_samples_map <- list()
-if (has_condition_cols && !is.null(tpm)) {
-  for (lvl in unique(coldata$condition)) {
-    cond_samples_map[[as.character(lvl)]] <- intersect(coldata$sample[coldata$condition == lvl],
-                                                       colnames(tpm))
-  }
-}
-
-# Direction (sign of the shrunken LFC) and per-condition TPM context for the
-# shortlist, computed here once from the group TPM matrix.
-if (!is.null(de_ann) && nrow(de_ann) > 0 && "log2FoldChange" %in% colnames(de_ann)) {
-  de_ann <- de_ann %>%
-    mutate(direction = dplyr::case_when(
-      !significant_padj ~ "ns",
-      is.na(log2FoldChange) ~ "ns",
-      log2FoldChange > 0 ~ paste0("up_in_", params$numerator),
-      TRUE ~ paste0("down_in_", params$numerator)
-    ))
-}
-if (!is.null(tpm) && !is.null(de_ann) && nrow(de_ann) > 0) {
-  expr_ctx <- function(lvl) {
-    ss <- intersect(cond_samples_map[[as.character(lvl)]], colnames(tpm))
-    if (length(ss) == 0) {
-      return(list(m = rep(NA_real_, nrow(de_ann)), n = rep(NA_integer_, nrow(de_ann))))
-    }
-    m <- tpm[de_ann$gene_id, ss, drop = FALSE]
-    mm <- rowMeans(m, na.rm = TRUE); mm[is.nan(mm)] <- NA_real_
-    nn <- rowSums(m >= 1, na.rm = TRUE); nn[is.na(mm)] <- NA_integer_
-    list(m = as.numeric(mm), n = as.integer(nn))
-  }
-  num <- expr_ctx(params$numerator)
-  den <- expr_ctx(params$denominator)
-  de_ann$mean_tpm_num   <- num$m
-  de_ann$mean_tpm_den   <- den$m
-  de_ann$n_expressed_num <- num$n
-  de_ann$n_expressed_den <- den$n
-}
-
 lncrna_per_sample <- NULL
 if (!is.null(tpm) && !is.null(catalog) && nrow(catalog) > 0) {
   lncrna_ids <- catalog$gene_id[catalog$origin %in% c("novel", "annotated_lncrna")]
@@ -390,10 +358,6 @@ if (!is.null(tpm) && !is.null(catalog) && nrow(catalog) > 0) {
 ## Analysis overview
 
 ```{r analysis-overview}
-n_by_cond <- function(lvl) {
-  if (is.null(coldata) || !("condition" %in% colnames(coldata))) return(NA_integer_)
-  sum(as.character(coldata$condition) == lvl, na.rm = TRUE)
-}
 design_txt <- local({
   # Print the formula DESeq2 actually used. The requested one may have dropped
   # batch when the group has a single level; design_check.tsv records the effective
@@ -410,49 +374,25 @@ design_txt <- local({
   if (!is.null(params$design_formula) && nzchar(params$design_formula)) return(params$design_formula)
   "not recorded"
 })
+batch_txt <- local({
+  if (!is.null(ct_batch)) return(paste(sort(ct_batch), collapse = ", "))
+  b <- if (!is.null(coldata) && "batch" %in% colnames(coldata)) {
+    unique(as.character(coldata$batch))
+  } else character()
+  b <- b[!is.na(b) & nzchar(b)]
+  if (length(b) == 0) "no batch" else paste(sort(b), collapse = ", ")
+})
 ov <- data.frame(
-  Item = c("Contrast", "Higher in", "Design formula (used)", "Batch used",
-           "Samples (numerator)", "Samples (denominator)",
-           "Significance (FDR)", "LFC reference", "Genome build", "Species"),
+  Item = c("Contrast", "Design formula", "Batch used", "Genome build"),
   Value = c(
     sprintf("%s vs %s", params$numerator, params$denominator),
-    sprintf("%s (+log2FC = higher in %s)", params$numerator, params$numerator),
     design_txt,
-    if (!is.null(ct_batch)) paste0("single batch: ", ct_batch)
-      else if (group_has_batch) "all samples (batch in design)" else "all samples (no batch)",
-    as.character(n_by_cond(params$numerator)),
-    as.character(n_by_cond(params$denominator)),
-    sprintf("padj < %g", params$fdr),
-    sprintf("|log2FC| >= %g (visual guide only)", params$lfc),
-    if (!is.null(params$genome_build) && nzchar(params$genome_build)) params$genome_build else "not recorded",
-    if (!is.null(params$species) && nzchar(params$species)) params$species else "not recorded"
+    batch_txt,
+    if (!is.null(params$genome_build) && nzchar(params$genome_build)) params$genome_build else "not recorded"
   ),
   stringsAsFactors = FALSE
 )
 kable(ov, format = "html", col.names = c("", ""))
-```
-
-```{r condition-seqbatch, results='asis'}
-# seq_batch is a library/lane identifier recorded for traceability only; it is not
-# a model term. Cross-tabulate it against condition so any confounding is visible
-# in the report rather than buried in the metadata.
-if (!is.null(coldata) && has_condition_cols && "seq_batch" %in% colnames(coldata)) {
-  sb <- as.character(coldata$seq_batch)
-  sb[is.na(sb) | !nzchar(sb)] <- "(none)"
-  sb_tab <- as.data.frame.matrix(table(condition = as.character(coldata$condition), seq_batch = sb))
-  sb_tab <- cbind(condition = rownames(sb_tab), sb_tab)
-  rownames(sb_tab) <- NULL
-  cat("**Condition x seq_batch**\n\n")
-  cat(knitr::kable(sb_tab, format = "html", row.names = FALSE), "\n\n")
-  cat("::: {.callout-note}\n",
-      "`seq_batch` (sequencing flowcell/lane) is confounded with `condition` in this group. ",
-      "It is **not modelled** in the design formula above and is documented here as a limitation.\n:::\n",
-      sep = "")
-} else if (!is.null(coldata) && has_condition_cols) {
-  cat("::: {.callout-note}\n",
-      "No `seq_batch` column in the sample metadata; sequencing batch could not be tabulated.\n:::\n",
-      sep = "")
-}
 ```
 
 ```{r de-banner, results='asis'}
@@ -462,12 +402,6 @@ if (is.null(de_ann) || nrow(de_ann) == 0) {
       "check the contrast label and the DESeq2 log.\n:::\n", sep = "")
 }
 ```
-
-> **How to read this report.** `significant` always means `padj < ` `r params$fdr`;
-> `significant_padj_lfc1` is a separate, explicitly labelled column and is never
-> the default. Tier is a **structural priority** label, not a confidence score.
-> Class `i` on the same strand as its host can be nascent pre-mRNA, and antisense
-> calls depend on strand fidelity. `NA` means *not evaluated*, never *clean*.
 
 ## Tested catalog
 
@@ -534,9 +468,7 @@ if (!is.null(lncrna_per_sample) && nrow(lncrna_per_sample) > 0) {
 ### PCA of this contrast's samples
 
 Visual PCA (log2(TPM+1), top-500 variable genes) over only the samples this
-contrast tested, so a single odd sample is easy to spot. The colour-per-sample
-panel uses BuenColors' "corona" palette (joined with ColorBrewer Set1/Dark2 and
-topped up with `hcl.colors`). This is a QC panel, not a model output.
+contrast tested.
 
 ```{r contrast-pca, fig.width=8, fig.height=6}
 if (!is.null(tpm) && length(contrast_samples) >= 3) {
@@ -563,7 +495,7 @@ if (!is.null(tpm) && length(contrast_samples) >= 3) {
 
   p_s <- ggplot(cs, aes(PC1, PC2, color = sample)) +
     geom_point(size = 3) +
-    geom_text(aes(label = sample), size = 2.2, vjust = -0.8, check_overlap = TRUE) +
+    geom_text(aes(label = sample), size = 3.2, vjust = -0.8, check_overlap = TRUE) +
     scale_color_manual(values = pal[seq_len(n)]) +
     theme_minimal() + theme(legend.position = "none") +
     labs(title = sprintf("PCA of this contrast (log2 TPM+1), one colour per sample"),
@@ -575,7 +507,7 @@ if (!is.null(tpm) && length(contrast_samples) >= 3) {
 
   p_c <- ggplot(cs, aes(PC1, PC2, color = condition)) +
     geom_point(size = 3) +
-    geom_text(aes(label = sample), size = 2.2, vjust = -0.8, check_overlap = TRUE) +
+    geom_text(aes(label = sample), size = 3.2, vjust = -0.8, check_overlap = TRUE) +
     theme_minimal() +
     labs(title = "PCA of this contrast (log2 TPM+1), coloured by condition",
          x = sprintf("PC1: %d%% variance", pct[1]),
@@ -588,10 +520,6 @@ if (!is.null(tpm) && length(contrast_samples) >= 3) {
 ```
 
 ### lncRNA position relative to protein-coding genes
-
-Tested and significant lncRNAs (novel + annotated) by where they sit relative to
-protein-coding genes (`lnc_position_class`). `significant_padj` is `padj < FDR`;
-`significant_padj_lfc1` additionally requires `|log2FC| >= LFC`.
 
 ```{r position-class-summary}
 if (!is.null(de_ann) && nrow(de_ann) > 0 &&
@@ -673,9 +601,8 @@ if (!is.null(novel_de) && nrow(novel_de) > 0) {
 
 ### Novel significant lncRNAs in external catalogs
 
-The `novel` call is only as strong as the external evidence behind it. For the
-**novel lncRNAs significant in this contrast**, this shows how many are in fact a
-strict reciprocal hit in a configured external catalog and in which one. It reads
+For the novel lncRNAs significant in this contrast, this shows how many are in fact
+a strict reciprocal hit in a configured external catalog and in which one. It reads
 the per-source `in_<source>` flags directly — no text list is parsed, so a
 non-evaluated source (NA) can never be mistaken for a source with no hit.
 
@@ -738,7 +665,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
         data.frame(catalog = c("Novel significant (total)", "In >=1 catalog", absent_label),
                    n = c(nrow(novel_sig), n_hit, nrow(novel_sig) - n_hit)),
         per_src),
-      format = "html", col.names = c("Group", "Genes"))
+      format = "html", col.names = c("Group", "Genes"), row.names = FALSE)
   } else {
     cat("No significant novel lncRNAs in this contrast.\n")
   }
@@ -789,13 +716,9 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
 
 ### Volcano plot
 
-Three views (tabs): all lncRNAs (annotated + novel), annotated only, novel only. Colored by
-`origin`; point size marks **`significant_padj`** (`padj < FDR`). The y-axis is
-`-log10(padj)`, so the dashed line at `padj = FDR` separates significant from
-non-significant. The dotted lines are `+/-LFC`, shown as a **visual reference only**
-(they do not define significance). Genes with `padj = NA` (independent filtering) are
-not drawn. The top 20 significant by padj are labeled with the gene symbol, else
-`catalog_id`, else `gene_id`. Each view is also written as a PDF under `plots/`.
+Three views (tabs: all lncRNAs / annotated / novel), coloured by origin; y-axis is
+`-log10(padj)`, dashed line at `padj = FDR`, top 20 significant by padj labelled,
+each view also written as a PDF under `plots/`.
 
 ```{r volcano-setup}
 volcano_base <- NULL
@@ -879,10 +802,6 @@ if (!is.null(volcano_base)) {
 
 :::
 
-Protein-coding and other non-lncRNA reference genes are tested and shipped in full in the
-**`de_full.tsv`** deliverable (`gene_group = protein_coding` / `other`) but are not part of this
-lncRNA report; this panel only draws lncRNAs.
-
 ### MA plot
 
 Mean-difference plot for the same contrast: `log2FoldChange` against the mean
@@ -924,14 +843,7 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
 
 ### Top DE genes and lncRNAs
 
-The panels most people expect from a DE analysis: a heatmap of the strongest
-changes and, for lncRNAs, per-sample expression. Selection is the top N by
-absolute `log2FoldChange` **among `significant_padj` genes** (`padj < FDR`), so a
-contrast with few significant genes still produces a figure. Rows are row z-scores
-of log2 TPM; columns are this contrast's samples (restricted to `batch_subset` when
-the contrast used one), with the denominator group first. Each panel is also written
-as `plots/heatmap_top.png|pdf`, `plots/heatmap_top_lncrna.png|pdf` and
-`plots/top_lncrna_expression.png|pdf`.
+Top DE lncRNAs by |log2FoldChange| among significant genes, shown as a row z-score heatmap and per-sample expression; the top DE gene heatmap is shipped separately as `plots/heatmap_top_genes.png|pdf`.
 
 ```{r heatmap-helpers, include=FALSE}
 # Row z-score of log2 TPM for the given genes across the given samples.
@@ -995,11 +907,11 @@ if (!is.null(tpm) && !is.null(de_ann) && nrow(de_ann) > 0 &&
     slice_head(n = 50)
   lg <- build_expr_long(top_genes$gene_id, contrast_samples)
   if (!is.null(lg) && nrow(lg) > 0) {
+    # Shipped as a deliverable (plots/heatmap_top_genes.png|pdf) but not drawn here.
     p <- plot_heatmap(lg, sprintf("Top %d DE genes by |LFC| (row z-score)",
                                   dplyr::n_distinct(lg$gene_id)),
                       if (group_has_batch) "batch is in the design; z-score is not batch-corrected" else NULL)
-    print(p)
-    save_fig("heatmap_top", p, 9, 8)
+    save_fig("heatmap_top_genes", p, 9, 8)
   } else {
     cat("No significant genes for the heatmap.\n")
   }
@@ -1340,40 +1252,26 @@ rm(render_de_table)
 
 ## Candidate shortlist (qPCR)
 
-One row per **significant** lncRNA (`padj < ` `r params$fdr`), ordered by padj. The
-expression context (`mean_tpm_*`, `n_expressed_*`) is the group mean and the number
-of samples at TPM >= 1 per condition. `expressed` flags genes whose group mean
-reaches 1 TPM in **both** conditions (the rest are candidates to drop before qPCR).
-`contig_type` (canonical vs `KI270733.1`-style unplaced contigs), `span_bp`/`span_kb`
-and `baseMean_extreme` flag loci whose combination of odd contig, huge span and
-extreme expression is typical of multimapping/repeats rather than a lncRNA.
-Tier is a structural priority label, not a
+One row per **significant** lncRNA (`padj < ` `r params$fdr`), ordered by padj. The table
+is the built `de_lncrna_significant.tsv` for the contrast, so it matches the delivered
+file column for column. The expression context (`mean_tpm_*`, `n_expressed_*`) is the
+group mean and the number of samples at or above the configured TPM threshold per
+condition. `expressed` flags genes
+whose group mean reaches the configured TPM threshold in **at least one** condition — a
+one-sided switch is still a good qPCR candidate. `contig_type` (canonical vs
+`KI270733.1`-style unplaced contigs), `span_bp`/`span_kb` and `baseMean_extreme` flag
+loci whose combination of odd contig, huge span and extreme expression is typical of
+multimapping/repeats rather than a lncRNA. Tier is a structural priority label, not a
 confidence score. Conservation and cis columns appear only when those modules ran.
 
 ```{r shortlist}
-if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
-  sl <- de_ann %>%
-    filter(origin %in% c("novel", "annotated_lncrna"), significant_padj) %>%
+# The triage columns (contig_type, span_*, baseMean_extreme, expressed, direction,
+# mean_tpm_*) are computed once in build_contrast_tables.py, not recomputed here.
+if (!is.null(lncrna_sig) && nrow(lncrna_sig) > 0 && "origin" %in% colnames(lncrna_sig)) {
+  sl <- lncrna_sig %>%
+    filter(origin %in% c("novel", "annotated_lncrna")) %>%
     mutate(class_code = fmt_class_label(class_code)) %>%
     arrange(padj)
-
-  # Genomic-context flags for triage. Non-canonical contigs and very large spans
-  # (combined with extreme expression) are typical of multimapping/repeats rather
-  # than genuine lncRNAs. "expressed" is a minimal expression flag parallel to the
-  # report's own significant_padj: both group means must reach 1 TPM.
-  CANONICAL_CONTIGS <- c(as.character(1:22), "X", "Y", "MT", "M")
-  sl <- sl %>%
-    mutate(
-      contig_type = if ("chromosome" %in% colnames(sl))
-        ifelse(sl$chromosome %in% CANONICAL_CONTIGS, "canonical", "noncanonical") else NA_character_,
-      span_bp = if (all(c("start", "end") %in% colnames(sl))) abs(sl$end - sl$start) else NA_real_,
-      span_kb = span_bp / 1000,
-      baseMean_extreme = if ("baseMean" %in% colnames(sl))
-        !is.na(sl$baseMean) & sl$baseMean >= params$extreme_basemean else NA,
-      expressed = if (all(c("mean_tpm_num", "mean_tpm_den") %in% colnames(sl)))
-        !is.na(sl$mean_tpm_num) & !is.na(sl$mean_tpm_den) &
-          sl$mean_tpm_num >= 1 & sl$mean_tpm_den >= 1 else NA
-    )
 
   # Best cis partner per lncRNA (lowest padj), only if cis was computed.
   cs <- NULL
@@ -1412,30 +1310,28 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
 ## Cis-regulatory associations
 
 lncRNAs often act on nearby genes. For every lncRNA (novel or annotated) this analysis
-tests Spearman correlation between its expression and every protein-coding gene within
-&plusmn;`r format(params$cis_window, big.mark = ",")` bp, using the whole norm_group.
-By default the correlation runs on **within-condition residuals** of a VST matrix
-(batch removed when the group has more than one batch), and **same-strand overlapping
-pairs are excluded** because they share reads by construction; antisense overlaps are
-kept. Pairs below the FDR threshold are candidate
-cis-regulatory targets (`target_gene_id`/`target_gene_name`) — a starting point for
-follow-up, not proof of causality. `spearman_rho` gives the direction/strength of the
-correlation and `padj` the BH-corrected significance. With ~10 samples the test is
-low-powered, and a correlation can be driven by a single influential sample or by rank
-ties in a low-expression vector. `loo_sign_stable` (does the sign survive dropping any
-one sample?) and `loo_min_abs_rho` (weakest `|rho|` across those drops) flag that:
-prefer candidates with `loo_sign_stable == TRUE` and a `loo_min_abs_rho` well away from 0.
-`degenerate` marks pairs with `|rho| >= 0.999`, a saturated rank correlation at this
-sample size that reflects rank ties in a low-expression vector rather than a real
-association; `lncrna_n_nonzero` and `target_n_nonzero` give the number of samples with
-non-zero counts on each side, so pairs supported by very few samples can be spotted.
-The lncRNA side is described by `lncrna_origin` (novel/annotated), `lncrna_class_code`
-(GFFCOMPARE code, novel only) and `lncrna_position_class`
-(antisense/intronic/overlapping/no_coding_overlap, defined for every lncRNA).
+tests the Spearman correlation between its expression and every protein-coding gene within
+&plusmn;`r format(params$cis_window, big.mark = ",")` bp, using the whole norm_group. By
+default it runs on **within-condition residuals** of a VST matrix (batch removed when the
+group has more than one batch); **same-strand overlapping pairs are excluded** (they share
+reads by construction) and antisense overlaps are kept. Pairs below the FDR are candidate
+cis-regulatory targets (`target_gene_id`/`target_gene_name`) — a follow-up starting point,
+not proof of causality; `spearman_rho` gives direction/strength and `padj` the BH-corrected
+significance. At ~10 samples the test is low-powered and a pair can lean on a single sample
+or on rank ties, so judge it with its support columns: `loo_sign_stable`/`loo_min_abs_rho`
+(leave-one-out robustness), `degenerate` (`|rho| >= 0.999`, a saturated rank artefact) and
+`lncrna_n_nonzero`/`target_n_nonzero` (per-side sample support). Antisense-overlapping
+pairs also carry `antisense_ratio_median` (the lncRNA/host count ratio) and, next to it,
+`leak_suspect`: a ratio at or below the strandedness leakage fraction
+(`params$cis_leak_ratio_max`, i.e. the lncRNA is <= that fraction of its overlapping gene)
+flags the pair as a **suspicion** — the antisense signal is indistinguishable from
+wrong-strand reads. It is a label to prioritise follow-up, not a test, and it never drops
+the pair. The lncRNA side is described by
+`lncrna_origin` (novel/annotated), `lncrna_class_code` (GFFCOMPARE code, novel only) and
+`lncrna_position_class` (antisense/intronic/overlapping/no_coding_overlap, every lncRNA).
 
 ```{r cis}
 if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
-  cat("Significant cis pairs:\n")
   cis_tab <- round_numeric_cols(cis_sig) %>%
     select(any_of(c(
       "lncrna_id", "lncrna_catalog_id", "lncrna_origin",
@@ -1443,6 +1339,7 @@ if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
       "target_gene_id", "target_gene_name",
       "spearman_rho", "spearman_pvalue", "padj", "p_method", "df_effective", "n_samples",
       "degenerate", "lncrna_n_nonzero", "target_n_nonzero",
+      "antisense_ratio_median", "leak_suspect",
       "loo_min_abs_rho", "loo_sign_stable", "loo_max_delta",
       "lncrna_DE_log2FC", "lncrna_DE_padj")))
   datatable(cis_tab, options = list(pageLength = 20))
@@ -1453,25 +1350,32 @@ if (!is.null(cis_sig) && nrow(cis_sig) > 0) {
 
 ## Functional enrichment — ORA
 
-```{r ora-caveat, results='asis'}
-# The ORA foreground is the significant cis targets when there are enough of them;
-# otherwise the enrichment step falls back to every expressed cis target, which can
-# be a handful of genes and makes the terms exploratory rather than conclusive.
-if (!is.null(ora) && nrow(ora) > 0 && "GeneRatio" %in% colnames(ora)) {
-  fg_type <- if ("foreground_type" %in% colnames(ora)) as.character(ora$foreground_type)[1] else NA
-  fg_n <- suppressWarnings(max(
-    as.numeric(sapply(strsplit(as.character(ora$GeneRatio), "/"),
-                      function(x) if (length(x) > 1) x[2] else NA)), na.rm = TRUE))
-  if (!is.na(fg_type) && grepl("all_cis_targets", fg_type)) {
-    cat(sprintf("_Note: ORA ran on the full set of expressed cis targets (n = %s), not the significant ones — the terms below are exploratory._\n",
-                if (is.finite(fg_n)) fg_n else "?"))
-  } else if (is.finite(fg_n) && fg_n < 15) {
-    cat(sprintf("_Note: ORA foreground is small (n = %s); read the terms below as exploratory._\n", fg_n))
-  }
+Coding genes within the cis window (±`r format(params$cis_window, big.mark = ",")` bp) of
+the lncRNAs that are **DE-significant in this contrast**, using every cis neighbour
+(significant or not), with pairs flagged `leak_suspect` excluded from the foreground so an
+antisense lncRNA that is only DE through its host's leaked reads does not drag that host in.
+Background = coding genes in the window of any tested lncRNA (the cis family), **not** the
+whole transcriptome. This answers "which processes do the neighbours of the changing
+lncRNAs fall in?" and needs no direction of the lncRNA–neighbour effect. Fewer than 5
+usable genes means the analysis is not run. Keep in mind that a neighbourhood can be
+enriched simply because its genes sit in a cluster (histones, HLA, …) rather than for a
+shared function.
+
+```{r ora-status, results='asis'}
+if (is.null(ora) || nrow(ora) == 0) {
+  cat("_Not run: fewer than 5 coding neighbours of the DE-significant lncRNAs, or no GO-BP term tested._\n")
+} else if (all(c("GeneRatio", "BgRatio") %in% colnames(ora))) {
+  ratio_n <- function(x) suppressWarnings(max(
+    as.numeric(sapply(strsplit(as.character(x), "/"),
+                      function(v) if (length(v) > 1) v[2] else NA)), na.rm = TRUE))
+  fg_n <- ratio_n(ora$GeneRatio)
+  bg_n <- ratio_n(ora$BgRatio)
+  cat(sprintf("_Foreground (neighbours of the DE-significant lncRNAs): %s genes; background (cis family): %s genes._\n",
+              if (is.finite(fg_n)) fg_n else "?", if (is.finite(bg_n)) bg_n else "?"))
 }
 ```
 
-```{r ora-dotplot, fig.width=7, fig.height=5}
+```{r ora-plot, fig.width=7, fig.height=5}
 if (!is.null(ora) && nrow(ora) > 0 && all(c("GeneRatio", "p.adjust", "Count") %in% colnames(ora))) {
   top_ora <- ora %>%
     arrange(p.adjust) %>%
@@ -1489,52 +1393,12 @@ if (!is.null(ora) && nrow(ora) > 0 && all(c("GeneRatio", "p.adjust", "Count") %i
 }
 ```
 
-```{r ora, results='asis'}
+```{r ora-table, results='asis'}
 if (!is.null(ora) && nrow(ora) > 0) {
   cat('<details><summary><b>Full ORA results table — click to expand</b></summary>\n')
   cat(render_widget_html(
     datatable(round_numeric_cols(compact_list_columns(ora)), escape = FALSE, options = list(pageLength = 20))))
   cat('\n</details>\n')
-} else {
-  cat("_No ORA terms passed the significance threshold for this contrast. This is expected for small DE gene lists — GSEA below uses the full ranked list and can still detect pathway-level signal._\n")
-}
-```
-
-## Functional enrichment — GSEA
-
-```{r gsea-ridgeplot, fig.width=7, fig.height=5}
-if (!is.null(gsea) && nrow(gsea) > 0 && "core_enrichment" %in% colnames(gsea) &&
-    !is.null(de_ct) && nrow(de_ct) > 0) {
-  rank_col <- if ("stat" %in% colnames(de_ct)) "stat" else "log2FoldChange"
-  rank_label <- if (rank_col == "stat") "DE test statistic" else "log2 fold-change"
-  top_gsea <- gsea %>% arrange(p.adjust) %>% slice_head(n = 10)
-  ridge_df <- top_gsea %>%
-    select(Description, core_enrichment) %>%
-    separate_rows(core_enrichment, sep = "/") %>%
-    rename(gene_id = core_enrichment) %>%
-    left_join(select(de_ct, gene_id, all_of(rank_col)), by = "gene_id") %>%
-    filter(!is.na(.data[[rank_col]]))
-  if (nrow(ridge_df) > 0) {
-    p <- ggplot(ridge_df, aes(.data[[rank_col]], reorder(Description, .data[[rank_col]], FUN = median))) +
-      geom_density_ridges(fill = "#6a1b9a", alpha = 0.6) +
-      labs(title = "Top 10 GSEA terms", x = rank_label, y = NULL) +
-      theme_minimal()
-    print(p)
-    save_fig("enrichment_gsea", p, 7, 5)
-  } else {
-    cat("Core-enrichment genes did not match the DE summary — ridgeplot skipped.\n")
-  }
-}
-```
-
-```{r gsea, results='asis'}
-if (!is.null(gsea) && nrow(gsea) > 0) {
-  cat('<details><summary><b>Full GSEA results table — click to expand</b></summary>\n')
-  cat(render_widget_html(
-    datatable(round_numeric_cols(compact_list_columns(gsea)), escape = FALSE, options = list(pageLength = 20))))
-  cat('\n</details>\n')
-} else {
-  cat("_No GSEA gene sets passed the significance threshold for this contrast. This is expected when no coordinated shift exists across the ranked gene list; see ORA above for the single-gene test._\n")
 }
 ```
 
@@ -1636,9 +1500,9 @@ if (show_heterogeneity) {
 }
 ```
 
-## Conservation
+`r if (conservation_on) "## Conservation"`
 
-```{r conservation}
+```{r conservation, eval=conservation_on}
 if (has_conservation) {
   cat(sprintf("Metric: %s (build: %s)\n\n",
               params$conservation_metric, params$genome_build))
@@ -1664,14 +1528,13 @@ if (has_conservation) {
     cat("Conservation scores are only computed for novel lncRNAs.\n")
   }
 } else {
-  cat("Conservation not evaluated for this run (conservation_bigwig not configured).\n")
+  cat("No genes with conservation data for this contrast.\n")
 }
 ```
 
-### Conservation vs differential expression
+`r if (conservation_on) "### Conservation vs differential expression"`
 
-Splits the same genes by DE outcome in this contrast — is conservation higher or
-lower among the ones that actually changed?
+`r if (conservation_on) "Splits the same genes by DE outcome in this contrast — is conservation higher or lower among the ones that actually changed?"`
 
 ```{r conservation-by-sig}
 if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in% colnames(cons_data)) {
@@ -1707,7 +1570,7 @@ if (has_conservation && exists("cons_data") && nrow(cons_data) > 0 && "padj" %in
 }
 ```
 
-### Most conserved significant novel lncRNAs
+`r if (conservation_on) "### Most conserved significant novel lncRNAs"`
 
 ```{r conservation-top-table}
 if (has_conservation && exists("cons_data")) {
@@ -1725,9 +1588,9 @@ if (has_conservation && exists("cons_data")) {
 }
 ```
 
-## Synteny
+`r if (synteny_on) "## Synteny"`
 
-```{r synteny}
+```{r synteny, eval=synteny_on}
 if (has_synteny) {
   cat(sprintf("Target species: %s\n\n", params$synteny_target_species))
   # Scoped to genes tested in this contrast (de_ann), not the whole catalog —
@@ -1752,11 +1615,11 @@ if (has_synteny) {
     cat("Synteny checks are only computed for novel lncRNAs.\n")
   }
 } else {
-  cat("Synteny not evaluated for this run (synteny_chain_file/synteny_target_gtf not configured).\n")
+  cat("No genes with synteny data for this contrast.\n")
 }
 ```
 
-### Synteny vs differential expression
+`r if (synteny_on) "### Synteny vs differential expression"`
 
 ```{r synteny-by-sig}
 if (has_synteny && exists("syn_data") && nrow(syn_data) > 0 && "padj" %in% colnames(syn_data)) {
@@ -1775,10 +1638,9 @@ if (has_synteny && exists("syn_data") && nrow(syn_data) > 0 && "padj" %in% colna
 }
 ```
 
-### Significant novel lncRNAs with a syntenic locus
+`r if (synteny_on) "### Significant novel lncRNAs with a syntenic locus"`
 
-Candidate orthologous loci in `r params$synteny_target_species` — a starting point for
-cross-species follow-up, not proof of conserved function.
+`r if (synteny_on) sprintf("Candidate orthologous loci in %s — a starting point for cross-species follow-up, not proof of conserved function.", params$synteny_target_species)`
 
 ```{r synteny-top-table}
 if (has_synteny && exists("syn_data")) {

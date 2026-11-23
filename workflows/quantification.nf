@@ -113,8 +113,9 @@ workflow QUANTIFICATION {
 
     CIS_ASSOCIATIONS(ch_cis, ch_catalog_genes)
 
-    // B6: Functional enrichment (ORA + GSEA on protein-coding cis targets)
-    ch_enrich = CIS_ASSOCIATIONS.out.cis_pairs_sig
+    // B6: Functional enrichment (ORA on the coding neighbours of the DE lncRNAs;
+    // see the module). The cis family feeds both the foreground and its background.
+    ch_enrich = CIS_ASSOCIATIONS.out.cis_pairs
         .join(ch_deseq_summary)
         .map { group, cisp, summary ->
             tuple(group, cisp, summary)
@@ -196,14 +197,13 @@ workflow QUANTIFICATION {
         .join(CIS_ASSOCIATIONS.out.cis_pairs)
         .join(CIS_ASSOCIATIONS.out.cis_pairs_sig)
         .join(FUNCTIONAL_ENRICHMENT.out.ora_results)
-        .join(FUNCTIONAL_ENRICHMENT.out.gsea_results)
         .join(ch_het_summary_all)
         .join(ch_het_cv_summary_all)
         .join(TXIMPORT_AND_FILTER.out.aligned_coldata)
         .join(TXIMPORT_AND_FILTER.out.tpm_rds)
         .join(DESIGN_CHECK.out.design_check)
-        .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm, design_tsv ->
-            tuple(g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm, design_tsv)
+        .map { g, de, cisp, cissig, ora, het, hetcv, coldata, tpm, design_tsv ->
+            tuple(g, de, cisp, cissig, ora, het, hetcv, coldata, tpm, design_tsv)
         }
 
     // combine(by: 0), NOT join: ch_rpt_base is 1 item/group while ch_ct_keyed is
@@ -213,43 +213,60 @@ workflow QUANTIFICATION {
     // independent of which side emits first.
     ch_rpt = ch_rpt_base
         .combine(ch_ct_keyed, by: 0)
-        .map { g, de, cisp, cissig, ora, gsea, het, hetcv, coldata, tpm, design_tsv, ct, ct_tsv ->
-            tuple(g, ct, de, cisp, cissig, ora, gsea, het, hetcv, coldata, ct_tsv, tpm, design_tsv)
+        .map { g, de, cisp, cissig, ora, het, hetcv, coldata, tpm, design_tsv, ct, ct_tsv ->
+            tuple(g, ct, de, cisp, cissig, ora, het, hetcv, coldata, ct_tsv, tpm, design_tsv)
         }
-
-    REPORT_CONTRAST(
-        ch_rpt,
-        channel.value(file("${params.report_template ?: projectDir + '/assets/report_template.qmd'}")),
-        ch_catalog_genes
-    )
 
     // F4.2: per-contrast master tables — last node of the graph.
     // ch_de_ct is N items/group and the universe is 1/group, so this must be a
     // per-key product (combine), not a join (which would keep only the first).
     // The universe comes from TXIMPORT's pre-filter universe so nothing is lost.
     // Attach the group-level matrices (universe, TPM, aligned coldata) to each
-    // (group, contrast) DE table with combine(by: 0). The numerator/denominator are
-    // derived from the contrast id inside the module, so no per-contrast file is
-    // needed and no contrast can be dropped by a join.
+    // (group, contrast) DE table with combine(by: 0), then the per-contrast contrasts
+    // file (the numerator/denominator source) with a group+contrast join.
     ch_bt_in = ch_de_ct
         .combine(TXIMPORT_AND_FILTER.out.universe_tsv.map { g, u -> tuple(g, u) }, by: 0)
         .combine(TXIMPORT_AND_FILTER.out.tpm_tsv.map { g, t -> tuple(g, t) }, by: 0)
         .combine(TXIMPORT_AND_FILTER.out.aligned_coldata.map { g, c -> tuple(g, c) }, by: 0)
         .map { g, ct, de_tsv, universe_tsv, tpm_tsv, coldata_csv ->
-            tuple(g, ct, de_tsv, universe_tsv, tpm_tsv, coldata_csv)
+            tuple("${g}__${ct}", g, ct, de_tsv, universe_tsv, tpm_tsv, coldata_csv)
+        }
+        // Keyed on group+contrast, not group alone: a group-only key would pair every
+        // contrast of a group with every per-contrast file and mix up the condition labels.
+        .join(ch_ct_keyed.map { g, ct, ct_tsv -> tuple("${g}__${ct}", ct_tsv) })
+        .map { _key, g, ct, de_tsv, universe_tsv, tpm_tsv, coldata_csv, ct_tsv ->
+            tuple(g, ct, de_tsv, universe_tsv, tpm_tsv, coldata_csv, ct_tsv)
         }
     BUILD_CONTRAST_TABLES(ch_bt_in, catalog_genes.first(),
                           channel.value(file("${projectDir}/bin/build_contrast_tables.py")))
+
+    // B7: Per-contrast reports. Built after the contrast tables so the qPCR shortlist
+    // can read the built de_lncrna_significant.tsv instead of recomputing triage columns.
+    ch_rpt_full = ch_rpt
+        .map { g, ct, de, cisp, cissig, ora, het, hetcv, coldata, ct_tsv, tpm, design_tsv ->
+            tuple("${g}__${ct}", g, ct, de, cisp, cissig, ora, het, hetcv,
+                  coldata, ct_tsv, tpm, design_tsv)
+        }
+        .join(BUILD_CONTRAST_TABLES.out.lncrna_significant.map { g, ct, f -> tuple("${g}__${ct}", f) })
+        .map { _key, g, ct, de, cisp, cissig, ora, het, hetcv, coldata, ct_tsv, tpm, design_tsv, lsig ->
+            tuple(g, ct, de, cisp, cissig, ora, het, hetcv,
+                  coldata, ct_tsv, tpm, design_tsv, lsig)
+        }
+
+    REPORT_CONTRAST(
+        ch_rpt_full,
+        channel.value(file("${params.report_template ?: projectDir + '/assets/report_template.qmd'}")),
+        ch_catalog_genes
+    )
 
     // Split the group-level enrichment table (one file per group, rows keyed by the
     // `contrast` column) into one file per (group, contrast) so it is delivered next
     // to the DE tables it belongs to. Purely a repartition: no rows are duplicated
     // or dropped, and a header is always written.
     ch_split_enrich_in = FUNCTIONAL_ENRICHMENT.out.ora_results
-        .join(FUNCTIONAL_ENRICHMENT.out.gsea_results)
         .combine(ch_ct_keyed.map { g, ct, _tsv -> tuple(g, ct) }, by: 0)
-        .map { g, ora, gsea, ct ->
-            tuple(g, ct, ora, gsea)
+        .map { g, ora, ct ->
+            tuple(g, ct, ora)
         }
     SPLIT_ENRICHMENT(ch_split_enrich_in)
 
@@ -290,8 +307,8 @@ workflow QUANTIFICATION {
     ch_expected_contrast_ids = ch_ct_keyed
         .map { g, ct, _tsv -> "${g}__${ct}" }
         .collect()
-    ch_delivered_contrast_ids = ch_rpt
-        .map { g, ct, _de, _cisp, _cissig, _ora, _gsea, _het, _hetcv, _coldata, _ct_tsv, _tpm, _design ->
+    ch_delivered_contrast_ids = ch_rpt_full
+        .map { g, ct, _de, _cisp, _cissig, _ora, _het, _hetcv, _coldata, _ct_tsv, _tpm, _design, _lsig ->
             "${g}__${ct}"
         }
         .collect()

@@ -13,11 +13,19 @@ a tested gene with `padj = NA` carries `padj_na_reason`.
 
 CLI:
   build_contrast_tables.py --universe genes.tsv --de DE.tsv --catalog catalog_genes.tsv \
-      --contrast <id> --fdr 0.05 --lfc 0.0 --out contrasts/<id>/de_full.tsv \
+      --contrast <id> --contrasts contrasts/<group>__<id>.tsv --fdr 0.05 --lfc 0.0 \
+      --tpm <group>_tpm.tsv --coldata coldata_<group>.csv \
+      --out contrasts/<id>/de_full.tsv \
       --significant-out contrasts/<id>/de_full_significant.tsv \
       --lncrna-out contrasts/<id>/de_lncrna_full.tsv \
       --lncrna-significant-out contrasts/<id>/de_lncrna_significant.tsv \
       --summary-out contrasts/<id>/summary.tsv
+
+`--contrasts` is the 1-row per-contrast file (contrast_name, numerator, denominator,
+batch) that SPLIT_CONTRASTS writes and the report reads. The numerator/denominator are
+taken from it, never parsed from the contrast label: a label is not a condition name, so
+parsing produced blank mean_tpm_*/n_expressed_*/direction columns. If a numerator or
+denominator matches no coldata condition the run fails instead of shipping blanks.
 
 `significant_padj` (padj < FDR) is the default "significant" everywhere; the
 `significant_padj_lfc1` column adds the |log2FC| >= lfc cutoff and is only used
@@ -44,10 +52,14 @@ ANNOT_COLS = ["origin", "class_code", "tier", "tier_static", "tier_final",
               "in_lncipedia", "lncipedia_best_id", "lncipedia_best_pct",
               "in_noncode", "noncode_best_id", "noncode_best_pct",
               "in_rnacentral", "rnacentral_best_id", "rnacentral_best_pct",
-              "in_fantomcat", "fantomcat_best_id", "fantomcat_best_pct"]
+              "in_fantomcat", "fantomcat_best_id", "fantomcat_best_pct",
+              "ref_gene_id", "ref_gene_name", "ref_gene_relation",
+              "x_host_leak_suspect", "conservation_mean", "conservation_pct",
+              "syntenic_locus", "syntenic_target_gene_id"]
 # 4b.1: genomic position (from the catalog) and derived grouping/QC columns.
 POS_COLS = ["chr", "start", "end", "strand"]
-DERIVED_COLS = ["gene_id_stable", "gene_group", "contig_type", "baseMean_extreme", "genome_build"]
+DERIVED_COLS = ["gene_id_stable", "gene_group", "contig_type", "span_bp", "span_kb",
+                "baseMean_extreme", "genome_build"]
 DE_COLS = ["baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj",
            "stat", "lfc_unshrunken", "shrink_type"]
 
@@ -78,6 +90,17 @@ def contig_type(chrom):
     if _is_na(chrom):
         return "NA"
     return "canonical" if str(chrom).strip() in CANONICAL_CONTIGS else "noncanonical"
+
+
+def span_bp(ann):
+    """Locus length in bp (end - start + 1); empty when the catalog lacks coordinates."""
+    s, e = ann.get("start"), ann.get("end")
+    if _is_na(s) or _is_na(e):
+        return ""
+    try:
+        return int(float(e)) - int(float(s)) + 1
+    except ValueError:
+        return ""
 
 
 
@@ -196,7 +219,7 @@ def is_significant_padj(padj, fdr):
 
 def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_threshold,
                    extreme_basemean, genome_build, tpm=None, cond_samples=None,
-                   numerator="", denominator=""):
+                   numerator="", denominator="", tpm_min=1.0):
     tpm = tpm or {}
     cond_samples = cond_samples or {}
 
@@ -243,6 +266,12 @@ def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_thr
         else:
             mt_num = mt_den = None
             ne_num = ne_den = None
+        # qPCR triage flag: expressed when the group mean reaches tpm_min in at least
+        # one condition (a one-sided switch is a good candidate, not a reason to drop).
+        expressed = ""
+        if mt_num is not None or mt_den is not None:
+            expressed = "TRUE" if ((mt_num is not None and mt_num >= tpm_min) or
+                                   (mt_den is not None and mt_den >= tpm_min)) else "FALSE"
         row = {
             "gene_id": gid, "contrast": contrast,
             "baseMean": baseMean, "log2FoldChange": lfc, "lfcSE": lfcse,
@@ -257,6 +286,7 @@ def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_thr
             "mean_tpm_den": _fmt_num(mt_den),
             "n_expressed_num": "" if ne_num is None else str(ne_num),
             "n_expressed_den": "" if ne_den is None else str(ne_den),
+            "expressed": expressed,
             **{c: ann.get(c, "") for c in ANNOT_COLS},
         }
         # 4b.1 / 4a.4: positions from the catalog + derived grouping and QC flags.
@@ -264,6 +294,9 @@ def build_contrast(universe_ids, catalog_by_id, de_by_id, contrast, fdr, lfc_thr
         row["start"] = ann.get("start", "")
         row["end"] = ann.get("end", "")
         row["strand"] = ann.get("strand", "")
+        sbp = span_bp(ann)
+        row["span_bp"] = "" if sbp == "" else str(sbp)
+        row["span_kb"] = "" if sbp == "" else _fmt_num(sbp / 1000.0)
         # 4b.1 (decision b): one stable id column for every gene — the catalog id
         # for novel genes, the reference gene_id otherwise.
         cid = ann.get("catalog_id")
@@ -312,31 +345,59 @@ def main():
     ap.add_argument("--summary-out")
     ap.add_argument("--tpm", help="group TPM matrix (annotation + samples); adds mean_tpm_num/den")
     ap.add_argument("--coldata", help="aligned coldata CSV (sample, condition); maps samples to conditions")
-    ap.add_argument("--numerator", default="", help="numerator condition label (for direction and mean_tpm_num)")
-    ap.add_argument("--denominator", default="", help="denominator condition label (for mean_tpm_den)")
+    ap.add_argument("--contrasts",
+                    help="1-row contrasts TSV (contrast_name, numerator, denominator, batch); "
+                         "the preferred source of numerator/denominator (same file the report uses)")
+    ap.add_argument("--numerator", default="", help="numerator condition label (fallback when --contrasts is absent)")
+    ap.add_argument("--denominator", default="", help="denominator condition label (fallback when --contrasts is absent)")
+    ap.add_argument("--expression-tpm-min", type=float, default=1.0,
+                    help="TPM threshold for the expressed flag (>= in at least one condition)")
     args = ap.parse_args()
 
     universe = gene_ids(args.universe)
     catalog = _index_unique(args.catalog, "gene_id")
     de = _index_unique(args.de, "gene_id")
 
+    # numerator/denominator come from the 1-row contrasts file (the same source the
+    # report uses). Deriving them from the contrast label was wrong: the label is not a
+    # condition name, so mean_tpm_*, n_expressed_* and direction were silently blank.
+    numerator, denominator = args.numerator, args.denominator
+    if args.contrasts:
+        _, ct_rows = read_tsv(args.contrasts)
+        if not ct_rows:
+            raise SystemExit("build_contrast_tables: %s has no contrast row" % args.contrasts)
+        numerator = ct_rows[0].get("numerator", "") or numerator
+        denominator = ct_rows[0].get("denominator", "") or denominator
+
     tpm = None
-    cond_samples = None
-    if args.tpm and args.coldata and os.path.exists(args.tpm) and os.path.exists(args.coldata):
+    if args.tpm and os.path.exists(args.tpm):
         _, tpm = load_tpm(args.tpm)
+    cond_samples = None
+    if args.coldata and os.path.exists(args.coldata):
         cond_samples = condition_samples(load_conditions(args.coldata))
+
+    # Fail loudly rather than ship blank expression context: a numerator or denominator
+    # that matches no coldata condition is always a bug, never a legitimately empty table.
+    if cond_samples is not None:
+        missing = [c for c in (numerator, denominator) if not cond_samples.get(c)]
+        if missing:
+            raise SystemExit(
+                "build_contrast_tables [%s]: numerator/denominator not found among the "
+                "coldata conditions: %s. Conditions present: %s"
+                % (args.contrast, ", ".join(missing), ",".join(sorted(cond_samples))))
 
     rows = build_contrast(universe, catalog, de, args.contrast, args.fdr, args.lfc,
                           args.extreme_basemean, args.genome_build,
                           tpm=tpm, cond_samples=cond_samples,
-                          numerator=args.numerator, denominator=args.denominator)
+                          numerator=numerator, denominator=denominator,
+                          tpm_min=args.expression_tpm_min)
 
     cols = (["gene_id", "contrast", "baseMean", "log2FoldChange", "lfcSE", "pvalue", "padj",
              "stat", "lfc_unshrunken", "shrink_type",
              "significant_padj", "significant_padj_lfc1",
              "tested", "not_tested_reason", "padj_na_reason",
              "direction", "mean_tpm_num", "mean_tpm_den",
-             "n_expressed_num", "n_expressed_den"] + ANNOT_COLS
+             "n_expressed_num", "n_expressed_den", "expressed"] + ANNOT_COLS
             + POS_COLS + DERIVED_COLS)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", newline="") as fh:

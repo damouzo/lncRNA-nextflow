@@ -3,7 +3,9 @@
 // module is a thin wrapper. params.cis_normalize selects the normalization
 // (VST + batch removal vs log2(counts + 1)); the correlation itself runs on
 // within-condition residuals, and same-strand overlapping pairs are dropped
-// before testing.
+// before testing. Antisense-overlapping pairs are kept but flagged leak_suspect
+// when their lncRNA/host ratio sits at the strandedness leakage fraction
+// (params.cis_leak_ratio_max).
 
 process CIS_ASSOCIATIONS {
 
@@ -29,6 +31,7 @@ process CIS_ASSOCIATIONS {
         --normalize ${params.cis_normalize} \\
         --min-samples ${params.cis_min_samples} \\
         --min-abs-rho ${params.cis_min_abs_rho} \\
+        --leak-ratio-max ${params.cis_leak_ratio_max} \\
         --outdir .
 
     emit_versions.sh "${task.process}" "${task.container}" R R --version

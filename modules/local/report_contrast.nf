@@ -19,9 +19,10 @@ process REPORT_CONTRAST {
     // val(ct) is not used by the Rscript (the 1-row contrasts_tsv already pins the
     // contrast) — it exists so publishDir can target contrasts/<group>__<ct>/.
     tuple val(group), val(ct), path(de_summary), path(cis_pairs),
-          path(cis_pairs_sig), path(ora), path(gsea),
+          path(cis_pairs_sig), path(ora),
           path(heterogeneity), path(heterogeneity_cv),
-          path(coldata), path(contrasts_tsv), path(tpm_rds), path(design_check_tsv)
+          path(coldata), path(contrasts_tsv), path(tpm_rds), path(design_check_tsv),
+          path(lncrna_sig)
     path template         // report_template.qmd
     path gene_catalog     // gene_catalog.tsv (origin/class_code/biotype annotations)
 
@@ -81,7 +82,7 @@ process REPORT_CONTRAST {
         cmd <- paste(
             "quarto render ${template}",
             "-M", shQuote(paste0("title=lncRNA report - ", ct)),
-            "-M", shQuote(paste0("subtitle=norm_group: ${group}")),
+            "-M", shQuote(paste0("subtitle=", format(Sys.Date(), "%Y-%m-%d"))),
             "-P", shQuote(paste0("contrast=", ct)),
             "-P", shQuote(paste0("group=${group}")),
             "-P", shQuote(paste0("numerator=", ct_num)),
@@ -93,8 +94,8 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("cis_pairs=${cis_pairs}")),
             "-P", shQuote(paste0("cis_pairs_sig=${cis_pairs_sig}")),
             "-P", shQuote(paste0("cis_window=${params.cis_window}")),
+            "-P", shQuote(paste0("cis_leak_ratio_max=${params.cis_leak_ratio_max}")),
             "-P", shQuote(paste0("ora=${ora}")),
-            "-P", shQuote(paste0("gsea=${gsea}")),
             "-P", shQuote(paste0("heterogeneity=${heterogeneity}")),
             "-P", shQuote(paste0("heterogeneity_cv=${heterogeneity_cv}")),
             "-P", shQuote(paste0("heterogeneity_concordant_frac=${params.heterogeneity_concordant_frac}")),
@@ -110,6 +111,7 @@ process REPORT_CONTRAST {
             "-P", shQuote(paste0("synteny_configured=${(params.synteny_chain_file && params.synteny_target_gtf) ? true : false}")),
             "-P", shQuote(paste0("synteny_target_species=${params.synteny_target_species ?: ''}")),
             "-P", shQuote(paste0("tpm=${tpm_rds}")),
+            "-P", shQuote(paste0("lncrna_sig=${lncrna_sig}")),
             "--output", shQuote(fname)
         )
         cat("Rendering contrast:", ct, "\n")

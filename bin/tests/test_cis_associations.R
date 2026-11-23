@@ -150,6 +150,51 @@ if (file.exists(p3)) {
         "2.5 same-strand overlapping pair dropped, flanking pair kept")
 }
 
+# 4b.9: an antisense-overlapping pair whose lncRNA stays at a small fraction of its
+# host is flagged leak_suspect (strandedness read leakage); one where the lncRNA is
+# far above the host is not. The flag annotates, never drops the pair.
+d4 <- tempfile("cis_leak_"); dir.create(d4)
+write_tsv(data.frame(
+  gene_id = c("L1", "L2", "P1", "P2"), chromosome = "1",
+  start = c(1400, 49900, 1500, 50000), end = c(2600, 51100, 2500, 51000),
+  strand = c("-", "-", "+", "+"), gene_biotype = c(NA, NA, "protein_coding", "protein_coding"),
+  origin = c("novel", "novel", "reference_other", "reference_other"),
+  catalog_id = c("LNC.1", "LNC.2", NA, NA), class_code = c("u", "u", NA, NA),
+  lnc_position_class = c("antisense", "antisense", NA, NA),
+  gene_name = c(NA, NA, "P1", "P2"), stringsAsFactors = FALSE),
+  file.path(d4, "gene_catalog.tsv"))
+cnt4 <- matrix(c(c(100, 180, 60, 140, 90, 120),        # L1 ~ 0.1 x P1
+                 c(500, 900, 300, 700, 450, 800),      # L2 ~ 10 x P2
+                 c(1000, 1800, 600, 1400, 900, 1200),
+                 c(50, 90, 30, 70, 45, 80)), nrow = 4, byrow = TRUE,
+               dimnames = list(c("L1", "L2", "P1", "P2"), paste0("S", 1:6)))
+saveRDS(cnt4, file.path(d4, "counts.rds"))
+o4 <- file.path(d4, "out"); dir.create(o4)
+st4 <- system2("Rscript", c(script, "--group", "G", "--gene-catalog", file.path(d4, "gene_catalog.tsv"),
+                            "--counts", file.path(d4, "counts.rds"),
+                            "--cis-window", "100000", "--fdr", "0.05",
+                            "--normalize", "false", "--outdir", o4))
+check(st4 == 0, "4b.9 leak-flag run exits 0")
+p4 <- file.path(o4, "G_cis_pairs.tsv")
+if (file.exists(p4)) {
+  r4 <- tryCatch(read_tsv(p4, show_col_types = FALSE), error = function(e) data.frame())
+  check(all(c("antisense_ratio_median", "leak_suspect") %in% colnames(r4)),
+        "4b.9 antisense_ratio_median/leak_suspect columns present")
+  leak_row <- r4[r4$lncrna_id == "L1" & r4$target_gene_id == "P1", , drop = FALSE]
+  real_row <- r4[r4$lncrna_id == "L2" & r4$target_gene_id == "P2", , drop = FALSE]
+  check(nrow(leak_row) == 1 && isTRUE(leak_row$overlaps_target[1]) &&
+        isTRUE(leak_row$leak_suspect[1]),
+        "4b.9 low ratio antisense overlap flagged leak_suspect")
+  check(nrow(real_row) == 1 && isTRUE(real_row$overlaps_target[1]) &&
+        isFALSE(real_row$leak_suspect[1]),
+        "4b.9 high ratio antisense overlap not flagged")
+  flank <- r4[r4$lncrna_id == "L1" & r4$target_gene_id == "P2", , drop = FALSE]
+  if (nrow(flank) == 1) {
+    check(is.na(flank$antisense_ratio_median[1]) && isFALSE(flank$leak_suspect[1]),
+          "4b.9 non-overlapping pair has NA ratio and no leak flag")
+  }
+}
+
 cat("\n")
 if (fails > 0) { cat(sprintf("FAILED: %d\n", fails)); quit(save = "no", status = 1) }
 cat("ALL CIS ASSOCIATION TESTS PASSED\n")

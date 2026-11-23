@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Repartition a group-level enrichment table into one file per contrast.
 
-`FUNCTIONAL_ENRICHMENT` writes one `ora`/`gsea` file per norm_group, with a
-`contrast` column tagging every row. This splits that file by the column so each
-contrast folder carries its own enrichment tables, next to the DE tables.
+`FUNCTIONAL_ENRICHMENT` writes one `ora` file per norm_group, with a `contrast`
+column tagging every row. This splits that file by the column so each contrast
+folder carries its own enrichment table, next to the DE tables.
 
 Not a filter that can lose rows: the rows kept per contrast add up to the input
 row count, and the header is always written (even for a contrast with no hits), so
 an empty result is a valid 0-row table rather than a headerless 0-byte file.
 
 CLI:
-  split_enrichment.py --ora <group>_enrichment_ora.tsv --gsea <group>_enrichment_gsea.tsv \
+  split_enrichment.py --ora <group>_enrichment_ora.tsv \
       --contrast <contrast> --outdir <dir>
 """
 
@@ -46,7 +46,6 @@ def split_table(path, contrast, out_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ora", required=True)
-    ap.add_argument("--gsea", required=True)
     ap.add_argument("--contrast", required=True)
     ap.add_argument("--outdir", required=True)
     args = ap.parse_args()
@@ -54,10 +53,7 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
     n_ora = split_table(args.ora, args.contrast,
                         os.path.join(args.outdir, "enrichment_ora.tsv"))
-    n_gsea = split_table(args.gsea, args.contrast,
-                         os.path.join(args.outdir, "enrichment_gsea.tsv"))
-    print("split_enrichment [%s]: %d ORA rows, %d GSEA rows"
-          % (args.contrast, n_ora, n_gsea))
+    print("split_enrichment [%s]: %d ORA rows" % (args.contrast, n_ora))
 
 
 if __name__ == "__main__":

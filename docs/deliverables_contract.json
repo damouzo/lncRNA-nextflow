@@ -1,6 +1,6 @@
 {
   "contract": "lncrna-deliverables",
-  "version": "1.7",
+  "version": "1.8",
   "description": "Machine-readable contract for the published deliverables (see 'Mapa de publicación' in .kilo/plans/lncrna_plan_v3.md). Validated by bin/validate_deliverables.py (stdlib only). `kind: table` entries list required columns (extras allowed) and a lower bound on rows; `file`/`gtf`/`fasta` entries only require the file to exist. Placeholders (`<id>`, `<group>`) are matched by glob, so one entry covers every contrast/group. 'significant' is always `significant_padj` (padj < FDR); the |log2FC| >= LFC cutoff lives only in `significant_padj_lfc1` and is named explicitly where used.",
   "files": [
     {
@@ -375,23 +375,6 @@
       ]
     },
     {
-      "path": "contrasts/<id>/enrichment_gsea.tsv",
-      "kind": "table",
-      "min_rows": 0,
-      "columns": [
-        {"name": "ID", "type": "string"},
-        {"name": "Description", "type": "string"},
-        {"name": "setSize", "type": "int"},
-        {"name": "NES", "type": "float"},
-        {"name": "pvalue", "type": "float"},
-        {"name": "p.adjust", "type": "float"},
-        {"name": "contrast", "type": "string"},
-        {"name": "collection", "type": "string"},
-        {"name": "input_set", "type": "string"},
-        {"name": "core_enrichment", "type": "string"}
-      ]
-    },
-    {
       "path": "contrasts/<id>/plots/volcano.pdf",
       "kind": "file",
       "optional": true,
@@ -428,10 +411,10 @@
       "description": "MA panel as a standalone PNG"
     },
     {
-      "path": "contrasts/<id>/plots/heatmap_top.png",
+      "path": "contrasts/<id>/plots/heatmap_top_genes.png",
       "kind": "file",
       "optional": true,
-      "description": "Heatmap of the top DE genes (row z-score of VST/log2-TPM) with condition annotation"
+      "description": "Heatmap of the top DE genes (row z-score of VST/log2-TPM) with condition annotation; shipped as a pipeline output, not drawn in the report"
     },
     {
       "path": "contrasts/<id>/plots/heatmap_top_lncrna.png",
@@ -462,12 +445,6 @@
       "kind": "file",
       "optional": true,
       "description": "Visual PCA (log2 TPM+1) of this contrast's samples, coloured by condition (QC panel)"
-    },
-    {
-      "path": "contrasts/<id>/plots/enrichment_gsea.png",
-      "kind": "file",
-      "optional": true,
-      "description": "GSEA ridgeplot (top terms)"
     },
     {
       "path": "contrasts/<id>/plots/sig_genes_by_chromosome.pdf",

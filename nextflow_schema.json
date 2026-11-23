@@ -227,6 +227,11 @@
                     "default": 100000,
                     "description": "Window size (bp) for cis-regulatory search"
                 },
+                "cis_leak_ratio_max": {
+                    "type": "number",
+                    "default": 0.15,
+                    "description": "Antisense-overlapping cis pairs whose median lncRNA/host count ratio is at or below this fraction are flagged leak_suspect (consistent with strandedness read leakage, observed contrary fraction 0.12-0.18). Annotates, never filters."
+                },
                 "fdr_threshold": {
                     "type": "number",
                     "default": 0.05,
@@ -241,6 +246,11 @@
                     "type": "number",
                     "default": 100000,
                     "description": "baseMean at or above which a gene is flagged `baseMean_extreme` in the DE tables (a locus on a non-canonical contig with an outsized mean is a repeat/rRNA suspect)."
+                },
+                "expression_tpm_min": {
+                    "type": "number",
+                    "default": 1,
+                    "description": "TPM threshold for the `expressed` triage flag in the contrast tables: TRUE when the group mean reaches it in at least one condition (a one-sided switch is still a qPCR candidate)."
                 },
                 "heterogeneity_analysis": {
                     "type": "object",
