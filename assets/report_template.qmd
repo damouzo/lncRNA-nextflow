@@ -493,11 +493,26 @@ if (!is.null(tpm) && length(contrast_samples) >= 3) {
   n <- nrow(cs)
   if (n > length(pal)) pal <- c(pal, grDevices::hcl.colors(n - length(pal), "Dark 3"))
 
+  # ggrepel keeps every label (check_overlap dropped colliding ones) and
+  # show.legend = FALSE stops the text geom from drawing its default "a" key.
+  pca_labels <- function() {
+    ggrepel::geom_text_repel(aes(label = sample), size = 3.2, show.legend = FALSE,
+                             max.overlaps = Inf, min.segment.length = 0,
+                             box.padding = 0.35, point.padding = 0.25)
+  }
+  # Wide margins + expand + clip = "off" so a label near the panel edge is drawn,
+  # not cut. Applied inside each theme call to survive theme_minimal().
+  pca_margin <- margin(10, 24, 10, 24)
+
   p_s <- ggplot(cs, aes(PC1, PC2, color = sample)) +
     geom_point(size = 3) +
-    geom_text(aes(label = sample), size = 3.2, vjust = -0.8, check_overlap = TRUE) +
+    pca_labels() +
     scale_color_manual(values = pal[seq_len(n)]) +
-    theme_minimal() + theme(legend.position = "none") +
+    scale_x_continuous(expand = expansion(mult = 0.12)) +
+    scale_y_continuous(expand = expansion(mult = 0.12)) +
+    coord_cartesian(clip = "off") +
+    theme_minimal() +
+    theme(legend.position = "none", plot.margin = pca_margin) +
     labs(title = sprintf("PCA of this contrast (log2 TPM+1), one colour per sample"),
          subtitle = sprintf("%s vs %s", params$numerator, params$denominator),
          x = sprintf("PC1: %d%% variance", pct[1]),
@@ -507,8 +522,12 @@ if (!is.null(tpm) && length(contrast_samples) >= 3) {
 
   p_c <- ggplot(cs, aes(PC1, PC2, color = condition)) +
     geom_point(size = 3) +
-    geom_text(aes(label = sample), size = 3.2, vjust = -0.8, check_overlap = TRUE) +
+    pca_labels() +
+    scale_x_continuous(expand = expansion(mult = 0.12)) +
+    scale_y_continuous(expand = expansion(mult = 0.12)) +
+    coord_cartesian(clip = "off") +
     theme_minimal() +
+    theme(plot.margin = pca_margin) +
     labs(title = "PCA of this contrast (log2 TPM+1), coloured by condition",
          x = sprintf("PC1: %d%% variance", pct[1]),
          y = sprintf("PC2: %d%% variance", pct[2]), color = "Condition")
@@ -841,14 +860,44 @@ if (!is.null(de_ann) && nrow(de_ann) > 0 &&
 }
 ```
 
-### Top DE genes and lncRNAs
+### Top DE lncRNAs
 
-Top DE lncRNAs by |log2FoldChange| among significant genes, shown as a row z-score heatmap and per-sample expression; the top DE gene heatmap is shipped separately as `plots/heatmap_top_genes.png|pdf`.
+Top DE lncRNAs by |log2FoldChange| among significant genes, shown as a row z-score
+heatmap and per-sample expression. Each panel has three tabs (combined / annotated /
+novel) and each tab is also written as a standalone PDF + PNG under `plots/`.
 
 ```{r heatmap-helpers, include=FALSE}
+# The three lncRNA subsets used by every "by subset" panel, mirroring the volcano
+# tabs. "combined" is the annotated + novel union, never the coding background.
+DE_SUBSETS <- list(
+  combined  = c("novel", "annotated_lncrna"),
+  annotated = "annotated_lncrna",
+  novel     = "novel"
+)
+SUBSET_LABELS <- c(combined = "lncRNAs", annotated = "annotated lncRNAs",
+                   novel = "novel lncRNAs")
+
+# Restrict a DE table to one subset by `origin`; NULL when the input is absent
+# or carries no origin (the callers treat NULL as "nothing to draw").
+de_subset <- function(df, which) {
+  if (is.null(df) || !is.data.frame(df) || nrow(df) == 0 ||
+      !("origin" %in% colnames(df))) {
+    return(NULL)
+  }
+  df %>% filter(origin %in% DE_SUBSETS[[which]])
+}
+
+# Canonical GRCh38 chromosomes in biological order (patches/scaffolds dropped).
+CANON_CHR <- c(as.character(1:22), "X", "Y", "MT")
+
 # Row z-score of log2 TPM for the given genes across the given samples.
+# `row_order`: "input" keeps the caller's ranking, "lfc" sorts by signed
+# log2FoldChange (up on top), "cluster" orders rows by hierarchical clustering of
+# the z matrix — useful to read co-regulated blocks in the heatmaps.
 # Returns NULL when there is nothing to draw.
-build_expr_long <- function(ids, samples, value = "z") {
+build_expr_long <- function(ids, samples, value = "z",
+                            row_order = c("input", "lfc", "cluster")) {
+  row_order <- match.arg(row_order)
   ids <- intersect(ids, rownames(tpm))
   if (is.null(ids) || length(ids) == 0 || length(samples) == 0) return(NULL)
   mat <- log2(tpm[ids, samples, drop = FALSE] + 1)
@@ -857,6 +906,16 @@ build_expr_long <- function(ids, samples, value = "z") {
     zdf <- as.data.frame(z, check.names = FALSE)
   } else {
     zdf <- as.data.frame(mat, check.names = FALSE)
+  }
+  if (nrow(zdf) >= 2) {
+    if (row_order == "cluster") {
+      ord <- tryCatch(rownames(zdf)[stats::hclust(stats::dist(zdf))$order],
+                      error = function(e) rownames(zdf))
+      ids <- c(intersect(ord, ids), setdiff(ids, ord))
+    } else if (row_order == "lfc" && !is.null(de_ann) && "gene_id" %in% colnames(de_ann)) {
+      lfc <- setNames(suppressWarnings(as.numeric(de_ann$log2FoldChange)), de_ann$gene_id)
+      ids <- ids[order(unname(lfc[ids]), decreasing = TRUE, na.last = TRUE)]
+    }
   }
   zdf$gene_id <- rownames(zdf)
   long <- tidyr::pivot_longer(zdf, -gene_id, names_to = "sample", values_to = value)
@@ -878,7 +937,7 @@ build_expr_long <- function(ids, samples, value = "z") {
     lab <- setNames(lab, de_ann$gene_id)
   }
   long$label <- if (!is.null(lab)) dplyr::coalesce(unname(lab[long$gene_id]), long$gene_id) else long$gene_id
-  # Keep the caller's ranking on the y-axis instead of alphabetical order.
+  # Keep the requested ranking on the y-axis instead of alphabetical order.
   long$label <- factor(long$label, levels = unique(long$label[order(match(long$gene_id, ids))]))
   long$sample <- factor(long$sample, levels = samples)
   long
@@ -895,75 +954,179 @@ plot_heatmap <- function(long, title, subtitle = NULL) {
           axis.text.y = element_text(size = 6)) +
     labs(title = title, subtitle = subtitle, x = NULL, y = NULL, fill = "row z")
 }
+
+# Shared builders so the three tabs differ only in the subset and the file stem.
+HEATMAP_TOP_N <- 50
+EXPRESSION_TOP_N <- 20
+
+render_lnc_heatmap <- function(which) {
+  sub_label <- SUBSET_LABELS[[which]]
+  df <- de_subset(de_ann, which)
+  if (is.null(df) || nrow(df) == 0) {
+    cat(sprintf("No %s data for the heatmap.\n", sub_label))
+    return(invisible(NULL))
+  }
+  df <- df %>% filter(significant_padj) %>% arrange(desc(abs(log2FoldChange)))
+  if (is.null(tpm) || nrow(df) == 0 ||
+      is.null(contrast_samples) || length(contrast_samples) < 2) {
+    cat(sprintf("No significant %s for the heatmap.\n", sub_label))
+    return(invisible(NULL))
+  }
+  lh <- build_expr_long(head(df$gene_id, HEATMAP_TOP_N), contrast_samples,
+                        row_order = "lfc")
+  if (is.null(lh) || nrow(lh) == 0) {
+    cat(sprintf("No significant %s for the heatmap.\n", sub_label))
+    return(invisible(NULL))
+  }
+  p <- plot_heatmap(lh, sprintf("Top %d DE %s by |LFC| (row z-score)",
+                                dplyr::n_distinct(lh$gene_id), sub_label),
+                    if (group_has_batch) "batch is in the design; z-score is not batch-corrected" else NULL)
+  print(p)
+  save_fig(sprintf("heatmap_top_lncrna_%s", which), p, 9, 8)
+}
+
+render_lnc_expression <- function(which) {
+  sub_label <- SUBSET_LABELS[[which]]
+  df <- de_subset(de_ann, which)
+  if (is.null(df) || nrow(df) == 0) {
+    cat(sprintf("No %s data for the expression panel.\n", sub_label))
+    return(invisible(NULL))
+  }
+  df <- df %>% filter(significant_padj) %>% arrange(desc(abs(log2FoldChange)))
+  if (is.null(tpm) || nrow(df) == 0 ||
+      is.null(contrast_samples) || length(contrast_samples) < 2) {
+    cat(sprintf("No expression data for the top %s.\n", sub_label))
+    return(invisible(NULL))
+  }
+  ex <- build_expr_long(head(df$gene_id, EXPRESSION_TOP_N),
+                        contrast_samples, value = "expr")
+  if (is.null(ex) || nrow(ex) == 0) {
+    cat(sprintf("No expression data for the top %s.\n", sub_label))
+    return(invisible(NULL))
+  }
+  p <- ggplot(ex, aes(condition, expr)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+    geom_jitter(width = 0.15, size = 1, alpha = 0.7) +
+    facet_wrap(~label, scales = "free_y") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(title = sprintf("Top DE %s by |LFC| per sample", sub_label),
+         x = NULL, y = "log2(TPM + 1)")
+  print(p)
+  save_fig(sprintf("top_lncrna_expression_%s", which), p, 10, 8)
+}
+
+render_sig_chromosome <- function(which) {
+  sub_label <- SUBSET_LABELS[[which]]
+  df <- de_subset(de_ann, which)
+  if (is.null(df) || nrow(df) == 0 ||
+      !all(c("chromosome", "gene_group") %in% colnames(df))) {
+    cat(sprintf("No DE data for the %s chromosome panel.\n", sub_label))
+    return(invisible(NULL))
+  }
+  chr_df <- df %>% filter(chromosome %in% CANON_CHR)
+  if (nrow(chr_df) == 0) {
+    cat(sprintf("No canonical chromosomes in the %s subset.\n", sub_label))
+    return(invisible(NULL))
+  }
+  cnt <- chr_df %>%
+    group_by(chromosome, gene_group) %>%
+    summarise(value = sum(significant_padj, na.rm = TRUE), .groups = "drop") %>%
+    mutate(panel = "significant genes", fill = gene_group)
+  fr <- chr_df %>%
+    group_by(chromosome) %>%
+    summarise(value = mean(significant_padj, na.rm = TRUE), .groups = "drop") %>%
+    mutate(panel = "fraction significant (of tested)", fill = "all")
+  dd <- bind_rows(cnt, fr) %>%
+    mutate(
+      chromosome = factor(chromosome, levels = CANON_CHR),
+      panel = factor(panel, levels = c("significant genes",
+                                       "fraction significant (of tested)"))
+    )
+  p <- ggplot(dd, aes(chromosome, value, fill = fill)) +
+    geom_col() +
+    facet_wrap(~panel, ncol = 1, scales = "free_y") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+    labs(title = sprintf("Significant genes per chromosome — %s", sub_label),
+         x = "chromosome", y = "genes / fraction", fill = NULL)
+  print(p)
+  save_fig(sprintf("sig_genes_by_chromosome_%s", which), p, width = 9, height = 9)
+}
+
+render_sig_position_class <- function(which) {
+  sub_label <- SUBSET_LABELS[[which]]
+  df <- de_subset(de_ann, which)
+  if (is.null(df) || nrow(df) == 0 ||
+      !all(c("origin", "lnc_position_class") %in% colnames(df))) {
+    cat(sprintf("No lncRNA DE data for the %s position-class panel.\n", sub_label))
+    return(invisible(NULL))
+  }
+  pos_df <- df %>%
+    filter(!is.na(lnc_position_class), lnc_position_class != "NA", significant_padj) %>%
+    mutate(direction = ifelse(log2FoldChange > 0, "significant (up)",
+                              "significant (down)")) %>%
+    count(lnc_position_class, direction)
+  if (nrow(pos_df) == 0) {
+    cat(sprintf("No significant %s for this contrast.\n", sub_label))
+    return(invisible(NULL))
+  }
+  p <- ggplot(pos_df, aes(n, lnc_position_class, fill = direction)) +
+    geom_col(position = "dodge") +
+    scale_fill_manual(values = c("significant (up)"   = "#b71c1c",
+                                 "significant (down)" = "#1565c0")) +
+    labs(title = sprintf("Significant lncRNAs by position class — %s", sub_label),
+         x = "N genes", y = "lnc_position_class", fill = NULL) +
+    theme_minimal()
+  print(p)
+  save_fig(sprintf("sig_lncrna_position_class_%s", which), p, width = 9, height = 6)
+}
 ```
 
-```{r heatmap-top-genes, fig.width=9, fig.height=8}
-if (!is.null(tpm) && !is.null(de_ann) && nrow(de_ann) > 0 &&
-    "significant_padj" %in% colnames(de_ann) &&
-    !is.null(contrast_samples) && length(contrast_samples) >= 2) {
-  top_genes <- de_ann %>%
-    filter(significant_padj) %>%
-    arrange(desc(abs(log2FoldChange))) %>%
-    slice_head(n = 50)
-  lg <- build_expr_long(top_genes$gene_id, contrast_samples)
-  if (!is.null(lg) && nrow(lg) > 0) {
-    # Shipped as a deliverable (plots/heatmap_top_genes.png|pdf) but not drawn here.
-    p <- plot_heatmap(lg, sprintf("Top %d DE genes by |LFC| (row z-score)",
-                                  dplyr::n_distinct(lg$gene_id)),
-                      if (group_has_batch) "batch is in the design; z-score is not batch-corrected" else NULL)
-    save_fig("heatmap_top_genes", p, 9, 8)
-  } else {
-    cat("No significant genes for the heatmap.\n")
-  }
-} else {
-  cat("No DE data / TPM matrix for the gene heatmap.\n")
-}
+
+::: {.panel-tabset}
+
+#### Combined (annotated + novel)
+
+```{r heatmap-lncrna-combined, fig.width=9, fig.height=8}
+render_lnc_heatmap("combined")
 ```
 
-```{r heatmap-top-lncrna, fig.width=9, fig.height=8}
-top_lnc <- NULL
-if (!is.null(de_ann) && nrow(de_ann) > 0 && "gene_group" %in% colnames(de_ann)) {
-  top_lnc <- de_ann %>%
-    filter(gene_group %in% c("novel_lncRNA", "annotated_lncRNA"),
-           significant_padj) %>%
-    arrange(desc(abs(log2FoldChange)))
-}
-if (!is.null(tpm) && !is.null(top_lnc) && nrow(top_lnc) > 0 &&
-    !is.null(contrast_samples) && length(contrast_samples) >= 2) {
-  lh <- build_expr_long(head(top_lnc$gene_id, 50), contrast_samples)
-  if (!is.null(lh) && nrow(lh) > 0) {
-    p <- plot_heatmap(lh, sprintf("Top %d DE lncRNAs by |LFC| (row z-score)",
-                                  dplyr::n_distinct(lh$gene_id)),
-                      if (group_has_batch) "batch is in the design; z-score is not batch-corrected" else NULL)
-    print(p)
-    save_fig("heatmap_top_lncrna", p, 9, 8)
-  } else {
-    cat("No significant lncRNAs for the heatmap.\n")
-  }
-} else {
-  cat("No significant lncRNAs / TPM matrix for the lncRNA heatmap.\n")
-}
+#### Annotated lncRNAs only
+
+```{r heatmap-lncrna-annotated, fig.width=9, fig.height=8}
+render_lnc_heatmap("annotated")
 ```
 
-```{r top-lncrna-expression, fig.width=10, fig.height=8}
-if (!is.null(tpm) && !is.null(top_lnc) && nrow(top_lnc) > 0 &&
-    !is.null(contrast_samples) && length(contrast_samples) >= 2) {
-  ex <- build_expr_long(head(top_lnc$gene_id, 20), contrast_samples, value = "expr")
-  if (!is.null(ex) && nrow(ex) > 0) {
-    p <- ggplot(ex, aes(condition, expr)) +
-      geom_boxplot(outlier.shape = NA, alpha = 0.5) +
-      geom_jitter(width = 0.15, size = 1, alpha = 0.7) +
-      facet_wrap(~label, scales = "free_y") +
-      theme_minimal() +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-      labs(title = "Top DE lncRNAs by |LFC| per sample", x = NULL, y = "log2(TPM + 1)")
-    print(p)
-    save_fig("top_lncrna_expression", p, 10, 8)
-  } else {
-    cat("No expression data for the top lncRNAs.\n")
-  }
-}
+#### Novel lncRNAs only
+
+```{r heatmap-lncrna-novel, fig.width=9, fig.height=8}
+render_lnc_heatmap("novel")
 ```
+
+:::
+
+::: {.panel-tabset}
+
+#### Combined (annotated + novel)
+
+```{r expression-lncrna-combined, fig.width=10, fig.height=8}
+render_lnc_expression("combined")
+```
+
+#### Annotated lncRNAs only
+
+```{r expression-lncrna-annotated, fig.width=10, fig.height=8}
+render_lnc_expression("annotated")
+```
+
+#### Novel lncRNAs only
+
+```{r expression-lncrna-novel, fig.width=10, fig.height=8}
+render_lnc_expression("novel")
+```
+
+:::
 
 ### Significant genes per chromosome
 
@@ -971,80 +1134,60 @@ Genes with `significant_padj` (padj < FDR) grouped by chromosome, split by `gene
 (top). The bottom panel is the within-chromosome significance rate
 (`significant / tested`), which separates a chromosome enriched in changes from
 one that is merely large. Non-canonical contigs (patches, scaffolds) are dropped.
-The panel is also written as a PDF under `plots/`.
+Three tabs (combined / annotated / novel), each written as PDF + PNG under `plots/`.
 
-```{r chromosome-sig, fig.width=9, fig.height=9}
-CANON_CHR <- c(as.character(1:22), "X", "Y", "MT")
-if (!is.null(de_ann) && nrow(de_ann) > 0 &&
-    all(c("chromosome", "gene_group") %in% colnames(de_ann))) {
-  chr_df <- de_ann %>% filter(chromosome %in% CANON_CHR)
-  if (nrow(chr_df) > 0) {
-    cnt <- chr_df %>%
-      group_by(chromosome, gene_group) %>%
-      summarise(value = sum(significant_padj, na.rm = TRUE), .groups = "drop") %>%
-      mutate(panel = "significant genes", fill = gene_group)
-    fr <- chr_df %>%
-      group_by(chromosome) %>%
-      summarise(value = mean(significant_padj, na.rm = TRUE), .groups = "drop") %>%
-      mutate(panel = "fraction significant (of tested)", fill = "all")
-    dd <- bind_rows(cnt, fr) %>%
-      mutate(
-        chromosome = factor(chromosome, levels = CANON_CHR),
-        panel = factor(panel, levels = c("significant genes",
-                                         "fraction significant (of tested)"))
-      )
-    p <- ggplot(dd, aes(chromosome, value, fill = fill)) +
-      geom_col() +
-      facet_wrap(~panel, ncol = 1, scales = "free_y") +
-      theme_minimal() +
-      theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
-      labs(title = "Significant genes per chromosome", x = "chromosome",
-           y = "genes / fraction", fill = NULL)
-    print(p)
-    save_fig("sig_genes_by_chromosome", p, width = 9, height = 9)
-  } else {
-    cat("No canonical chromosomes in this contrast.\n")
-  }
-} else {
-  cat("No DE data for this contrast — chromosome panel skipped.\n")
-}
+::: {.panel-tabset}
+
+#### Combined (annotated + novel)
+
+```{r chromosome-combined, fig.width=9, fig.height=9}
+render_sig_chromosome("combined")
 ```
+
+#### Annotated lncRNAs only
+
+```{r chromosome-annotated, fig.width=9, fig.height=9}
+render_sig_chromosome("annotated")
+```
+
+#### Novel lncRNAs only
+
+```{r chromosome-novel, fig.width=9, fig.height=9}
+render_sig_chromosome("novel")
+```
+
+:::
 
 ### Significant lncRNAs by position class
 
 Significant lncRNAs (`significant_padj`: padj < FDR) split by `lnc_position_class`
-(where the lncRNA sits relative to protein-coding genes) and direction. Novel and
-annotated lncRNAs are pooled; the full table is in `de_lncrna_full.tsv` and the
-significant-only lncRNA view in `de_lncrna_significant.tsv`. The panel
-is also written as a PDF under `plots/`.
+(where the lncRNA sits relative to protein-coding genes) and direction. Three tabs
+(combined / annotated / novel); each written as PDF + PNG under `plots/`. The full
+table is in `de_lncrna_full.tsv` and the significant-only view in
+`de_lncrna_significant.tsv`.
 
-```{r sig-position-class, fig.width=9, fig.height=6}
-if (!is.null(de_ann) && nrow(de_ann) > 0 &&
-    all(c("origin", "lnc_position_class") %in% colnames(de_ann))) {
-  pos_df <- de_ann %>%
-    filter(origin %in% c("novel", "annotated_lncrna"),
-           !is.na(lnc_position_class), lnc_position_class != "NA",
-           significant_padj) %>%
-    mutate(direction = ifelse(log2FoldChange > 0, "significant (up)",
-                              "significant (down)")) %>%
-    count(lnc_position_class, direction)
-  if (nrow(pos_df) > 0) {
-    p <- ggplot(pos_df, aes(n, lnc_position_class, fill = direction)) +
-      geom_col(position = "dodge") +
-      scale_fill_manual(values = c("significant (up)"   = "#b71c1c",
-                                   "significant (down)" = "#1565c0")) +
-      labs(title = "Significant lncRNAs by position class", x = "N genes",
-           y = "lnc_position_class", fill = NULL) +
-      theme_minimal()
-    print(p)
-    save_fig("sig_lncrna_position_class", p, width = 9, height = 6)
-  } else {
-    cat("No significant lncRNAs for this contrast.\n")
-  }
-} else {
-  cat("No lncRNA DE data for this contrast — position-class panel skipped.\n")
-}
+::: {.panel-tabset}
+
+#### Combined (annotated + novel)
+
+```{r position-class-combined, fig.width=9, fig.height=6}
+render_sig_position_class("combined")
 ```
+
+#### Annotated lncRNAs only
+
+```{r position-class-annotated, fig.width=9, fig.height=6}
+render_sig_position_class("annotated")
+```
+
+#### Novel lncRNAs only
+
+```{r position-class-novel, fig.width=9, fig.height=6}
+render_sig_position_class("novel")
+```
+
+:::
+
 
 ### Significant lncRNAs by class
 

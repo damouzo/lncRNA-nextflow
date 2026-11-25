@@ -411,22 +411,76 @@
       "description": "MA panel as a standalone PNG"
     },
     {
-      "path": "contrasts/<id>/plots/heatmap_top_genes.png",
+      "path": "contrasts/<id>/plots/heatmap_top_lncrna_combined.png",
       "kind": "file",
       "optional": true,
-      "description": "Heatmap of the top DE genes (row z-score of VST/log2-TPM) with condition annotation; shipped as a pipeline output, not drawn in the report"
+      "description": "Heatmap of the top DE lncRNAs (row z-score, combined = annotated + novel), condition annotation"
     },
     {
-      "path": "contrasts/<id>/plots/heatmap_top_lncrna.png",
+      "path": "contrasts/<id>/plots/heatmap_top_lncrna_combined.pdf",
       "kind": "file",
       "optional": true,
-      "description": "Heatmap of the top DE lncRNAs (row z-score) with condition annotation"
+      "description": "Same lncRNA heatmap (combined) as PDF"
     },
     {
-      "path": "contrasts/<id>/plots/top_lncrna_expression.png",
+      "path": "contrasts/<id>/plots/heatmap_top_lncrna_annotated.png",
       "kind": "file",
       "optional": true,
-      "description": "Per-sample expression (points + boxplot) of the top DE lncRNAs — the panel used to pick qPCR targets"
+      "description": "Heatmap of the top DE annotated lncRNAs (row z-score)"
+    },
+    {
+      "path": "contrasts/<id>/plots/heatmap_top_lncrna_annotated.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same annotated lncRNA heatmap as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/heatmap_top_lncrna_novel.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Heatmap of the top DE novel lncRNAs (row z-score)"
+    },
+    {
+      "path": "contrasts/<id>/plots/heatmap_top_lncrna_novel.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same novel lncRNA heatmap as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/top_lncrna_expression_combined.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Per-sample expression (points + boxplot) of the top DE lncRNAs (combined) — qPCR target panel"
+    },
+    {
+      "path": "contrasts/<id>/plots/top_lncrna_expression_combined.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same top lncRNA expression panel (combined) as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/top_lncrna_expression_annotated.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Per-sample expression of the top DE annotated lncRNAs"
+    },
+    {
+      "path": "contrasts/<id>/plots/top_lncrna_expression_annotated.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same top annotated lncRNA expression panel as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/top_lncrna_expression_novel.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Per-sample expression of the top DE novel lncRNAs"
+    },
+    {
+      "path": "contrasts/<id>/plots/top_lncrna_expression_novel.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same top novel lncRNA expression panel as PDF"
     },
     {
       "path": "contrasts/<id>/plots/enrichment_ora.png",
@@ -447,16 +501,76 @@
       "description": "Visual PCA (log2 TPM+1) of this contrast's samples, coloured by condition (QC panel)"
     },
     {
-      "path": "contrasts/<id>/plots/sig_genes_by_chromosome.pdf",
+      "path": "contrasts/<id>/plots/sig_genes_by_chromosome_combined.png",
       "kind": "file",
       "optional": true,
-      "description": "Significant genes per chromosome by gene_group + within-chromosome significance rate (absent without DE data)"
+      "description": "Significant genes per chromosome by gene_group + within-chromosome rate (combined = annotated + novel)"
     },
     {
-      "path": "contrasts/<id>/plots/sig_lncrna_position_class.pdf",
+      "path": "contrasts/<id>/plots/sig_genes_by_chromosome_combined.pdf",
       "kind": "file",
       "optional": true,
-      "description": "Significant lncRNAs by lnc_position_class and direction (absent without significant lncRNAs)"
+      "description": "Same combined chromosome panel as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_genes_by_chromosome_annotated.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant annotated lncRNAs per chromosome"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_genes_by_chromosome_annotated.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same annotated chromosome panel as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_genes_by_chromosome_novel.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant novel lncRNAs per chromosome"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_genes_by_chromosome_novel.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same novel chromosome panel as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_lncrna_position_class_combined.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant lncRNAs by lnc_position_class and direction (combined)"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_lncrna_position_class_combined.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same combined position-class panel as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_lncrna_position_class_annotated.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant annotated lncRNAs by lnc_position_class"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_lncrna_position_class_annotated.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same annotated position-class panel as PDF"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_lncrna_position_class_novel.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant novel lncRNAs by lnc_position_class"
+    },
+    {
+      "path": "contrasts/<id>/plots/sig_lncrna_position_class_novel.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same novel position-class panel as PDF"
     },
     {
       "path": "contrasts/<id>/plots/novel_catalog_overlap.pdf",
@@ -465,22 +579,164 @@
       "description": "Pie of novel significant lncRNAs by external-catalog membership (noncode/rnacentral; absent without significant novel lncRNAs)"
     },
     {
-      "path": "contrasts/plots/sig_counts_by_contrast.png",
+      "path": "contrasts/contrast_comparison/plots/combined/sig_counts_by_contrast.png",
       "kind": "file",
       "optional": true,
-      "description": "Significant genes/lncRNAs per contrast (up vs down) as PNG"
+      "description": "Significant lncRNAs per contrast (up vs down), combined = annotated + novel, as PNG"
     },
     {
-      "path": "contrasts/plots/sig_counts_by_contrast.pdf",
+      "path": "contrasts/contrast_comparison/plots/combined/sig_counts_by_contrast.pdf",
       "kind": "file",
       "optional": true,
-      "description": "Significant genes/lncRNAs per contrast (up vs down) as PDF"
+      "description": "Same combined significant-counts panel as PDF"
     },
     {
-      "path": "contrasts/plots/upset_lncrna.png",
+      "path": "contrasts/contrast_comparison/plots/annotated/sig_counts_by_contrast.png",
       "kind": "file",
       "optional": true,
-      "description": "UpSet plot of lncRNAs significant across contrasts (skipped if UpSetR is unavailable)"
+      "description": "Significant annotated lncRNAs per contrast (up vs down) as PNG"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/annotated/sig_counts_by_contrast.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same annotated significant-counts panel as PDF"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/novel/sig_counts_by_contrast.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Significant novel lncRNAs per contrast (up vs down) as PNG"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/novel/sig_counts_by_contrast.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same novel significant-counts panel as PDF"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/combined/venn_lncrna.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Venn of significant lncRNAs across contrasts, combined (text panel when > 4 contrasts)"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/combined/venn_lncrna.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same combined Venn as PDF"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/annotated/venn_lncrna.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Venn of significant annotated lncRNAs across contrasts (text panel when > 4 contrasts)"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/annotated/venn_lncrna.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same annotated Venn as PDF"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/novel/venn_lncrna.png",
+      "kind": "file",
+      "optional": true,
+      "description": "Venn of significant novel lncRNAs across contrasts (text panel when > 4 contrasts)"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/novel/venn_lncrna.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same novel Venn as PDF"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/combined/upset_lncrna.png",
+      "kind": "file",
+      "optional": true,
+      "description": "UpSet of significant lncRNAs across contrasts, combined (any contrast count)"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/combined/upset_lncrna.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same combined UpSet as PDF"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/annotated/upset_lncrna.png",
+      "kind": "file",
+      "optional": true,
+      "description": "UpSet of significant annotated lncRNAs across contrasts"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/annotated/upset_lncrna.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same annotated UpSet as PDF"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/novel/upset_lncrna.png",
+      "kind": "file",
+      "optional": true,
+      "description": "UpSet of significant novel lncRNAs across contrasts"
+    },
+    {
+      "path": "contrasts/contrast_comparison/plots/novel/upset_lncrna.pdf",
+      "kind": "file",
+      "optional": true,
+      "description": "Same novel UpSet as PDF"
+    },
+    {
+      "path": "contrasts/contrast_comparison/tables/lncrna_across_contrasts.tsv",
+      "kind": "table",
+      "optional": true,
+      "min_rows": 0,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "gene_id_stable", "type": "string"},
+        {"name": "gene_name", "type": "string"},
+        {"name": "gene_group", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "n_contrasts_significant", "type": "int"},
+        {"name": "significant_contrasts", "type": "string"}
+      ],
+      "description": "Wide lncRNA x contrast table (one .log2FoldChange/.padj block per contrast) plus the list of contrasts where each lncRNA is significant."
+    },
+    {
+      "path": "contrasts/contrast_comparison/tables/membership_combined.tsv",
+      "kind": "table",
+      "optional": true,
+      "min_rows": 0,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "n_contrasts_significant", "type": "int"}
+      ],
+      "description": "Combined (annotated + novel) significant-lncRNA membership: one 0/1 column per contrast, plus the count. Feeds the Venn/UpSet panels."
+    },
+    {
+      "path": "contrasts/contrast_comparison/tables/membership_annotated.tsv",
+      "kind": "table",
+      "optional": true,
+      "min_rows": 0,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "n_contrasts_significant", "type": "int"}
+      ],
+      "description": "Annotated-lncRNA significant membership (0/1 per contrast)."
+    },
+    {
+      "path": "contrasts/contrast_comparison/tables/membership_novel.tsv",
+      "kind": "table",
+      "optional": true,
+      "min_rows": 0,
+      "columns": [
+        {"name": "gene_id", "type": "string"},
+        {"name": "origin", "type": "string"},
+        {"name": "n_contrasts_significant", "type": "int"}
+      ],
+      "description": "Novel-lncRNA significant membership (0/1 per contrast)."
     },
     {
       "path": "groups/<group>/counts.tsv",

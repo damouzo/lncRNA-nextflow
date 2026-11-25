@@ -335,7 +335,7 @@
     {
       "module": "CONTRAST_SUMMARY_PLOTS",
       "dest": [
-        "deliverables/contrasts/plots"
+        "deliverables/contrasts/contrast_comparison"
       ],
       "level": "core"
     },

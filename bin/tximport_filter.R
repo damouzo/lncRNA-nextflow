@@ -173,8 +173,15 @@ big_palette <- function(n, names_str = "corona+Set1+Dark2") {
 pca_scatter <- function(dat, pct, mapping, title, subtitle, color_lab, shape_lab = NULL) {
   p <- ggplot2::ggplot(dat, mapping) +
     ggplot2::geom_point(size = 3) +
-    ggplot2::geom_text(ggplot2::aes(label = name), size = 2.5, vjust = -0.8,
-                       check_overlap = TRUE) +
+    # ggrepel keeps every label (check_overlap dropped colliding ones) and
+    # show.legend = FALSE stops the text geom from drawing its default "a" key.
+    ggrepel::geom_text_repel(ggplot2::aes(label = name), size = 2.5, show.legend = FALSE,
+                             max.overlaps = Inf, min.segment.length = 0,
+                             box.padding = 0.35, point.padding = 0.25) +
+    ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = 0.12)) +
+    ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = 0.12)) +
+    ggplot2::coord_cartesian(clip = "off") +
+    ggplot2::theme(plot.margin = ggplot2::margin(10, 24, 10, 24)) +
     ggplot2::labs(title = title, subtitle = subtitle,
                   color = color_lab,
                   x = sprintf("PC1: %d%% variance", pct[1]),

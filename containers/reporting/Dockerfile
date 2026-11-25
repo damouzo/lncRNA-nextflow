@@ -30,13 +30,15 @@ RUN R -e " \
     install.packages(c( \
         'rmarkdown', 'knitr', 'kableExtra', 'DT', 'plotly', \
         'readr', 'dplyr', 'tibble', 'ggplot2', 'glue', \
-        'ggrepel', 'ggridges' \
+        'ggrepel', 'ggridges', \
+        'ggvenn', 'ComplexUpset' \
     ), repos='https://cloud.r-project.org', Ncpus=4) \
 "
 
-# Verify Quarto + R stack
+# Verify Quarto + R stack (ggvenn/ComplexUpset drive the cross-contrast Venn/UpSet)
 RUN quarto check \
     && R -e "library(rmarkdown); library(knitr); library(DT); library(plotly); \
-             library(ggplot2); library(dplyr); library(readr); sessionInfo()"
+             library(ggplot2); library(dplyr); library(readr); \
+             library(ggvenn); library(ComplexUpset); sessionInfo()"
 
 WORKDIR /data

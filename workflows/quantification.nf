@@ -286,9 +286,10 @@ workflow QUANTIFICATION {
     BUILD_CONTRASTS_OVERVIEW(ch_overview_summaries, ch_overview_significant,
                              ch_overview_lncrna, catalog_genes.first())
 
-    // Cross-contrast summary figures (significant counts up/down + UpSet). Non-blocking.
+    // Cross-contrast comparison figures + tables, split by lncRNA subset. Non-blocking.
+    // Reads the wide lncRNA-across-contrasts table (already carries per-contrast
+    // padj per lncRNA), so the overview TSV is no longer needed here.
     CONTRAST_SUMMARY_PLOTS(
-        BUILD_CONTRASTS_OVERVIEW.out.overview,
         BUILD_CONTRASTS_OVERVIEW.out.across,
         channel.value(file("${projectDir}/bin/contrast_summary_plots.R"))
     )
