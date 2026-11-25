@@ -470,8 +470,10 @@ if (!is.null(lncrna_per_sample) && nrow(lncrna_per_sample) > 0) {
 Visual PCA (log2(TPM+1), top-500 variable genes) over only the samples this
 contrast tested.
 
-```{r contrast-pca, fig.width=8, fig.height=6}
-if (!is.null(tpm) && length(contrast_samples) >= 3) {
+```{r pca-setup, include=FALSE}
+# Shared PCA computation for both tabs (per sample / per condition).
+pca_ready <- !is.null(tpm) && length(contrast_samples) >= 3
+if (pca_ready) {
   mat <- log2(tpm[, contrast_samples, drop = FALSE] + 1)
   rv <- apply(mat, 1, var)
   sel <- order(rv, decreasing = TRUE)[seq_len(min(500, length(rv)))]
@@ -503,7 +505,15 @@ if (!is.null(tpm) && length(contrast_samples) >= 3) {
   # Wide margins + expand + clip = "off" so a label near the panel edge is drawn,
   # not cut. Applied inside each theme call to survive theme_minimal().
   pca_margin <- margin(10, 24, 10, 24)
+}
+```
 
+::: {.panel-tabset}
+
+#### Per sample
+
+```{r contrast-pca-sample, fig.width=8, fig.height=6}
+if (pca_ready) {
   p_s <- ggplot(cs, aes(PC1, PC2, color = sample)) +
     geom_point(size = 3) +
     pca_labels() +
@@ -519,7 +529,15 @@ if (!is.null(tpm) && length(contrast_samples) >= 3) {
          y = sprintf("PC2: %d%% variance", pct[2]))
   print(p_s)
   save_fig("contrast_pca_by_sample", p_s, 8, 6)
+} else {
+  cat("PCA skipped: fewer than three samples in this contrast.\n")
+}
+```
 
+#### Per condition
+
+```{r contrast-pca-condition, fig.width=8, fig.height=6}
+if (pca_ready) {
   p_c <- ggplot(cs, aes(PC1, PC2, color = condition)) +
     geom_point(size = 3) +
     pca_labels() +
@@ -537,6 +555,8 @@ if (!is.null(tpm) && length(contrast_samples) >= 3) {
   cat("PCA skipped: fewer than three samples in this contrast.\n")
 }
 ```
+
+:::
 
 ### lncRNA position relative to protein-coding genes
 
@@ -824,41 +844,82 @@ if (!is.null(volcano_base)) {
 ### MA plot
 
 Mean-difference plot for the same contrast: `log2FoldChange` against the mean
-normalized count (`log10(baseMean)`), colored by `origin`. Genes with `baseMean == 0`
-are dropped.
+normalized count (`log10(baseMean)`), coloured by `origin`. Three views (tabs:
+combined / annotated / novel), mirroring the volcano plot. Genes with
+`baseMean == 0` are dropped.
 
-```{r ma-plot, fig.width=8, fig.height=6}
+```{r ma-setup, include=FALSE}
+ma_base <- NULL
+ma_plot <- NULL
 if (!is.null(de_ann) && nrow(de_ann) > 0 &&
     all(c("baseMean", "log2FoldChange") %in% colnames(de_ann))) {
-  ma_df <- de_ann %>%
-    filter(!is.na(baseMean) & baseMean > 0) %>%
-    mutate(
-      origin = ifelse(is.na(origin), "reference_other", origin),
-      sig    = ifelse(significant_padj, "sig", "ns")
-    )
-  if (nrow(ma_df) > 0) {
-    p <- ggplot(ma_df, aes(log10(baseMean), log2FoldChange)) +
+  ma_base <- de_ann %>%
+    filter(origin %in% c("novel", "annotated_lncrna"),
+           !is.na(baseMean) & baseMean > 0) %>%
+    mutate(sig = ifelse(significant_padj, "sig", "ns"))
+  dir.create("plots", showWarnings = FALSE)
+  # Shared builder so the three tabs differ only in subset and title.
+  ma_plot <- function(df, title) {
+    ggplot(df, aes(log10(baseMean), log2FoldChange)) +
       geom_point(aes(color = origin, size = sig), alpha = 0.6) +
       scale_color_manual(
-        values = ORIGIN_COLORS[sort(unique(ma_df$origin))],
-        labels = ORIGIN_LABELS[sort(unique(ma_df$origin))],
+        values = ORIGIN_COLORS[sort(unique(df$origin))],
+        labels = ORIGIN_LABELS[sort(unique(df$origin))],
         na.value = "#7f7f7f"
       ) +
       scale_size_manual(values = c("sig" = 3, "ns" = 0.8)) +
       geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.4) +
-      labs(x = "log10(baseMean)", y = "log2FoldChange",
+      labs(title = title, x = "log10(baseMean)", y = "log2FoldChange",
            color = "Origin", size = "Significance") +
       theme_minimal()
-    print(p)
-    # Ship the MA plot as both PNG and PDF (contrasts/<id>/plots/).
-    save_fig("ma", p, width = 8, height = 6)
-  } else {
-    cat("No genes with baseMean > 0 — MA plot skipped.\n")
   }
-} else {
-  cat("No DE data for this contrast — MA plot skipped.\n")
+  render_ma <- function(df, title, file) {
+    p <- ma_plot(df, title)
+    print(p)
+    save_fig(sub("\\.pdf$", "", file), p, width = 8, height = 6)
+  }
 }
 ```
+
+::: {.panel-tabset}
+
+#### Combined (annotated + novel)
+
+```{r ma-all, fig.width=8, fig.height=6}
+if (is.null(ma_base) || nrow(ma_base) == 0) {
+  cat("No lncRNA DE data for this contrast — MA plot skipped.\n")
+} else {
+  render_ma(ma_base, "MA — all lncRNAs", "ma.pdf")
+}
+```
+
+#### Annotated lncRNAs only
+
+```{r ma-annotated, fig.width=8, fig.height=6}
+if (!is.null(ma_base)) {
+  df <- ma_base %>% filter(origin == "annotated_lncrna")
+  if (nrow(df) == 0) {
+    cat("No annotated lncRNAs tested for this contrast.\n")
+  } else {
+    render_ma(df, "MA — annotated lncRNAs", "ma_annotated.pdf")
+  }
+}
+```
+
+#### Novel lncRNAs only
+
+```{r ma-novel, fig.width=8, fig.height=6}
+if (!is.null(ma_base)) {
+  df <- ma_base %>% filter(origin == "novel")
+  if (nrow(df) == 0) {
+    cat("No novel lncRNAs tested for this contrast.\n")
+  } else {
+    render_ma(df, "MA — novel lncRNAs", "ma_novel.pdf")
+  }
+}
+```
+
+:::
 
 ### Top DE lncRNAs
 
@@ -1191,43 +1252,37 @@ render_sig_position_class("novel")
 
 ### Significant lncRNAs by class
 
-Significant genes only, split by direction (red = up, blue = down) and shown
-side by side per class. Novel class combinations without significant genes are
+Novel lncRNAs only, split by direction (red = up, blue = down) and grouped by
+gffcompare class code (`i`, `x`, ...). Class codes without significant genes are
 omitted to keep the panel readable.
 
 ```{r class-barplot, fig.width=9, fig.height=6}
 lnc_by_class <- NULL
 if (!is.null(de_ann) && nrow(de_ann) > 0 && "origin" %in% colnames(de_ann)) {
   lnc_by_class <- de_ann %>%
-    filter(origin %in% c("novel", "annotated_lncrna")) %>%
+    filter(origin == "novel") %>%
     mutate(
-      label  = ifelse(origin == "novel",
-                      coalesce(class_code, "unknown"),
-                      coalesce(gene_biotype, "lncRNA")),
-      origin_label = dplyr::coalesce(ORIGIN_LABELS[origin], origin, "unknown"),
+      label  = coalesce(class_code, "unknown"),
       status = case_when(
         significant_padj & log2FoldChange > 0  ~ "significant (up)",
         significant_padj                        ~ "significant (down)",
         TRUE                                    ~ "not significant"
       )
     ) %>%
-    count(origin_label, label, status) %>%
-    complete(nesting(origin_label, label),
+    count(label, status) %>%
+    complete(label,
              status = c("not significant", "significant (up)", "significant (down)"),
              fill = list(n = 0)) %>%
     filter(status != "not significant") %>%
-    group_by(origin_label, label) %>%
+    group_by(label) %>%
     mutate(total = sum(n)) %>%
     ungroup() %>%
-    filter(origin_label != ORIGIN_LABELS["novel"] | total > 0) %>%
-    group_by(origin_label) %>%
-    mutate(label = stats::reorder(label, total)) %>%
-    ungroup()
+    filter(total > 0) %>%
+    mutate(label = stats::reorder(label, total))
 }
 if (!is.null(lnc_by_class) && nrow(lnc_by_class) > 0) {
   p <- ggplot(lnc_by_class, aes(n, label, fill = status)) +
     geom_col(position = "dodge") +
-    facet_wrap(~origin_label, scales = "free_y") +
     scale_fill_manual(values = c(
       "significant (up)"   = "#b71c1c",
       "significant (down)" = "#1565c0"
@@ -1237,7 +1292,7 @@ if (!is.null(lnc_by_class) && nrow(lnc_by_class) > 0) {
     theme(axis.text.y = element_text(size = 8))
   print(p)
 } else {
-  cat("No lncRNA genes tested for this contrast.")
+  cat("No significant novel lncRNA genes for this contrast.")
 }
 ```
 #### Counts by class and origin
@@ -1452,9 +1507,6 @@ if (!is.null(lncrna_sig) && nrow(lncrna_sig) > 0 && "origin" %in% colnames(lncrn
 
 ## Cis-regulatory associations
 
-<details>
-<summary><b>How this section works</b></summary>
-
 Each lncRNA is correlated (Spearman) against every protein-coding gene within
 &plusmn;`r format(params$cis_window, big.mark = ",")` bp, across the whole group. The input is
 VST counts, correlated on within-condition residuals, so the case/control axis is
@@ -1475,8 +1527,6 @@ neighbours in the window.
 
 This table lists only pairs below FDR. The full candidate set, with every column, is
 `groups/<group>/cis_pairs.tsv`.
-
-</details>
 
 ```{r cis}
 if (!is.null(cis_sig) && nrow(cis_sig) > 0) {

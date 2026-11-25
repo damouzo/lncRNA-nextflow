@@ -28,9 +28,10 @@ process REPORT_CONTRAST {
 
     output:
     path "*.html", emit: reports
-    // Static panel copies: the MA PNG plus the volcano (combined / annotated /
-    // novel) and chromosome / position-class PDFs. Optional so a contrast without
-    // DE data still renders its report. Published via publishDir, not consumed as a channel.
+    // Static panel copies: the MA and volcano plots (combined / annotated /
+    // novel each) and chromosome / position-class PDFs. Optional so a contrast
+    // without DE data still renders its report. Published via publishDir, not
+    // consumed as a channel.
     path "plots/*.png", optional: true
     path "plots/*.pdf", optional: true
     path "versions.yml", emit: versions
