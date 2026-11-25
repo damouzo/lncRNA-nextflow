@@ -2,10 +2,11 @@
 // The R logic lives in bin/cis_associations.R (testable without Nextflow); this
 // module is a thin wrapper. params.cis_normalize selects the normalization
 // (VST + batch removal vs log2(counts + 1)); the correlation itself runs on
-// within-condition residuals, and same-strand overlapping pairs are dropped
-// before testing. Antisense-overlapping pairs are kept but flagged leak_suspect
-// when their lncRNA/host ratio sits at the strandedness leakage fraction
-// (params.cis_leak_ratio_max).
+// within-condition residuals, and same-strand pairs that overlap only partially
+// are dropped before testing (fully intronic same-strand pairs are kept, their
+// reads are not shared with the host). Antisense-overlapping pairs are kept but
+// flagged leak_suspect when their lncRNA/host ratio sits at the strandedness
+// leakage fraction (params.cis_leak_ratio_max).
 
 process CIS_ASSOCIATIONS {
 

@@ -171,8 +171,9 @@ COLUMN_MEANINGS = {
     "tier": "Categorical tier: 1a / 1b / 2 for novel genes; NA for reference rows. "
             "A label, never a filter.",
     "overlaps_target": "TRUE when the lncRNA and target spans overlap (putative host). "
-                       "Same-strand overlapping pairs are excluded from the cis family "
-                       "(their reads are shared); antisense overlap is kept.",
+                       "Same-strand pairs that overlap only partially are excluded from the "
+                       "cis family (their exons and reads are shared); fully intronic "
+                       "same-strand and antisense overlaps are kept.",
     "distance_bp": "Gap between the lncRNA and target spans (0 when they overlap).",
     "antisense_ratio_median": "cis only: for an antisense-overlapping pair, the median of the "
                               "lncRNA/host raw-count ratio across samples. NA for non-overlapping "
@@ -285,7 +286,7 @@ def _start_here():
     lines.append("| read the narrative report of a contrast | `contrasts/<group>__<contrast>/<id>_report.html` |")
     lines.append("| see the paper panels of a contrast | `contrasts/<group>__<contrast>/plots/` (PDF + PNG) |")
     lines.append("| see functional enrichment for a contrast | `contrasts/<group>__<contrast>/enrichment_ora.tsv` |")
-    lines.append("| check cis candidates of a group | `groups/<group>/cis_pairs_significant.tsv` |")
+    lines.append("| check cis candidates of a group | `groups/<group>/cis_pairs.tsv` (all pairs; `cis_pairs_significant.tsv` is the FDR subset) |")
     lines.append("| get the expression matrix of a group | `groups/<group>/counts.tsv`, `groups/<group>/tpm.tsv` |")
     lines.append("| get normalised / VST expression | `groups/<group>/normalized_counts.tsv`, `groups/<group>/vst.tsv` |")
     lines.append("| see per-sample QC and lncRNA type composition | `groups/<group>/sample_metadata.tsv`, `groups/<group>/lncrna_type_composition.tsv` |")
@@ -339,7 +340,7 @@ def _where_to_look():
     lines.append("- Which candidates were kept or filtered in discovery: "
                  "`catalog/candidates_all.tsv`.")
     lines.append("- Expression matrix and cis candidates for one model/group: "
-                 "`groups/<group>/tpm.tsv`, `groups/<group>/cis_pairs_significant.tsv`.")
+                 "`groups/<group>/tpm.tsv`, `groups/<group>/cis_pairs.tsv`.")
     lines.append("- What changes between conditions: `contrasts/<id>/de_full_significant.tsv` (any gene), or "
                  "`de_lncrna_full.tsv` / `de_lncrna_significant.tsv` for the lncRNA-only view.")
     lines.append("- Run metadata, thresholds and tool versions: `run_info/`.")

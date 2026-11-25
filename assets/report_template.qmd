@@ -1452,26 +1452,31 @@ if (!is.null(lncrna_sig) && nrow(lncrna_sig) > 0 && "origin" %in% colnames(lncrn
 
 ## Cis-regulatory associations
 
-lncRNAs often act on nearby genes. For every lncRNA (novel or annotated) this analysis
-tests the Spearman correlation between its expression and every protein-coding gene within
-&plusmn;`r format(params$cis_window, big.mark = ",")` bp, using the whole norm_group. By
-default it runs on **within-condition residuals** of a VST matrix (batch removed when the
-group has more than one batch); **same-strand overlapping pairs are excluded** (they share
-reads by construction) and antisense overlaps are kept. Pairs below the FDR are candidate
-cis-regulatory targets (`target_gene_id`/`target_gene_name`) — a follow-up starting point,
-not proof of causality; `spearman_rho` gives direction/strength and `padj` the BH-corrected
-significance. At ~10 samples the test is low-powered and a pair can lean on a single sample
-or on rank ties, so judge it with its support columns: `loo_sign_stable`/`loo_min_abs_rho`
-(leave-one-out robustness), `degenerate` (`|rho| >= 0.999`, a saturated rank artefact) and
-`lncrna_n_nonzero`/`target_n_nonzero` (per-side sample support). Antisense-overlapping
-pairs also carry `antisense_ratio_median` (the lncRNA/host count ratio) and, next to it,
-`leak_suspect`: a ratio at or below the strandedness leakage fraction
-(`params$cis_leak_ratio_max`, i.e. the lncRNA is <= that fraction of its overlapping gene)
-flags the pair as a **suspicion** — the antisense signal is indistinguishable from
-wrong-strand reads. It is a label to prioritise follow-up, not a test, and it never drops
-the pair. The lncRNA side is described by
-`lncrna_origin` (novel/annotated), `lncrna_class_code` (GFFCOMPARE code, novel only) and
-`lncrna_position_class` (antisense/intronic/overlapping/no_coding_overlap, every lncRNA).
+<details>
+<summary><b>How this section works</b></summary>
+
+Each lncRNA is correlated (Spearman) against every protein-coding gene within
+&plusmn;`r format(params$cis_window, big.mark = ",")` bp, across the whole group. The input is
+VST counts, correlated on within-condition residuals, so the case/control axis is
+removed and only co-variation inside a condition is tested; at ~10 samples that is
+deliberately conservative. P-values come from a t-approximation on df = n - conditions - 2
+and are BH-corrected over the whole pair family (tens of thousands here), so only
+strong hits survive. Identical rho across unrelated pairs are rank-tie artefacts
+(flagged `degenerate`, `|rho| >= 0.999`); check any hit against `loo_sign_stable` and
+the `lncrna_n_nonzero` / `target_n_nonzero` support columns.
+
+Pairs where the lncRNA only partially overlaps a coding gene on the same strand are
+dropped: they share exons and reads, so the correlation is an artefact, not regulation.
+Fully intronic same-strand pairs and antisense overlaps are kept. Antisense ones are
+flagged `leak_suspect` when the lncRNA/host count ratio sits at the strandedness-leakage
+fraction (`r params$cis_leak_ratio_max`). This still excludes the host gene of a
+partially-overlapping lncRNA, so such a lncRNA appears only through its other
+neighbours in the window.
+
+This table lists only pairs below FDR. The full candidate set, with every column, is
+`groups/<group>/cis_pairs.tsv`.
+
+</details>
 
 ```{r cis}
 if (!is.null(cis_sig) && nrow(cis_sig) > 0) {

@@ -114,20 +114,23 @@ pairs <- unique(data.frame(
   target_strand = pc_df$strand[sh],
   overlaps_target = dist_bp == 0,
   distance_bp = dist_bp,
+  contained_in_target = start(lnc_gr[qh]) >= start(pc_gr[sh]) &
+                        end(lnc_gr[qh]) <= end(pc_gr[sh]),
   stringsAsFactors = FALSE))
 cat("Found", nrow(pairs), "lncRNA-gene pairs within +/-", window / 1000, "kb\n")
 
-# 2.5: a same-strand overlapping pair shares transcripts and reads, so its
-# expression is coupled by construction and the correlation is an artefact, not
-# regulation. Drop those pairs before the test family. Antisense overlap is
-# kept: under the stranded protocol the two loci do not share reads, so the
-# association remains a genuine cis candidate.
-n_found <- nrow(pairs)
-pairs <- pairs[!(pairs$overlaps_target &
-                 pairs$lncrna_strand %in% c("+", "-") &
-                 pairs$lncrna_strand == pairs$target_strand), , drop = FALSE]
-cat(sprintf("Dropped %d same-strand overlapping pairs; %d pairs remain\n",
-            n_found - nrow(pairs), nrow(pairs)))
+# 2.5: a same-strand pair whose spans overlap only partially shares exons and
+# reads with the coding gene, so the correlation is an artefact, not regulation.
+# Drop those before the test family. A same-strand pair fully contained in the
+# target (intronic) keeps its own exons and reads, and an antisense overlap is
+# resolved by strand, so both remain genuine cis candidates.
+same_strand <- pairs$overlaps_target &
+               pairs$lncrna_strand %in% c("+", "-") &
+               pairs$lncrna_strand == pairs$target_strand
+drop_ss <- same_strand & !pairs$contained_in_target
+pairs <- pairs[!drop_ss, , drop = FALSE]
+cat(sprintf("Dropped %d same-strand partial-overlap pairs; %d pairs remain\n",
+            sum(drop_ss), nrow(pairs)))
 if (nrow(pairs) == 0) {
   empty_out("no cis pairs found")
   quit(save = "no", status = 0)
@@ -270,12 +273,14 @@ for (i in seq_len(nrow(pairs))) {
   } else {
     list(min_abs = NA_real_, sign_stable = NA, max_delta = NA_real_)
   }
-  # Strandedness leakage: only antisense-overlapping pairs can leak (same-strand
-  # overlaps are dropped upstream). Ratio on raw counts, so it is a read fraction
-  # independent of the normalization above.
+  # Strandedness leakage: only antisense-overlapping pairs can leak. A same-strand
+  # intronic pair kept upstream has its own reads, so its lncRNA/host ratio is not
+  # a leakage signal. Ratio on raw counts, so it is a read fraction independent of
+  # the normalization above.
   leak_ratio <- NA_real_
   leak_suspect <- FALSE
-  if (isTRUE(pairs$overlaps_target[i])) {
+  if (isTRUE(pairs$overlaps_target[i]) &&
+      pairs$lncrna_strand[i] != pairs$target_strand[i]) {
     tc <- as.numeric(counts[gene, ])
     lc <- as.numeric(counts[lnc, ])
     ok <- is.finite(tc) & tc > 0
